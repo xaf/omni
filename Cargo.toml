@@ -19,7 +19,7 @@ name = "omni"
 path = "src/main.rs"
 
 [build-dependencies]
-time = { version = "0.3.37", features = ["serde-well-known"] }
+time = { version = "0.3.38", features = ["serde-well-known"] }
 
 [dev-dependencies]
 mockito = "1.7.0"
@@ -80,7 +80,7 @@ tera = "1.20.0"
 term_cursor = "0.2.1"
 term_size = "0.3.2"
 thiserror = "2.0.12"
-time = { version = "0.3.37", features = ["macros", "serde-well-known"] }
+time = { version = "0.3.38", features = ["macros", "serde-well-known"] }
 tokio = { version = "1.43.0", features = ["full"] }
 url = "2.5.3"
 uuid = { version = "1.13.2", features = ["v4", "fast-rng"] }
