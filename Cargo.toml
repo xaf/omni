@@ -39,7 +39,7 @@ git-url-parse = "0.4.5"
 git2 = { version = "0.20.0", features = ["vendored-libgit2"] }
 glob = "0.3.1"
 globset = "0.4.14"
-humantime = "2.1.0"
+humantime = "2.2.0"
 imara-diff = "0.1.6"
 indicatif = "0.17.11"
 itertools = "0.14.0"
