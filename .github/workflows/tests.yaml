@@ -63,11 +63,11 @@ jobs:
 
       - name: List all changed files
         run: |
-          for file in ${{ steps.changed-files.outputs.website_files }}; do
-            echo "website: $file was modified"
+          for file in ${{ steps.changed-files.outputs.website_modified_files }}; do
+            echo "website: $file"
           done
-          for file in ${{ steps.changed-files.outputs.core_files }}; do
-            echo "core: $file was modified"
+          for file in ${{ steps.changed-files.outputs.core_modified_files }}; do
+            echo "core: $file"
           done
 
       - name: Set the pages environment
