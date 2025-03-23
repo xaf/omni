@@ -16,7 +16,6 @@ use crate::internal::commands::utils::abs_path;
 use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::up::mise::PostInstallFuncArgs;
 use crate::internal::config::up::utils::data_path_dir_hash;
-use crate::internal::config::up::utils::ProgressHandler;
 use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpConfigMise;
 use crate::internal::config::up::UpError;
@@ -262,7 +261,7 @@ fn extract_version_from_gomod_file(
 fn setup_individual_gopath(
     _options: &UpOptions,
     environment: &mut UpEnvironment,
-    _progress_handler: &dyn ProgressHandler,
+    _progress_handler: &UpProgressHandler,
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError> {
     if args.fqtn.tool() != "go" {

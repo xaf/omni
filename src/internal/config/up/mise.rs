@@ -64,7 +64,7 @@ type DetectVersionFunc = fn(tool: String, path: PathBuf) -> Option<String>;
 type PostInstallFunc = fn(
     options: &UpOptions,
     environment: &mut UpEnvironment,
-    progress_handler: &dyn ProgressHandler,
+    progress_handler: &UpProgressHandler,
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError>;
 
