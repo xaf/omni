@@ -124,7 +124,7 @@ impl UpConfigPython {
         error_handler: &ConfigErrorHandler,
     ) -> Self {
         let mut backend = UpConfigMise::from_config_value("python", config_value, error_handler);
-        backend.add_detect_version_func(detect_version_from_pyproject);
+        backend.add_detect_version_func(detect_version_from_pyproject_toml);
         backend.add_post_install_func(setup_python_venv);
         backend.add_post_install_func(setup_python_requirements);
 
@@ -208,7 +208,7 @@ impl UvBin {
 /// - tool.poetry.dependencies.python
 ///
 /// Returns a string containing the Python version constraint or None if not found
-fn detect_version_from_pyproject(_tool_name: String, path: PathBuf) -> Option<String> {
+fn detect_version_from_pyproject_toml(_tool_name: String, path: PathBuf) -> Option<String> {
     // Check for pyproject.toml file
     let pyproject_path = path.join("pyproject.toml");
     if !pyproject_path.exists() || pyproject_path.is_dir() {
@@ -348,7 +348,7 @@ fn setup_python_venv_per_version(
 }
 
 fn setup_python_venv_per_dir(
-    _options: &UpOptions,
+    options: &UpOptions,
     environment: &mut UpEnvironment,
     progress_handler: &UpProgressHandler,
     fqtn: &FullyQualifiedToolName,
@@ -404,16 +404,14 @@ fn setup_python_venv_per_dir(
             .join("bin")
             .join("python");
 
-        std::fs::create_dir_all(&venv_path).map_err(|_| {
-            UpError::Exec(format!(
-                "failed to create venv directory {}",
-                venv_path.display()
-            ))
-        })?;
+        let uv_bin = UvBin::get(options, progress_handler)?;
 
-        let mut venv_create = TokioCommand::new(python_bin);
-        venv_create.arg("-m");
+        let mut venv_create = TokioCommand::new(&uv_bin.bin);
         venv_create.arg("venv");
+        venv_create.arg("--seed");
+        venv_create.arg("--python");
+        venv_create.arg(python_bin);
+        venv_create.arg("--no-python-downloads");
         venv_create.arg(venv_path.to_string_lossy().to_string());
         venv_create.stdout(std::process::Stdio::piped());
         venv_create.stderr(std::process::Stdio::piped());
@@ -784,7 +782,7 @@ mod tests {
         file_path
     }
 
-    mod detect_version_from_pyproject {
+    mod detect_version_from_pyproject_toml {
         use super::*;
 
         // Helper function to create a temporary directory with a pyproject.toml file
@@ -805,7 +803,7 @@ requires-python = ">=3.8, <4.0"
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, Some(">=3.8, <4.0".to_string()));
         }
@@ -823,7 +821,7 @@ python = "^3.9"
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, Some("^3.9".to_string()));
         }
@@ -841,7 +839,7 @@ python = { version = ">=3.10", optional = false }
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, Some(">=3.10".to_string()));
         }
@@ -856,7 +854,7 @@ build-backend = "setuptools.build_meta"
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, Some("=3.7".to_string()));
         }
@@ -874,7 +872,7 @@ line-length = 88
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, None);
         }
@@ -883,7 +881,7 @@ line-length = 88
         fn file_not_exists() {
             let dir = tempdir().unwrap();
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, None);
         }
@@ -898,7 +896,7 @@ requires-python = ">=3.8, <4.0"
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, None);
         }
@@ -909,7 +907,7 @@ requires-python = ">=3.8, <4.0"
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, None);
         }
@@ -921,7 +919,7 @@ requires-python = ">=3.8, <4.0"
             fs::create_dir_all(&pyproject_path).unwrap();
 
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, None);
         }
@@ -935,7 +933,7 @@ python = "not-a-version"
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, Some("not-a-version".to_string()));
         }
@@ -951,7 +949,7 @@ requires-python = 3.8
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, None);
         }
@@ -966,7 +964,7 @@ build-backend = "setuptools.build_meta"
 
             let (dir, _) = setup_test_dir(pyproject_content);
             let result =
-                detect_version_from_pyproject("python".to_string(), dir.path().to_path_buf());
+                detect_version_from_pyproject_toml("python".to_string(), dir.path().to_path_buf());
 
             assert_eq!(result, Some("=3.8".to_string()));
         }
