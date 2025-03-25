@@ -290,28 +290,6 @@ jobs:
         run: |
           "${HOME}/.local/bin/bats" --version
 
-      - name: Get astral-sh/uv latest version
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          uv_latest_version=$(curl \
-              --silent \
-              --fail-with-body \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              "https://api.github.com/repos/astral-sh/uv/releases/latest" | \
-            jq -r .tag_name)
-          echo "GITHUB_ASTRAL_SH_UV_LATEST=$uv_latest_version" | tee -a "$GITHUB_ENV"
-
-          curl \
-              --silent \
-              --fail-with-body \
-              --header "Authorization: Bearer $GITHUB_TOKEN" \
-              "https://api.github.com/repos/astral-sh/uv/releases" \
-              > uv_releases.json
-          echo "GITHUB_ASTRAL_SH_UV_VERSIONS_FILE=${PWD}/uv_releases.json" | tee -a "$GITHUB_ENV"
-
       - name: Run bats tests
         shell: bash
         env:

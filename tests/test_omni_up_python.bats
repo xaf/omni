@@ -3,102 +3,6 @@
 load 'helpers/utils'
 load 'helpers/mise'
 
-ghrelease_latest_version() {
-  local repo="$1"
-
-  # Check in the env variables, by converting all non-alnum characters to _
-  local upper_repo=${repo^^}
-  local alnum_repo=${upper_repo//[^[:alnum:]]/_}
-  local env_var_name="GITHUB_${alnum_repo}_LATEST"
-  if [[ -n "${!env_var_name:-}" ]]; then
-    echo >&2 "Using cached version from ${env_var_name}: ${!env_var_name}"
-    echo "${!env_var_name}"
-    return
-  fi
-
-  # Check if there is a file in the run temporary directory
-  local cache_dir="${BATS_RUN_TMPDIR:-${TMPDIR:-/tmp}}/${repo}"
-  local cache_file="${cache_dir}/latest.txt"
-  if [[ -f "$cache_file" ]]; then
-    echo >&2 "Using cached version from ${cache_file}: $(cat "$cache_file")"
-    cat "$cache_file"
-    return
-  fi
-
-  # Otherwise, use curl to get the version
-  curl_cmd=("curl" "--silent" "--fail-with-body")
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl_cmd+=("--header" "Authorization: Bearer ${GITHUB_TOKEN}")
-  fi
-  curl_cmd+=("https://api.github.com/repos/${repo}/releases/latest")
-
-  if version=$("${curl_cmd[@]}" | jq -r '.tag_name'); then
-    if [[ -n "$version" ]] && [[ "$version" != "null" ]]; then
-      echo >&2 "Using version from github: $version"
-      mkdir -p "${cache_dir}"
-      echo "$version" | tee "${cache_file}"
-      return
-    fi
-  fi
-
-  echo >&2 "Unable to find latest github release version for ${repo}"
-  exit 1
-}
-
-ghrelease_all_versions() {
-  local repo="$1"
-
-  local upper_repo=${repo^^}
-  local alnum_repo=${upper_repo//[^[:alnum:]]/_}
-  local env_var_name="GITHUB_${alnum_repo}_VERSIONS_FILE"
-  if [[ -n "${!env_var_name:-}" ]]; then
-    echo >&2 "Using cached versions from ${env_var_name}: ${!env_var_name}"
-    echo "${!env_var_name}"
-    return
-  fi
-
-  local cache_dir="${BATS_RUN_TMPDIR:-${TMPDIR:-/tmp}}/${repo}"
-  local cache_file="${cache_dir}/versions.txt"
-  if [[ -f "$cache_file" ]]; then
-    echo >&2 "Using cached versions from ${cache_file}"
-    echo "${cache_file}"
-    return
-  fi
-
-  curl_cmd=("curl" "--silent" "--fail-with-body")
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl_cmd+=("--header" "Authorization: Bearer ${GITHUB_TOKEN}")
-  fi
-  curl_cmd+=("https://api.github.com/repos/${repo}/releases")
-
-  if versions=$("${curl_cmd[@]}"); then
-    echo >&2 "Using versions from github"
-    mkdir -p "${cache_dir}"
-    echo "$versions" > "${cache_file}"
-    echo "${cache_file}"
-    return
-  fi
-
-  echo >&2 "Unable to find github release versions for ${repo}"
-  exit 1
-}
-
-ghrelease_cache_versions() {
-  local repo="$1"
-
-  local versions
-  versions_file=$(ghrelease_all_versions "$repo")
-
-  local cache_db="${HOME}/.cache/omni/cache.db"
-  setup_cache_db
-
-  # Insert the cache with a future date so that it is not stale
-  sqlite3 "$cache_db" \
-    "INSERT INTO github_releases (repository, releases, fetched_at)
-      VALUES ('${repo}', readfile('${versions_file}'),
-              strftime('%Y-%m-%dT%H:%M:%S', 'now', '+1 day'))"
-}
-
 setup() {
   # Setup the environment for the test; this should override $HOME too
   omni_setup 3>&-
@@ -111,10 +15,21 @@ setup() {
   # Change directory to the repository
   cd "git/github.com/test1org/test1repo"
 
-  # Get the current version for astral-sh/uv from github using curl
+  # Set the versions for uv so that we don't do any API call during the tests
   uv_repo="astral-sh/uv"
-  uv_version=$(ghrelease_latest_version "$uv_repo")
-  ghrelease_cache_versions "$uv_repo"
+  setup_cache_db
+  local cache_db="${HOME}/.cache/omni/cache.db"
+  local versions_file="${FIXTURES_DIR}/astral-sh-uv-versions.txt"
+  local uv_version=$(cat "${versions_file}" | jq -r '
+    [.[] | select(.draft == false and (.prerelease == false or .prerelease == null))] |
+    map(.tag_name | sub("^v"; "")) |
+    max_by(split(".") | map(tonumber)) |
+    if . then . else "" end
+  ')
+  sqlite3 "$cache_db" \
+    "INSERT INTO github_releases (repository, releases, fetched_at)
+      VALUES ('${uv_repo}', CAST(readfile('${versions_file}') AS TEXT),
+              strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '+1 day'))"
   add_fakebin "${HOME}/.local/share/omni/ghreleases/${uv_repo}/${uv_version}/uv"
 }
 

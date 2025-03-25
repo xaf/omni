@@ -195,7 +195,7 @@ add_mise_tool_calls() {
     setup_cache_db
 
     # Format the tool versions to insert in the cache
-    local versions_list="${PROJECT_DIR}/tests/fixtures/${tool}-versions.txt"
+    local versions_list="${FIXTURES_DIR}/${tool}-versions.txt"
     local cached_versions=$(cat "${versions_list}" | \
       jq --raw-input | \
       jq --slurp --compact-output)
