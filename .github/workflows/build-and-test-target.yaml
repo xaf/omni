@@ -295,7 +295,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          uv_version=$(gh release view -R "astral-sh/uv" --json tagName --jq .tagName)
+          set -euo pipefail
+          uv_version=$(curl \
+              --silent \
+              --fail-with-body \
+              --header "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/astral-sh/uv/releases/latest" | \
+            jq -r .tag_name)
           echo "GITHUB_ASTRAL_SH_UV=$uv_version" | tee -a "$GITHUB_ENV"
 
       - name: Run bats tests
