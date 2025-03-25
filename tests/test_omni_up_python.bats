@@ -6,10 +6,21 @@ load 'helpers/mise'
 ghrelease_latest_version() {
   local repo="$1"
 
+  # Check in the env variables, by converting all non-alnum characters to _
+  local upper_repo=${repo^^}
+  local alnum_repo=${upper_repo//[^[:alnum:]]/_}
+  local env_var_name="GITHUB_${alnum_repo}_LATEST"
+  if [[ -n "${!env_var_name:-}" ]]; then
+    echo >&2 "Using cached version from ${env_var_name}: ${!env_var_name}"
+    echo "${!env_var_name}"
+    return
+  fi
+
   # Check if there is a file in the run temporary directory
   local cache_dir="${BATS_RUN_TMPDIR:-${TMPDIR:-/tmp}}/${repo}"
   local cache_file="${cache_dir}/latest.txt"
   if [[ -f "$cache_file" ]]; then
+    echo >&2 "Using cached version from ${cache_file}: $(cat "$cache_file")"
     cat "$cache_file"
     return
   fi
@@ -23,6 +34,7 @@ ghrelease_latest_version() {
 
   if version=$("${curl_cmd[@]}" | jq -r '.tag_name'); then
     if [[ -n "$version" ]] && [[ "$version" != "null" ]]; then
+      echo >&2 "Using version from github: $version"
       mkdir -p "${cache_dir}"
       echo "$version" | tee "${cache_file}"
       return
