@@ -30,6 +30,28 @@ mise_tool_latest_version() {
   echo "${latest_version}"
 }
 
+setup_cache_db() {
+  local cache_db="${HOME}/.cache/omni/cache.db"
+  if [[ -f "${cache_db}" ]]; then
+    # DB already exists, no need to recreate it
+    return
+  fi
+
+  # Create the cache directory
+  mkdir -p "${HOME}/.cache/omni"
+
+  # Create the sqlite file and apply the schema and upgrades
+  local sql_dir="${PROJECT_DIR}/src/internal/cache/database/sql"
+  local ordered_upgrades=$(ls -1 "${sql_dir}" 2>/dev/null | grep '^upgrade_' | sort -V)
+  sqlite3 "$cache_db" <"${sql_dir}/create_tables.sql"
+  for upgrade_script in $ordered_upgrades; do
+    local upgrade_script="${sql_dir}/${upgrade_script}"
+    if [ -f "${upgrade_script}" ]; then
+      sqlite3 "$cache_db" <"${upgrade_script}"
+    fi
+  done
+}
+
 add_mise_tool_calls() {
   local tool=
   local latest_version=
@@ -169,20 +191,8 @@ add_mise_tool_calls() {
              date -u -v-300d +"%Y-%m-%dT%H:%M:%SZ")
     fi
 
-    # Create the cache directory
-    mkdir -p "${HOME}/.cache/omni"
-
-    # Create the sqlite file and apply the schema and upgrades
     local cache_db="${HOME}/.cache/omni/cache.db"
-    local sql_dir="${PROJECT_DIR}/src/internal/cache/database/sql"
-    local ordered_upgrades=$(ls -1 "${sql_dir}" 2>/dev/null | grep '^upgrade_' | sort -V)
-    sqlite3 "$cache_db" <"${sql_dir}/create_tables.sql"
-    for upgrade_script in $ordered_upgrades; do
-      local upgrade_script="${sql_dir}/${upgrade_script}"
-      if [ -f "${upgrade_script}" ]; then
-        sqlite3 "$cache_db" <"${upgrade_script}"
-      fi
-    done
+    setup_cache_db
 
     # Format the tool versions to insert in the cache
     local versions_list="${PROJECT_DIR}/tests/fixtures/${tool}-versions.txt"
@@ -192,7 +202,6 @@ add_mise_tool_calls() {
     sqlite3 "$cache_db" \
       "INSERT INTO mise_plugins (plugin_name, updated_at, versions, versions_fetched_at)
        VALUES ('${plugin_name}', '${date}', '${cached_versions}', '${date}')"
-    cp "$cache_db" "/tmp/debug.db"
   fi
 
   # List of objects in the shape { version: string }

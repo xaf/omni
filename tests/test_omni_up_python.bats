@@ -45,6 +45,57 @@ ghrelease_latest_version() {
   exit 1
 }
 
+ghrelease_all_versions() {
+  local repo="$1"
+
+  local upper_repo=${repo^^}
+  local alnum_repo=${upper_repo//[^[:alnum:]]/_}
+  local env_var_name="GITHUB_${alnum_repo}_VERSIONS_FILE"
+  if [[ -n "${!env_var_name:-}" ]]; then
+    echo >&2 "Using cached versions from ${env_var_name}: ${!env_var_name}"
+    echo "${!env_var_name}"
+    return
+  fi
+
+  local cache_dir="${BATS_RUN_TMPDIR:-${TMPDIR:-/tmp}}/${repo}"
+  local cache_file="${cache_dir}/versions.txt"
+  if [[ -f "$cache_file" ]]; then
+    echo >&2 "Using cached versions from ${cache_file}"
+    echo "${cache_file}"
+    return
+  fi
+
+  curl_cmd=("curl" "--silent" "--fail-with-body")
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    curl_cmd+=("--header" "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+  curl_cmd+=("https://api.github.com/repos/${repo}/releases")
+
+  if versions=$("${curl_cmd[@]}"); then
+    echo >&2 "Using versions from github"
+    mkdir -p "${cache_dir}"
+    echo "$versions" > "${cache_file}"
+    echo "${cache_file}"
+    return
+  fi
+
+  echo >&2 "Unable to find github release versions for ${repo}"
+  exit 1
+}
+
+ghrelease_cache_versions() {
+  local repo="$1"
+
+  local versions
+  versions_file=$(ghrelease_all_versions "$repo")
+
+  local cache_db="${HOME}/.cache/omni/cache.db"
+  setup_cache_db
+  sqlite3 "$cache_db" \
+    "INSERT INTO github_releases (repository, releases, fetched_at)
+      VALUES ('${repo}', readfile('${versions_file}'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"
+}
+
 setup() {
   # Setup the environment for the test; this should override $HOME too
   omni_setup 3>&-
@@ -60,6 +111,7 @@ setup() {
   # Get the current version for astral-sh/uv from github using curl
   uv_repo="astral-sh/uv"
   uv_version=$(ghrelease_latest_version "$uv_repo")
+  ghrelease_cache_versions "$uv_repo"
   add_fakebin "${HOME}/.local/share/omni/ghreleases/${uv_repo}/${uv_version}/uv"
 }
 
