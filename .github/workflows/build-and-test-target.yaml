@@ -292,6 +292,8 @@ jobs:
 
       - name: Get astral-sh/uv latest version
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           uv_version=$(gh release view -R "astral-sh/uv" --json tagName --jq .tagName)
           echo "GITHUB_ASTRAL_SH_UV=$uv_version" | tee -a "$GITHUB_ENV"
