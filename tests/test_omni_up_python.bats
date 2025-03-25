@@ -91,9 +91,12 @@ ghrelease_cache_versions() {
 
   local cache_db="${HOME}/.cache/omni/cache.db"
   setup_cache_db
+
+  # Insert the cache with a future date so that it is not stale
   sqlite3 "$cache_db" \
     "INSERT INTO github_releases (repository, releases, fetched_at)
-      VALUES ('${repo}', readfile('${versions_file}'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"
+      VALUES ('${repo}', readfile('${versions_file}'),
+              strftime('%Y-%m-%dT%H:%M:%S', 'now', '+1 day'))"
 }
 
 setup() {
