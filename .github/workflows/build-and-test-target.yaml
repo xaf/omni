@@ -217,7 +217,7 @@ jobs:
             yes | sudo pacman -Sy --noconfirm perl git parallel jq sqlite
           elif command -v dnf >/dev/null; then
             echo "fastestmirror=1" | sudo tee -a /etc/dnf/dnf.conf
-            sudo dnf -y install perl-Digest-SHA git diffutils parallel jq sqlite
+            sudo dnf -y install perl-Digest-SHA git diffutils parallel jq sqlite which
           fi
 
       - name: Checkout current commit
@@ -317,6 +317,5 @@ jobs:
         env:
           OMNI_TEST_BIN: ./omni
           PROJECT_DIR: ${{ github.workspace }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           "${HOME}/.local/bin/bats" --verbose-run --no-tempdir-cleanup --jobs 8 tests/
