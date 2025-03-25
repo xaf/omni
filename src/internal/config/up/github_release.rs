@@ -107,6 +107,12 @@ impl Serialize for UpConfigGithubReleases {
 }
 
 impl UpConfigGithubReleases {
+    pub fn new_with_version(repository: &str, version: &str) -> Self {
+        Self {
+            releases: vec![UpConfigGithubRelease::new_with_version(repository, version)],
+        }
+    }
+
     pub fn from_config_value(
         config_value: Option<&ConfigValue>,
         error_handler: &ConfigErrorHandler,

@@ -186,7 +186,7 @@ impl UvBin {
 
         // Check that the uv binary is installed
         let install_path = gh_release.install_path()?;
-        let install_bin = install_path.join("bin").join("uv");
+        let install_bin = install_path.join("uv");
 
         if !install_bin.exists() {
             return Err(UpError::Exec(
@@ -486,7 +486,6 @@ fn setup_python_requirements(
         // Determine which files to check based on pip_auto
         let dependency_files: Vec<PathBuf> = if pip_auto {
             let first_file = [
-                "uv.lock",
                 "poetry.lock",
                 "Pipfile.lock",
                 "pyproject.toml",
@@ -630,7 +629,6 @@ fn setup_python_requirements_file(
 
     // Get uv binary
     let uv_bin = UvBin::get(options, progress_handler)?;
-    progress_handler.progress("using uv to install dependencies".to_string());
 
     // Determine file type based on file name
     let file_name = requirements_file
@@ -647,7 +645,7 @@ fn setup_python_requirements_file(
         "Pipfile.lock" | "Pipfile" => {
             extract_pipfile_requirements(options, &requirements_file, progress_handler)?
         }
-        f if f != "uv.lock" && f.ends_with(".lock") => {
+        f if f.ends_with(".lock") => {
             return Err(UpError::Exec(format!(
                 "unsupported lock file format: {}",
                 relative_path,

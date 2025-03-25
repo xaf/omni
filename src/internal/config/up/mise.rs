@@ -35,6 +35,7 @@ use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::utils::VersionMatcher;
 use crate::internal::config::up::utils::VersionParser;
 use crate::internal::config::up::UpConfigGithubRelease;
+use crate::internal::config::up::UpConfigGithubReleases;
 use crate::internal::config::up::UpConfigHomebrew;
 use crate::internal::config::up::UpConfigNix;
 use crate::internal::config::up::UpConfigTool;
@@ -2316,10 +2317,24 @@ impl UpConfigMise {
     fn deps(&self) -> &UpConfigTool {
         self.deps
             .get_or_init(|| {
-                Box::new(UpConfigTool::Any(vec![
-                    self.deps_using_homebrew(),
-                    self.deps_using_nix(),
-                ]))
+                let system_deps =
+                    UpConfigTool::Any(vec![self.deps_using_homebrew(), self.deps_using_nix()]);
+
+                let deps = match self.tool() {
+                    Ok(tool) => match tool.as_str() {
+                        "python" => UpConfigTool::And(vec![
+                            system_deps,
+                            UpConfigTool::GithubRelease(UpConfigGithubReleases::new_with_version(
+                                "astral-sh/uv",
+                                "latest",
+                            )),
+                        ]),
+                        _ => system_deps,
+                    },
+                    Err(_) => system_deps,
+                };
+
+                Box::new(deps)
             })
             .as_ref()
     }
