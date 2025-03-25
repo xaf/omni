@@ -15,16 +15,18 @@ ghrelease_latest_version() {
   fi
 
   # Otherwise, use curl to get the version
-  curl_cmd=("curl" "-s")
+  curl_cmd=("curl" "--silent" "--fail-with-body")
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl_cmd+=("-H" "Authorization: Bearer ${GITHUB_TOKEN}")
+    curl_cmd+=("--header" "Authorization: Bearer ${GITHUB_TOKEN}")
   fi
   curl_cmd+=("https://api.github.com/repos/${repo}/releases/latest")
 
   if version=$("${curl_cmd[@]}" | jq -r '.tag_name'); then
-    mkdir -p "${cache_dir}"
-    echo "$version" | tee "${cache_file}"
-    return
+    if [[ -n "$version" ]] && [[ "$version" != "null" ]]; then
+      mkdir -p "${cache_dir}"
+      echo "$version" | tee "${cache_file}"
+      return
+    fi
   fi
 
   echo >&2 "Unable to find latest github release version for ${repo}"
