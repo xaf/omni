@@ -327,7 +327,7 @@ EOF
     if [ "$subdir" = "true" ]; then
       sub="[^ /]+"
     fi
-    add_command ${tool} -m venv "regex:${HOME}/\.local/share/omni/wd/[^ /]+/${normalized_plugin_name}/${version}/${sub}"
+    add_command uv "venv" "--seed" "--python" "${bin_path}/python" "--no-python-downloads" "regex:${HOME}/\.local/share/omni/wd/[^ /]+/${normalized_plugin_name}/${version}/${sub}"
   fi
 }
 

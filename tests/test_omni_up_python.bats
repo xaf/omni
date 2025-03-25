@@ -3,6 +3,34 @@
 load 'helpers/utils'
 load 'helpers/mise'
 
+ghrelease_latest_version() {
+  local repo="$1"
+
+  # Check if there is a file in the run temporary directory
+  local cache_dir="${BATS_RUN_TMPDIR:-${TMPDIR:-/tmp}}/${repo}"
+  local cache_file="${cache_dir}/latest.txt"
+  if [[ -f "$cache_file" ]]; then
+    cat "$cache_file"
+    return
+  fi
+
+  # Otherwise, use curl to get the version
+  curl_cmd=("curl" "-s")
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    curl_cmd+=("-H" "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+  curl_cmd+=("https://api.github.com/repos/${repo}/releases/latest")
+
+  if version=$("${curl_cmd[@]}" | jq -r '.tag_name'); then
+    mkdir -p "${cache_dir}"
+    echo "$version" | tee "${cache_file}"
+    return
+  fi
+
+  echo >&2 "Unable to find latest github release version for ${repo}"
+  exit 1
+}
+
 setup() {
   # Setup the environment for the test; this should override $HOME too
   omni_setup 3>&-
@@ -14,6 +42,11 @@ setup() {
 
   # Change directory to the repository
   cd "git/github.com/test1org/test1repo"
+
+  # Get the current version for astral-sh/uv from github using curl
+  uv_repo="astral-sh/uv"
+  uv_version=$(ghrelease_latest_version "$uv_repo")
+  add_fakebin "${HOME}/.local/share/omni/ghreleases/${uv_repo}/${uv_version}/uv"
 }
 
 teardown() {
@@ -110,8 +143,7 @@ EOF
   add_mise_python_calls
 
   touch requirements.txt
-  add_fakebin "${HOME}/bin/pip"
-  add_command pip install -r requirements.txt
+  add_command uv pip install -r "${PWD}/requirements.txt"
 
   run omni up --trust 3>&-
   echo "STATUS: $status"
@@ -139,9 +171,8 @@ EOF
 
   touch requirements.txt
   touch requirements2.txt
-  add_fakebin "${HOME}/bin/pip"
-  add_command pip install -r requirements.txt
-  add_command pip install -r requirements2.txt
+  add_command uv pip install -r "${PWD}/requirements.txt"
+  add_command uv pip install -r "${PWD}/requirements2.txt"
 
   run omni up --trust 3>&-
   echo "STATUS: $status"
