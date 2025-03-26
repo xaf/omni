@@ -122,8 +122,8 @@ The following variables will be set as part of the [dynamic environment](/refere
 | Environment variable | Operation | Description |
 |----------------------|-----------|-------------|
 | `PATH` | prepend | The `bin` directory for the loaded version of python |
+| `POETRY_CACHE_DIR` | set | Set to an environment-specific directory for isolation |
+| `POETRY_CONFIG_DIR` | set | Set to an environment-specific directory for isolation |
+| `POETRY_DATA_DIR` | set | Set to an environment-specific directory for isolation |
 | `PYTHONHOME` | unset | |
 | `VIRTUAL_ENV` | set | The path to the python virtual environment |
-| `POETRY_CONFIG_DIR` | set | Set to an environment-specific directory for isolation |
-| `POETRY_CACHE_DIR` | set | Set to an environment-specific directory for isolation |
-| `POETRY_DATA_DIR` | set | Set to an environment-specific directory for isolation |
