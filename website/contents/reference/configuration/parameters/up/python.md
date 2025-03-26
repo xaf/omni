@@ -17,7 +17,7 @@ The following parameters can be used:
 | Parameter        | Type      | Description                                           |
 |------------------|-----------|-------------------------------------------------------|
 | `dir` | path | Relative path (or list of relative paths) to the directory in the project for which to use the python version; each specified directory will have its own virtual environment. |
-| `pip` | path | Relative path (or list of relative paths) to the requirements files to be used as parameter to `pip install -r` for installing dependencies; if using the word `auto`, omni will try to install the `requirements.txt` file in each specified `dir` (or in each discovered directory with `version: auto`) if it exists |
+| `pip` | path | Relative path (or list of relative paths) to the requirements files to be used as parameter to `pip install -r` for installing dependencies; if using the word `auto`, omni will try to install well-known requirement files in each specified `dir` (or in each discovered directory with `version: auto`) if it exists |
 | `url` | string | The URL to download the tool from, in case the tool is not registered in [the `mise` registry](https://github.com/jdx/mise/blob/main/registry.toml) or if you want to use a custom version. |
 | `version` | string | The version of the tool to install; see [version handling](#version-handling) below for more details. |
 | `upgrade` | boolean | whether or not to always upgrade to the most up to date matching version, even if an already-installed version matches the requirements *(default: false)* |
@@ -44,6 +44,21 @@ The following strings can be used to specify the version:
 The version also supports the `||` operator to specify ranges. This operator is not compatible with the `latest` and `auto` keywords. For instance, `1.2.x || >1.3.5 <=1.4.0` will match any version between `1.2.0` included and `1.3.0` excluded, or between `1.3.5` excluded and `1.4.0` included.
 
 The latest version satisfying the requirements will be installed.
+
+### Dependencies management
+
+Omni uses [`uv`](https://github.com/astral-sh/uv) for package installation, a fast Python package installer and resolver, written in Rust. It will be used automatically to install user-specified dependencies through the `pip` parameter.
+
+When using the `pip: auto` parameter, omni will automatically detect, parse and install packages from the dependency files in the following order:
+1. `poetry.lock`
+2. `Pipfile.lock`
+3. `pyproject.toml`
+4. `requirements.txt`
+5. `Pipfile`
+
+:::info
+The version of `uv` used can be configured through the [`uv_version`](/reference/configuration/parameters/up_command) parameter in the omni configuration file.
+:::
 
 ## Examples
 
@@ -107,5 +122,8 @@ The following variables will be set as part of the [dynamic environment](/refere
 | Environment variable | Operation | Description |
 |----------------------|-----------|-------------|
 | `PATH` | prepend | The `bin` directory for the loaded version of python |
+| `POETRY_CACHE_DIR` | set | Set to an environment-specific directory for isolation |
+| `POETRY_CONFIG_DIR` | set | Set to an environment-specific directory for isolation |
+| `POETRY_DATA_DIR` | set | Set to an environment-specific directory for isolation |
 | `PYTHONHOME` | unset | |
 | `VIRTUAL_ENV` | set | The path to the python virtual environment |

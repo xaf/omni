@@ -441,7 +441,7 @@ impl UpConfigTool {
             UpConfigTool::Mise(config) => config.data_paths(),
             UpConfigTool::Nix(config) => config.data_paths(),
             UpConfigTool::Nodejs(config) => config.backend.data_paths(),
-            UpConfigTool::Python(config) => config.backend.data_paths(),
+            UpConfigTool::Python(config) => config.data_paths(),
             _ => vec![],
         }
     }

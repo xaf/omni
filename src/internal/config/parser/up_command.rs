@@ -20,6 +20,7 @@ pub struct UpCommandConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preferred_tools: Vec<String>,
     pub mise_version: String,
+    pub uv_version: String,
     pub upgrade: bool,
     #[serde(default, skip_serializing_if = "UpCommandOperationConfig::is_empty")]
     pub operations: UpCommandOperationConfig,
@@ -32,6 +33,7 @@ impl Default for UpCommandConfig {
             attach_lock_timeout: Self::DEFAULT_ATTACH_LOCK_TIMEOUT,
             auto_bootstrap: Self::DEFAULT_AUTO_BOOTSTRAP,
             mise_version: Self::DEFAULT_MISE_VERSION.to_string(),
+            uv_version: "latest".to_string(),
             notify_workdir_config_updated: Self::DEFAULT_NOTIFY_WORKDIR_CONFIG_UPDATED,
             notify_workdir_config_available: Self::DEFAULT_NOTIFY_WORKDIR_CONFIG_AVAILABLE,
             operations: UpCommandOperationConfig::default(),
@@ -105,6 +107,12 @@ impl UpCommandConfig {
             &error_handler.with_key("mise_version"),
         );
 
+        let uv_version = config_value_global.get_as_str_or_default(
+            "uv_version",
+            "latest",
+            &error_handler.with_key("uv_version"),
+        );
+
         // For upgrade, we allow overriding in the workdir
         let upgrade = config_value.get_as_bool_or_default(
             "upgrade",
@@ -122,6 +130,7 @@ impl UpCommandConfig {
             attach_lock_timeout,
             auto_bootstrap,
             mise_version,
+            uv_version,
             notify_workdir_config_available,
             notify_workdir_config_updated,
             operations,

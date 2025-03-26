@@ -14,6 +14,23 @@ setup() {
 
   # Change directory to the repository
   cd "git/github.com/test1org/test1repo"
+
+  # Set the versions for uv so that we don't do any API call during the tests
+  uv_repo="astral-sh/uv"
+  setup_cache_db
+  local cache_db="${HOME}/.cache/omni/cache.db"
+  local versions_file="${FIXTURES_DIR}/astral-sh-uv-versions.txt"
+  local uv_version=$(cat "${versions_file}" | jq -r '
+    [.[] | select(.draft == false and (.prerelease == false or .prerelease == null))] |
+    map(.tag_name | sub("^v"; "")) |
+    max_by(split(".") | map(tonumber)) |
+    if . then . else "" end
+  ')
+  sqlite3 "$cache_db" \
+    "INSERT INTO github_releases (repository, releases, fetched_at)
+      VALUES ('${uv_repo}', CAST(readfile('${versions_file}') AS TEXT),
+              strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '+1 day'))"
+  add_fakebin "${HOME}/.local/share/omni/ghreleases/${uv_repo}/${uv_version}/uv"
 }
 
 teardown() {
@@ -110,8 +127,7 @@ EOF
   add_mise_python_calls
 
   touch requirements.txt
-  add_fakebin "${HOME}/bin/pip"
-  add_command pip install -r requirements.txt
+  add_command uv pip install -r "${PWD}/requirements.txt"
 
   run omni up --trust 3>&-
   echo "STATUS: $status"
@@ -139,9 +155,8 @@ EOF
 
   touch requirements.txt
   touch requirements2.txt
-  add_fakebin "${HOME}/bin/pip"
-  add_command pip install -r requirements.txt
-  add_command pip install -r requirements2.txt
+  add_command uv pip install -r "${PWD}/requirements.txt"
+  add_command uv pip install -r "${PWD}/requirements2.txt"
 
   run omni up --trust 3>&-
   echo "STATUS: $status"

@@ -200,7 +200,7 @@ fn detect_version_from_nvmrc(_tool_name: String, path: PathBuf) -> Option<String
 fn remove_mise_reshim_from_bin(
     _options: &UpOptions,
     _environment: &mut UpEnvironment,
-    progress_handler: &dyn ProgressHandler,
+    progress_handler: &UpProgressHandler,
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError> {
     if args.fqtn.tool() != "node" {
@@ -250,7 +250,7 @@ fn remove_mise_reshim_from_bin(
 fn setup_individual_npm_prefix(
     _options: &UpOptions,
     environment: &mut UpEnvironment,
-    progress_handler: &dyn ProgressHandler,
+    progress_handler: &UpProgressHandler,
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError> {
     if args.fqtn.tool() != "node" {

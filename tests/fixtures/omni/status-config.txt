@@ -72,4 +72,5 @@ up_command:
   notify_workdir_config_available: true
   notify_workdir_config_updated: true
   upgrade: false
+  uv_version: latest
 worktree: <BATS_TEST_TMPDIR>/git

@@ -15,6 +15,7 @@ Configuration related to the `omni up` command.
 | `notify_workdir_config_available` | boolean | whether or not to print a message on the prompt if the current work directory has an available `up` configuration but `omni up` has not been run yet *(default: true)* |
 | `preferred_tools` | list | list of preferred tools for [`any` operations](up/any) when running `omni up`; those tools will be preferred over others, in the order they are defined |
 | `mise_version` | string | the version of [`mise`](https://mise.jdx.dev/) to use for the installation of tools that depend on it *(default: `latest`)* |
+| `uv_version` | string | the version of [`uv`](https://github.com/astral-sh/uv) to use for Python package installation and virtual environment management *(default: `latest`)* |
 | `upgrade` | boolean | whether or not to always upgrade to the most up to date matching version of the dependencies when running `omni up`, even if an already-installed version matches the requirements *(default: false)* |
 | `operations` | `Operations` object | configuration of the `up` operations, with a number of settings oriented toward supply-chain management and security |
 

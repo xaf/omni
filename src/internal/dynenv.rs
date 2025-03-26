@@ -633,6 +633,11 @@ impl DynamicEnv {
 
                         envsetter.unset_value("PYTHONHOME");
                         envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+
+                        let poetry_dir = format!("{}/poetry", tool_prefix);
+                        envsetter.set_value("POETRY_CONFIG_DIR", &format!("{}/config", poetry_dir));
+                        envsetter.set_value("POETRY_CACHE_DIR", &format!("{}/cache", poetry_dir));
+                        envsetter.set_value("POETRY_DATA_DIR", &poetry_dir);
                     }
                     "node" => {
                         envsetter.set_value("NODE_VERSION", &version);

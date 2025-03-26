@@ -64,7 +64,7 @@ type DetectVersionFunc = fn(tool: String, path: PathBuf) -> Option<String>;
 type PostInstallFunc = fn(
     options: &UpOptions,
     environment: &mut UpEnvironment,
-    progress_handler: &dyn ProgressHandler,
+    progress_handler: &UpProgressHandler,
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError>;
 
@@ -201,6 +201,8 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
     let gh_release = UpConfigGithubRelease::new_with_version(
         "jdx/mise",
         &global_config().up_command.mise_version,
+        true, // We force the upgrade here, since we want to make sure we get the
+              // latest version of mise that satisfies the version constraint
     );
 
     // We create a fake environment since we do not want to add this
@@ -2316,10 +2318,10 @@ impl UpConfigMise {
     fn deps(&self) -> &UpConfigTool {
         self.deps
             .get_or_init(|| {
-                Box::new(UpConfigTool::Any(vec![
-                    self.deps_using_homebrew(),
-                    self.deps_using_nix(),
-                ]))
+                let deps =
+                    UpConfigTool::Any(vec![self.deps_using_homebrew(), self.deps_using_nix()]);
+
+                Box::new(deps)
             })
             .as_ref()
     }

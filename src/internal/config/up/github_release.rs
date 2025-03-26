@@ -599,11 +599,11 @@ impl Default for UpConfigGithubRelease {
 }
 
 impl UpConfigGithubRelease {
-    pub fn new_with_version(repository: &str, version: &str) -> Self {
+    pub fn new_with_version(repository: &str, version: &str, upgrade: bool) -> Self {
         Self {
             repository: repository.to_string(),
             version: Some(version.to_string()),
-            upgrade: true,
+            upgrade,
             ..UpConfigGithubRelease::default()
         }
     }
