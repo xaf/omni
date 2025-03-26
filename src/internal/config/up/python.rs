@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use normalize_path::NormalizePath;
 use semver::Version;
@@ -164,14 +165,17 @@ struct UvBin {
     bin: PathBuf,
 }
 
+/// The path to the uv binary
+static UV_BIN: OnceLock<UvBin> = OnceLock::new();
+
 impl UvBin {
     fn get(options: &UpOptions, progress_handler: &UpProgressHandler) -> Result<Self, UpError> {
-        // First attempt to find an existing uv in PATH
-        if let Ok(bin) = which::which("uv") {
-            return Ok(Self { bin });
+        // First, check if we already have found and cached the uv binary path
+        if let Some(uv_bin) = UV_BIN.get() {
+            return Ok(uv_bin.clone());
         }
 
-        // If uv is not in PATH, install it from GitHub
+        // If we get here, let's make sure we get the uv binary from GitHub
         let gh_release = UpConfigGithubRelease::new_with_version(
             "astral-sh/uv",
             "*", // Any version, we just want to use uv
@@ -195,7 +199,14 @@ impl UvBin {
         }
 
         progress_handler.progress("uv installed successfully".to_string());
-        Ok(Self { bin: install_bin })
+
+        // Create the uv binary instance
+        let uv_bin = Self { bin: install_bin };
+
+        // Cache the uv binary path
+        let _ = UV_BIN.set(uv_bin.clone()); // We ignore the error here, since we know the lock is not set yet
+
+        Ok(uv_bin)
     }
 }
 
