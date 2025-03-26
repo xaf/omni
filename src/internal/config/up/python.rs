@@ -178,7 +178,9 @@ impl UvBin {
         // If we get here, let's make sure we get the uv binary from GitHub
         let gh_release = UpConfigGithubRelease::new_with_version(
             "astral-sh/uv",
-            "*", // Any version, we just want to use uv
+            "latest", // Any version, we just want to use uv
+            false,    // We do not force the upgrade here, since we want to use any
+                      // version of uv that satisfies the version constraint
         );
 
         // We create a fake environment since we do not want to add this

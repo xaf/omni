@@ -201,6 +201,8 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
     let gh_release = UpConfigGithubRelease::new_with_version(
         "jdx/mise",
         &global_config().up_command.mise_version,
+        true, // We force the upgrade here, since we want to make sure we get the
+              // latest version of mise that satisfies the version constraint
     );
 
     // We create a fake environment since we do not want to add this
