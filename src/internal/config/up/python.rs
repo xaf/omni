@@ -201,8 +201,6 @@ impl UvBin {
             ));
         }
 
-        progress_handler.progress("uv installed successfully".to_string());
-
         // Create the uv binary instance
         let uv_bin = Self { bin: install_bin };
 
