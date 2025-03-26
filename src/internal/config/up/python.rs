@@ -42,6 +42,8 @@ pub struct UpConfigPythonParams {
     pip_files: Vec<String>,
     #[serde(default, skip)]
     pip_auto: bool,
+    #[serde(default, skip)]
+    pip_disabled: bool,
 }
 
 impl UpConfigPythonParams {
@@ -51,6 +53,7 @@ impl UpConfigPythonParams {
     ) -> Self {
         let mut pip_files = Vec::new();
         let mut pip_auto = false;
+        let mut pip_disabled = false;
 
         if let Some(config_value) = config_value {
             if let Some(config_value) = config_value.get_as_array("pip") {
@@ -64,15 +67,20 @@ impl UpConfigPythonParams {
                             .error(ConfigErrorKind::InvalidValueType);
                     }
                 }
-            } else if let Some(file_path) = config_value.get_as_str_forced("pip") {
-                if file_path == "auto" {
+            } else if let Some(value) = config_value.get_as_bool_forced("pip") {
+                if value {
                     pip_auto = true;
                 } else {
-                    pip_files.push(file_path.to_string());
+                    pip_disabled = true;
+                }
+            } else if let Some(file_path) = config_value.get_as_str_forced("pip") {
+                match file_path.as_str() {
+                    "auto" => pip_auto = true,
+                    _ => pip_files.push(file_path),
                 }
             } else {
                 error_handler
-                    .with_expected("string or array of strings")
+                    .with_expected("string, array of strings, or boolean")
                     .with_actual(config_value)
                     .error(ConfigErrorKind::InvalidValueType);
             }
@@ -81,6 +89,7 @@ impl UpConfigPythonParams {
         Self {
             pip_files,
             pip_auto,
+            pip_disabled,
         }
     }
 }
@@ -462,17 +471,15 @@ fn setup_python_requirements(
         args.config_value.as_ref(),
         &ConfigErrorHandler::noop(),
     );
-    let mut pip_auto = params.pip_auto;
 
-    // TODO: should we default set pip_auto to true if no pip_files are specified?
-    //       if yes, this should come with an option to disable it entirely too
-    if params.pip_files.is_empty() && !pip_auto {
-        if args.requested_version == "auto" {
-            pip_auto = true;
-        } else {
-            return Ok(());
-        }
+    // If pip is disabled, skip dependency installation
+    if params.pip_disabled {
+        return Ok(());
     }
+
+    // Try and detect dependencies automatically if either requested or if there
+    // are no dependencies specified
+    let pip_auto = params.pip_auto || params.pip_files.is_empty();
 
     let tool_dirs = args
         .versions
