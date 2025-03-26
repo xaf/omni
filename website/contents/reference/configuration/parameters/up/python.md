@@ -56,7 +56,7 @@ When using the `pip: auto` parameter, omni will automatically detect, parse and 
 4. `requirements.txt`
 5. `Pipfile`
 
-:::note
+:::info
 The version of `uv` used can be configured through the [`uv_version`](/reference/configuration/parameters/up_command) parameter in the omni configuration file.
 :::
 
