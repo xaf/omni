@@ -73,6 +73,7 @@ type PostInstallFunc = fn(
 pub struct PostInstallFuncArgs<'a> {
     pub config_value: Option<ConfigValue>,
     pub fqtn: &'a FullyQualifiedToolName,
+    #[allow(dead_code)]
     pub requested_version: String,
     pub versions: Vec<MiseToolUpVersion>,
 }
