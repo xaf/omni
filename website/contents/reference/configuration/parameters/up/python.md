@@ -17,7 +17,7 @@ The following parameters can be used:
 | Parameter        | Type      | Description                                           |
 |------------------|-----------|-------------------------------------------------------|
 | `dir` | path | Relative path (or list of relative paths) to the directory in the project for which to use the python version; each specified directory will have its own virtual environment. |
-| `pip` | path | Relative path (or list of relative paths) to the requirements files to be used as parameter to `pip install -r` for installing dependencies; if using the word `auto`, omni will try to install well-known requirement files in each specified `dir` (or in each discovered directory with `version: auto`) if it exists |
+| `pip` | path/boolean | Controls dependency installation. If set to `true` or `auto` (default), omni will try to install dependencies from well-known requirement files in each specified `dir` (or in each discovered directory with `version: auto`) if they exist. If set to `false`, no dependency installation will be performed. Can also be a relative path (or list of paths) to specific requirements files to be used with `pip install -r`. |
 | `url` | string | The URL to download the tool from, in case the tool is not registered in [the `mise` registry](https://github.com/jdx/mise/blob/main/registry.toml) or if you want to use a custom version. |
 | `version` | string | The version of the tool to install; see [version handling](#version-handling) below for more details. |
 | `upgrade` | boolean | whether or not to always upgrade to the most up to date matching version, even if an already-installed version matches the requirements *(default: false)* |
@@ -106,6 +106,11 @@ up:
         - dir1
         - dir2
       pip: auto
+
+  # Disable dependency installation
+  - python:
+      version: 3.11.4
+      pip: false
 
   # Let omni lookup for version files in the project,
   # and run `pip install -r requirements.txt` in each
