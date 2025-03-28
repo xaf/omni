@@ -48,7 +48,7 @@
 
 .header-github-release::before {
   content: '';
-  width: 120px;
+  width: 133px;
   height: 24px;
   display: flex;
   margin-right: -10px;

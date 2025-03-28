@@ -108,9 +108,9 @@ const config = {
           //  position: 'right',
           //},
           {
-            href: 'https://github.com/XaF/omni/releases',
+            href: 'https://github.com/xaf/omni/releases',
             className: 'header-github-release',
-            value: '<img src="https://img.shields.io/github/v/release/XaF/omni?logo=github&sort=semver" alt="GitHub Release" />',
+            value: '<img src="https://img.shields.io/github/v/release/xaf/omni?logo=github&sort=semver" alt="GitHub Release" />',
             position: 'right',
           },
           {
