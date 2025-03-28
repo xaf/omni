@@ -16,7 +16,7 @@ Omni supports a number of environment variables for its configuration. Setting t
 | `OMNI_FORCE_UPDATE` | `string` | Force-triggers omnipath and self updates when set to anything but an empty string, even if it should have triggered. It is recommended to either set to `1` or empty/unset. Is superseded by `OMNI_SKIP_UPDATE` and `OMNI_SKIP_SELF_UPDATE`. |
 | `OMNI_GIT` | `path` | The worktree where omni will clone and look for repositories. Overrides the configuration. See [parameters/worktree](parameters/worktree#environment) for more details. |
 | `OMNI_NONINTERACTIVE` | `string` | Disables interactive prompts when set to anything but an empty string. It is recommended to either set to `1` or empty/unset. |
-| `OMNI_ORG` | comma-delimited list of strings | Prepend organizations to be considered by omni. e.g.: `OMNI_ORG="git@github.com:XaF,github.com/XaF"`. See [parameters/org](parameters/org#environment) for more details. |
+| `OMNI_ORG` | comma-delimited list of strings | Prepend organizations to be considered by omni. e.g.: `OMNI_ORG="git@github.com:xaf,github.com/xaf"`. See [parameters/org](parameters/org#environment) for more details. |
 | `OMNI_SKIP_SELF_UPDATE` | `string` | Disables self updates when set to anything but an empty string, even if it should have triggered. It is recommended to either set to `1` or empty/unset. |
 | `OMNI_SKIP_UPDATE` | `string` | Disables omnipath and self updates when set to anything but an empty string, even if it should have triggered. It is recommended to either set to `1` or empty/unset. |
 

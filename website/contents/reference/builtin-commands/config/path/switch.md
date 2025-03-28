@@ -32,7 +32,7 @@ omni config path switch
 omni config path switch omni
 
 # Toggles the source of the omni repository in the omnipath
-omni config path switch https://github.com/XaF/omni
+omni config path switch https://github.com/xaf/omni
 
 # Switches the source of the current repository to package
 omni config path switch --package
@@ -46,5 +46,5 @@ omni config path switch --package omni
 
 # Switches the source of the omni repository to a development
 # version in a worktree
-omni config path switch --worktree https://github.com/XaF/omni
+omni config path switch --worktree https://github.com/xaf/omni
 ```

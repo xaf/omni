@@ -11,7 +11,7 @@ Omni uses [`mise`](https://mise.jdx.dev/) in the background to manage that tool.
 :::
 
 :::caution
-Bash is installed using [a custom asdf plugin](https://github.com/XaF/asdf-bash). There is no guarantee all versions of bash will be able to build on all systems, especially older ones. We recommend using the `latest` version of bash if your intent is to ensure that users of your repository can use certain bash features.
+Bash is installed using [a custom asdf plugin](https://github.com/xaf/asdf-bash). There is no guarantee all versions of bash will be able to build on all systems, especially older ones. We recommend using the `latest` version of bash if your intent is to ensure that users of your repository can use certain bash features.
 :::
 
 ## Parameters

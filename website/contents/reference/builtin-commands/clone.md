@@ -25,12 +25,12 @@ Upon successful cloning, `omni clone` will run `omni up --update-user-config` in
 ```bash
 # Very basic cloning, except that the repository will be placed in the correct worktree,
 # with the expected repo_path_format
-omni clone https://github.com/XaF/omni
+omni clone https://github.com/xaf/omni
 
 # If we have github.com somewhere in our organizations, we can also simply run
-omni clone XaF/omni
+omni clone xaf/omni
 
-# And if we have defined https://github.com/XaF as an organization, this will work
+# And if we have defined https://github.com/xaf as an organization, this will work
 omni clone omni
 
 # We can also specify to use a different branch than the default one
@@ -40,5 +40,5 @@ omni clone omni --branch some_other_branch
 omni clone omni --depth 1
 
 # Clone the repository as a package
-omni clone --package https://github.com/XaF/omni
+omni clone --package https://github.com/xaf/omni
 ```

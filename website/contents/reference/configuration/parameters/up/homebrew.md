@@ -89,7 +89,7 @@ up:
   - homebrew:
       tap:
         - repo: xaf/omni
-          url: https://github.com/XaF/omni
+          url: https://github.com/xaf/omni
       install:
         - omni
 ```

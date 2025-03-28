@@ -12,10 +12,10 @@ The value is a string and will be appended to the worktree in which the reposito
 | Parameter | Description                                |
 |-----------|--------------------------------------------|
 | `%{host}` | Registry hostname (e.g. `github.com`) |
-| `%{org}` | Repository owner (e.g. `XaF`) |
+| `%{org}` | Repository owner (e.g. `xaf`) |
 | `%{repo}` | Repository name (e.g. `omni`) |
 
-If left unset, the default value for `repo_path_format` is `%{host}/%{org}/%{repo}` (e.g. `github.com/XaF/omni`).
+If left unset, the default value for `repo_path_format` is `%{host}/%{org}/%{repo}` (e.g. `github.com/xaf/omni`).
 
 ## Examples
 

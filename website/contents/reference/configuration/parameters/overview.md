@@ -40,7 +40,7 @@ Omni configuration files accept the following parameters:
 
 ```yaml
 org:
-  - handle: "git@github.com:XaF"
+  - handle: "git@github.com:xaf"
     trusted: true
   - handle: "git@github.com:omnicli"
     trusted: true

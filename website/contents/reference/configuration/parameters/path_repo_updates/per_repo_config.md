@@ -7,7 +7,7 @@ description: Configuration of the `path_repo_updates/per_repo_config` parameter
 ## Parameters
 
 Per-repository configuration that overrides the global configuration of how to update repositories in the path.
-This is a map where the key is the repository identifier (e.g. `github.com:XaF/omni`) and the value is a map with the following parameters:
+This is a map where the key is the repository identifier (e.g. `github.com:xaf/omni`) and the value is a map with the following parameters:
 
 | Parameter  | Type           | Description                                       |
 |------------|----------------|---------------------------------------------------|

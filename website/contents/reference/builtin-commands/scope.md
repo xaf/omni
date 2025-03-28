@@ -22,8 +22,8 @@ change directory to the repository first.
 
 ```bash
 # The same kind of `repo` argument as provided to `omni cd` will work here
-omni scope https://github.com/XaF/omni help
-omni scope XaF/omni help
+omni scope https://github.com/xaf/omni help
+omni scope xaf/omni help
 omni scope omni help
 omni scope ~ help
 omni scope /absolute/path help

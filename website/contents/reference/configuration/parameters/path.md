@@ -34,7 +34,7 @@ path:
     - /absolute/path
     - relative/path
     - path: /other/absolute/path
-    - package: git@github.com:XaF/omni
+    - package: git@github.com:xaf/omni
       path: path/in/the/package
   prepend:
     - /absolute/path

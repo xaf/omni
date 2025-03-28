@@ -32,4 +32,4 @@ If you find yourself struggling with the discoverability and standardization of 
 
 ## How can I say thanks for omni?
 
-If you like working with omni, please [give omni a star on GitHub](https://github.com/XaF/omni/stargazers) and share omni to colleagues, friends, or even your social networks.
+If you like working with omni, please [give omni a star on GitHub](https://github.com/xaf/omni/stargazers) and share omni to colleagues, friends, or even your social networks.

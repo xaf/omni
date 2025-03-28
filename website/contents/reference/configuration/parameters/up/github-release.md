@@ -89,68 +89,68 @@ up:
   - github-release
 
   # Will install the latest release of the `omni` tool
-  # from the `XaF/omni` repository
-  - github-release: XaF/omni
+  # from the `xaf/omni` repository
+  - github-release: xaf/omni
 
   # We can call it with any of the alternative names too
-  - ghrelease: XaF/omni
-  - github_release: XaF/omni
-  - githubrelease: XaF/omni
-  - github-releases: XaF/omni
-  - ghreleases: XaF/omni
-  - github_releases: XaF/omni
-  - githubreleases: XaF/omni
+  - ghrelease: xaf/omni
+  - github_release: xaf/omni
+  - githubrelease: xaf/omni
+  - github-releases: xaf/omni
+  - ghreleases: xaf/omni
+  - github_releases: xaf/omni
+  - githubreleases: xaf/omni
 
   # Will also install the latest version
   - github-release:
-      repository: XaF/omni
+      repository: xaf/omni
       version: latest
 
   # Will install any version starting with 1.20
   - github-release:
-      repository: XaF/omni
+      repository: xaf/omni
       version: 1.2
 
   # Will install any version starting with 1
   - github-release:
-      repository: XaF/omni
+      repository: xaf/omni
       version: 1
 
   # Full specification of the parameter to identify the version;
   # this will install any version starting with 1.2.3
   - github-release:
-      repository: XaF/omni
+      repository: xaf/omni
       version: 1.2.3
 
   # Will install any version starting with 1, including
   # any pre-release versions
   - github-release:
-      repository: XaF/omni
+      repository: xaf/omni
       version: 1
       prerelease: true
 
   # Will install all the specified releases
   - github-release:
-      XaF/omni: 1.2.3
+      xaf/omni: 1.2.3
       omnicli/omni:
         version: 4.5.6
         prerelease: true
 
   # Will install all the listed releases
   - github-release:
-      - XaF/omni: 1.2.3
+      - xaf/omni: 1.2.3
       - repository: omnicli/omni
         version: 4.5.6
 
   # Will only download *.tar.gz assets, even if other assets
   # are matching the current OS and arch
   - github-release:
-      repository: XaF/omni
+      repository: xaf/omni
       asset_name: "*.tar.gz"
 
   # Will download assets even if OS and arch are not matching
   - github-release:
-      repository: XaF/omni
+      repository: xaf/omni
       asset_name: "cross-platform-binary"
       skip_os_matching: true
       skip_arch_matching: true

@@ -35,7 +35,7 @@ brew install omni
 
 ### Downloading the binary
 
-Pre-built binaries are available for MacOS and Linux, for `arm64` and `x86_64` architectures. You can [download the last release binaries directly from the GitHub releases](https://github.com/XaF/omni/releases/).
+Pre-built binaries are available for MacOS and Linux, for `arm64` and `x86_64` architectures. You can [download the last release binaries directly from the GitHub releases](https://github.com/xaf/omni/releases/).
 
 ### Using `cargo install`
 
@@ -55,7 +55,7 @@ If installing omni through `cargo install`, make sure to install it in a path di
 #### Clone the git repository
 
 ```bash
-git clone https://github.com/XaF/omni
+git clone https://github.com/xaf/omni
 cd omni
 ```
 

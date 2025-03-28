@@ -23,14 +23,14 @@ The `...` special path can also be used to change to the root of the current wor
 ```bash
 # Let's say:
 #  - our worktree is /home/xaf/git
-#  - we cloned omni to /home/xaf/git/github.com/XaF/omni
+#  - we cloned omni to /home/xaf/git/github.com/xaf/omni
 
 # We can cd using a full git URL
-omni cd https://github.com/XaF/omni  # CWD: /home/xaf/git/github.com/XaF/omni
+omni cd https://github.com/xaf/omni  # CWD: /home/xaf/git/github.com/xaf/omni
 
 # Or using parts of the repo identifier -- this is faster if matched with an organization
-omni cd XaF/omni  # CWD: /home/xaf/git/github.com/XaF/omni
-omni cd omni      # CWD: /home/xaf/git/github.com/XaF/omni
+omni cd xaf/omni  # CWD: /home/xaf/git/github.com/xaf/omni
+omni cd omni      # CWD: /home/xaf/git/github.com/xaf/omni
 
 # Will switch to the root of the first organization's worktree, or to the
 # root of the default worktree if no organization is configured
@@ -44,12 +44,12 @@ omni cd /absolute/path  # CWD: /absolute/path
 omni cd ..              # CWD: /absolute
 
 # Will return the matching directory for the repository
-omni cd --locate XaF/omni  # stdout: /home/xaf/git/github.com/XaF/omni ; exit code: 0
+omni cd --locate xaf/omni  # stdout: /home/xaf/git/github.com/xaf/omni ; exit code: 0
 omni cd --locate unknown   # exit code: 1
 
 # Will change to the root of the current work directory
-# if CWD is /home/xaf/git/github.com/XaF/omni/relative/path
-omni cd ...  # CWD: /home/xaf/git/github.com/XaF/omni
+# if CWD is /home/xaf/git/github.com/xaf/omni/relative/path
+omni cd ...  # CWD: /home/xaf/git/github.com/xaf/omni
 
 # Will error out if not in a work directory
 omni cd ...  # exit code: 1

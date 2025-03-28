@@ -35,21 +35,21 @@ The `suggest_clone` parameter can be templated. The template needs to resolve to
 ```yaml
 # To suggest cloning the omni repository
 suggest_clone:
-  - git@github.com:XaF/omni
+  - git@github.com:xaf/omni
 
 # To suggest cloning the omni repository, and the omni-example one
 suggest_clone:
-  - https://github.com/XaF/omni
+  - https://github.com/xaf/omni
   - handle: https://github.com/omnicli/omni-example
 
 # If we want to suggest cloning the omni repository, but only with a depth of 1
 suggest_clone:
-  - handle: git@github.com:XaF/omni
+  - handle: git@github.com:xaf/omni
     args: --depth 1
 
 # We can suggest cloning the omni repository in the worktree
 suggest_clone:
-  - handle: git@github.com:XaF/omni
+  - handle: git@github.com:xaf/omni
     clone_type: worktree
 
 # We can also template the suggest_clone parameter using a template file

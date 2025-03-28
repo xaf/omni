@@ -25,8 +25,8 @@ Here are the three most common values for this variable:
 
 | <div style={{width: 210 + 'px'}}>Value</div> | Description |
 |----------------------------------------------|-------------|
-| `%{host}/%{org}/%{repo}` | Full details on the repository in the path, used for instance by Go in the `GOPATH`. e.g. `WORKTREE/github.com/XaF/omni` |
-| `%{org}/%{repo}`         | To split repositories by organization. e.g. `WORKTREE/XaF/omni` |
+| `%{host}/%{org}/%{repo}` | Full details on the repository in the path, used for instance by Go in the `GOPATH`. e.g. `WORKTREE/github.com/xaf/omni` |
+| `%{org}/%{repo}`         | To split repositories by organization. e.g. `WORKTREE/xaf/omni` |
 | `%{repo}`                | To put all the repositories directly in the worktree. e.g. `WORKTREE/omni` |
 
 ## Setting up your worktree
@@ -43,7 +43,7 @@ The `worktree` parameter accepts absolute, relative and home-prefixed (`~`) path
 
 ## Configuring a first organization
 
-A number of omni's magic is made available through configured organizations. For instance, with the `github.com/XaF` organization configured, you'll be able to run `omni clone omni` to clone omni's repository.
+A number of omni's magic is made available through configured organizations. For instance, with the `github.com/xaf` organization configured, you'll be able to run `omni clone omni` to clone omni's repository.
 
 :::note
 Before manually handling this configuration, if your organization provides a main omni repository, you might want to `omni clone path.to/that/repo` before pursuing this section: this repository might suggest you to setup the organization you need!
@@ -67,7 +67,7 @@ If you want to add your own repositories to take advantage of omni's handling, t
 org:
   - handle: github.com/omnicli
     trusted: true
-  - handle: github.com/XaF
+  - handle: github.com/xaf
     trusted: true
     worktree: /Users/xaf/personal
 ```
@@ -80,7 +80,7 @@ Finally, if you want to take advantage of fast `org/repo` cloning for repositori
 org:
   - handle: github.com/omnicli
     trusted: true
-  - handle: github.com/XaF
+  - handle: github.com/xaf
     trusted: true
   - handle: github.com
     trusted: false

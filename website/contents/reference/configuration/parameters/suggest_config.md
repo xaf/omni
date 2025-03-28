@@ -48,7 +48,7 @@ suggest_config:
 # To prepend a value to the list of organizations of the user
 suggest_config:
   org__toprepend:
-    - handle: git@github.com:XaF/omni
+    - handle: git@github.com:xaf/omni
       trusted: true
 
 # We can also template the suggest_config parameter using a template file
