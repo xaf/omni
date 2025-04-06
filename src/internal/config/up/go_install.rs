@@ -721,7 +721,7 @@ impl UpConfigGoInstall {
         self.path
             .split('/')
             .filter(|part| !part.is_empty())
-            .last()
+            .next_back()
             .unwrap_or("")
             .to_string()
     }

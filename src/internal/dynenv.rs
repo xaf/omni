@@ -917,10 +917,8 @@ impl DynamicEnvData {
     fn env_get_var(&self, key: &str) -> Option<String> {
         if self.env.contains_key(key) {
             self.env.get(key).unwrap().clone()
-        } else if let Ok(val) = std::env::var(key) {
-            Some(val)
         } else {
-            None
+            std::env::var(key).ok()
         }
     }
 
@@ -1325,10 +1323,7 @@ fn hex_to_id(hex: &str) -> Option<u64> {
     if hex.len() != 16 {
         return None;
     }
-    match u64::from_str_radix(hex, 16) {
-        Ok(cur_id) => Some(cur_id),
-        Err(_) => None,
-    }
+    u64::from_str_radix(hex, 16).ok()
 }
 
 /// This allows to dedup flags in environment variables

@@ -1282,7 +1282,7 @@ fn determine_shell() -> String {
             let shell = shell.to_str().unwrap();
             if !shell.is_empty() {
                 if shell.contains('/') {
-                    if let Some(shell) = shell.split('/').last() {
+                    if let Some(shell) = shell.split('/').next_back() {
                         return shell.to_string();
                     }
                 }

@@ -316,17 +316,17 @@ impl UpConfigCustom {
 /// - `VAR1>=VALUE1`: Append the specified value to the specified environment variable
 /// - `VAR1<=VALUE1`: Prepend the specified value to the specified environment variable
 /// - `VAR1>>=VALUE1`: Append the specified value to the specified environment variable,
-///                    working on the assumption that the variable is a path-type variable
-///                    (e.g. PATH, LD_LIBRARY_PATH, etc.) separated by colons (':')
+///   working on the assumption that the variable is a path-type variable
+///   (e.g. PATH, LD_LIBRARY_PATH, etc.) separated by colons (':')
 /// - `VAR1<<=VALUE1`: Append the specified value to the specified environment variable,
-///                    working on the assumption that the variable is a path-type variable
-///                    (e.g. PATH, LD_LIBRARY_PATH, etc.) separated by colons (':')
+///   working on the assumption that the variable is a path-type variable
+///   (e.g. PATH, LD_LIBRARY_PATH, etc.) separated by colons (':')
 /// - `VAR1-=VALUE1`: Remove the specified value from the specified environment variable,
-///                   working on the assumption that the variable is a path-type variable
-///                   (e.g. PATH, LD_LIBRARY_PATH, etc.) separated by colons (':')
+///   working on the assumption that the variable is a path-type variable
+///   (e.g. PATH, LD_LIBRARY_PATH, etc.) separated by colons (':')
 /// - `VAR1<<EOF`: Set a multi-line value for the specified environment variable, with the
-///                value being read from the following lines until an `EOF` is encountered
-///                (can be any delimiter value instead of `EOF`)
+///   value being read from the following lines until an `EOF` is encountered
+///   (can be any delimiter value instead of `EOF`)
 ///
 /// Any `export` prefix is simply removed.
 /// Any line starting with a `#` is considered a comment and ignored.

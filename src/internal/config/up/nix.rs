@@ -592,14 +592,22 @@ impl NixSource {
     ///
     /// Where $expression is either:
     ///  - For a nixfile:
-    ///      --file "$nixfile"
+    ///    ```
+    ///    --file "$nixfile"
+    ///    ```
     ///  - For a nixfile with attribute:
-    ///      --expr "(import ${nixfile} {}).${attribute}"
-    ///      Where attribute is a string that can be either: "devShell", "shell", "buildInputs", etc.
+    ///    ```
+    ///    --expr "(import ${nixfile} {}).${attribute}"
+    ///    ```
+    ///    Where attribute is a string that can be either: "devShell", "shell", "buildInputs", etc.
     ///  - For a list of packages:
-    ///      --expr "with import <nixpkgs> {}; mkShell { buildInputs = [ $packages ]; }"
+    ///    ```
+    ///    --expr "with import <nixpkgs> {}; mkShell { buildInputs = [ $packages ]; }"
+    ///    ```
     ///  - For multiple files: (to verify)
-    ///      --expr "with import <nixpkgs> {}; mkShell { buildInputs = [ (import ./file1.nix {}) (import ./file2.nix {}) ]; }"
+    ///    ```
+    ///    --expr "with import <nixpkgs> {}; mkShell { buildInputs = [ (import ./file1.nix {}) (import ./file2.nix {}) ]; }"
+    ///    ```
     fn print_dev_env(
         &self,
         tmp_profile: &PathBuf,

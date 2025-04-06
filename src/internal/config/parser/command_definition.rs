@@ -1828,10 +1828,7 @@ impl<T: Into<ParseArgsValue> + Clone + FromStr + Send + Sync + 'static> ParserEx
     fn extract(matches: &clap::ArgMatches, dest: &str, default: &Option<String>) -> Self::Output {
         match (matches.get_one::<T>(dest), default) {
             (Some(value), _) => Some(value.clone()),
-            (None, Some(default)) => match default.parse::<T>() {
-                Ok(value) => Some(value),
-                Err(_) => None,
-            },
+            (None, Some(default)) => default.parse::<T>().ok(),
             _ => None,
         }
     }

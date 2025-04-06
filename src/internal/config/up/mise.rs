@@ -1160,7 +1160,7 @@ pub struct UpConfigMise {
     /// - progress_handler: a progress handler to use to report progress
     /// - tool: the name of the tool
     /// - versions: MiseToolUpVersion objects describing the versions that were
-    ///             up-ed, with the following fields:
+    ///   up-ed, with the following fields:
     ///     - version: the version of the tool that was installed
     ///     - installed: whether the tool was installed or already installed
     ///     - paths: the relative paths where the tool version was installed

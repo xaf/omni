@@ -718,7 +718,7 @@ impl UpConfigCargoInstall {
         self.crate_name
             .split('/')
             .filter(|part| !part.is_empty())
-            .last()
+            .next_back()
             .unwrap_or("")
             .to_string()
     }
