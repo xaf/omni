@@ -33,7 +33,7 @@ impl Default for UpCommandConfig {
             attach_lock_timeout: Self::DEFAULT_ATTACH_LOCK_TIMEOUT,
             auto_bootstrap: Self::DEFAULT_AUTO_BOOTSTRAP,
             mise_version: Self::DEFAULT_MISE_VERSION.to_string(),
-            uv_version: "latest".to_string(),
+            uv_version: Self::DEFAULT_UV_VERSION.to_string(),
             notify_workdir_config_updated: Self::DEFAULT_NOTIFY_WORKDIR_CONFIG_UPDATED,
             notify_workdir_config_available: Self::DEFAULT_NOTIFY_WORKDIR_CONFIG_AVAILABLE,
             operations: UpCommandOperationConfig::default(),
@@ -50,6 +50,7 @@ impl UpCommandConfig {
     const DEFAULT_NOTIFY_WORKDIR_CONFIG_UPDATED: bool = true;
     const DEFAULT_NOTIFY_WORKDIR_CONFIG_AVAILABLE: bool = true;
     const DEFAULT_MISE_VERSION: &str = "latest";
+    const DEFAULT_UV_VERSION: &str = "latest";
     const DEFAULT_UPGRADE: bool = false;
 
     pub(super) fn from_config_value(
@@ -109,7 +110,7 @@ impl UpCommandConfig {
 
         let uv_version = config_value_global.get_as_str_or_default(
             "uv_version",
-            "latest",
+            Self::DEFAULT_UV_VERSION,
             &error_handler.with_key("uv_version"),
         );
 
