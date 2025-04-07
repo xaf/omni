@@ -151,7 +151,7 @@ jobs:
 
     steps:
       - name: Create application token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         id: app-token
         with:
           app-id: ${{ secrets.OMNICLI_APP_ID }}
@@ -248,7 +248,7 @@ jobs:
 
     steps:
       - name: Create application token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         id: app-token
         env:
           APP_ID: ${{ secrets.OMNICLI_APP_ID }}
