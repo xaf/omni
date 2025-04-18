@@ -626,6 +626,7 @@ impl DynamicEnv {
                     "python" => {
                         let tool_prefix = if let Some(data_path) = &toolversion.data_path {
                             envsetter.set_value("VIRTUAL_ENV", data_path);
+                            envsetter.set_value("UV_PROJECT_ENVIRONMENT", data_path);
                             data_path.clone()
                         } else {
                             tool_prefix
