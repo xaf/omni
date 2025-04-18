@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::process::exit;
 
+use once_cell::sync::Lazy;
 use serde::Serialize;
 
 use crate::internal::cache::utils as cache_utils;
@@ -24,6 +25,30 @@ use crate::internal::user_interface::StringColor;
 use crate::omni_error;
 use crate::omni_header;
 use crate::omni_print;
+
+// Use Lazy<Vec<SyntaxOptArg>> for the global omni options
+static GLOBAL_OPTIONS: Lazy<Vec<SyntaxOptArg>> = Lazy::new(|| {
+    vec![
+        SyntaxOptArg {
+            names: vec!["--update".to_string()],
+            desc: Some("Update omni and the omnipaths".to_string()),
+            arg_type: SyntaxOptArgType::Flag,
+            ..Default::default()
+        },
+        SyntaxOptArg {
+            names: vec!["--self-update".to_string()],
+            desc: Some("Update omni".to_string()),
+            arg_type: SyntaxOptArgType::Flag,
+            ..Default::default()
+        },
+        SyntaxOptArg {
+            names: vec!["--exists".to_string()],
+            desc: Some("Checks if the command exists, instead of running it".to_string()),
+            arg_type: SyntaxOptArgType::Flag,
+            ..Default::default()
+        },
+    ]
+});
 
 #[derive(Debug, Clone)]
 struct HelpCommandArgs {
@@ -241,12 +266,18 @@ impl HelpCommandPrinter for HelpCommandPlainPrinter {
         eprintln!(
             "{}\n\n{} {} {} {} {}",
             omni_header!(),
-            "Usage:".italic().bold(),
+            "Usage:".underline().bold(),
             "omni".bold(),
+            "[OPTIONS]".cyan().bold(),
             "<command>".cyan().bold(),
-            "[options]".cyan().bold(),
             "ARG...".cyan().bold(),
         );
+
+        eprintln!("\n{}", "Options:".bold().underline());
+        if let Err(err) = self.print_syntax_column_help(&GLOBAL_OPTIONS.iter().collect::<Vec<_>>())
+        {
+            omni_error!(err);
+        }
 
         self.print_categorized_command_help(vec![], unfold);
         eprintln!();
@@ -677,7 +708,14 @@ impl HelpCommandPrinter for HelpCommandJsonPrinter {
     fn print_global_help(&self, unfold: bool) {
         let subcommands = self.subcommands(vec![], unfold);
         let command_help = SerializableCommandHelp {
-            usage: "omni <command> [options] ARG...".to_string(),
+            usage: "omni [OPTIONS] <command> ARG...".to_string(),
+            options: GLOBAL_OPTIONS
+                .iter()
+                .map(|arg| SerializableCommandSyntax {
+                    name: arg.help_name(true, false),
+                    desc: strip_ansi_codes(&arg.help_desc()),
+                })
+                .collect(),
             subcommands,
             ..Default::default()
         };
