@@ -1,5 +1,19 @@
 {
-  "usage": "omni <command> [options] ARG...",
+  "usage": "omni [OPTIONS] <command> ARG...",
+  "options": [
+    {
+      "name": "--update",
+      "desc": "Update omni and the omnipaths"
+    },
+    {
+      "name": "--self-update",
+      "desc": "Update omni"
+    },
+    {
+      "name": "--exists",
+      "desc": "Checks if the command exists, instead of running it"
+    }
+  ],
   "subcommands": [
     {
       "name": "config bootstrap",

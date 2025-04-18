@@ -1,3 +1,6 @@
 
-Usage: omni <command> [options] ARG...
+Usage: omni [OPTIONS] <command> ARG...
+
+Options:
+omni: help command failed: terminal width is too small to print help
 omni: help command failed: terminal width is too small to print help
