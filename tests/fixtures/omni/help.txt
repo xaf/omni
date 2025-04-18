@@ -1,5 +1,10 @@
 
-Usage: omni <command> [options] ARG...
+Usage: omni [OPTIONS] <command> ARG...
+
+Options:
+  --update       Update omni and the omnipaths
+  --self-update  Update omni
+  --exists       Checks if the command exists, instead of running it
 
 General
   config ▶       Provides config commands
