@@ -289,7 +289,10 @@ impl CommandLoader {
 
         // If we get here, and if there is a single command, then we can try and
         // delegate the autocompletion if supported by that command
-        if allow_delegate && matched_commands.len() == 1 {
+        if allow_delegate
+            && matched_commands.len() == 1
+            && max_match_level == matched_commands[0].match_name.len() as f32
+        {
             let matched_command = &matched_commands[0];
 
             // If this was already printed, we don't want to print it again
