@@ -14,6 +14,7 @@ This will automatically install a version of [`go`](go) if none is available thr
 
 | Parameter        | Type      | Description                                           |
 |------------------|-----------|-------------------------------------------------------|
+| `dir` | path | Relative path (or list of relative paths) to the directory in the project for which to use this tool |
 | `path` | string | The `<path>` part of `go install <path>[@<version>]` |
 | `version` | string | The version to install; see [version handling](#version-handling) below for more details. |
 | `exact` | boolean | Whether to match the exact version or not; if set to `true`, `go install <path>@<version>` will be called directly instead of listing the available versions and following the [version handling](#version-handling) rules *(default: `false`)* |
@@ -94,6 +95,20 @@ up:
       - google.golang.org/grpc/cmd/protoc-gen-go: 1.27.1
       - path: google.golang.org/grpc/cmd/protoc-gen-go-grpc
         version: 1.5.0
+        
+  # Use this tool only in the specified directory
+  - go-install:
+      path: google.golang.org/protobuf/cmd/protoc-gen-go
+      version: 1.27.0
+      dir: proto/gen
+      
+  # Use this tool in multiple directories
+  - go-install:
+      path: google.golang.org/protobuf/cmd/protoc-gen-go
+      version: 1.27.0
+      dir:
+        - proto/gen
+        - api/gen
 ```
 
 ## Dynamic environment

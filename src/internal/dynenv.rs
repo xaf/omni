@@ -12,6 +12,9 @@ use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::UpEnvironmentsCache;
 use crate::internal::config;
 use crate::internal::config::parser::EnvOperationEnum;
+use crate::internal::config::up::cargo_install::cargo_install_tool_path;
+use crate::internal::config::up::github_release::github_release_tool_path;
+use crate::internal::config::up::go_install::go_install_tool_path;
 use crate::internal::config::up::mise::mise_path;
 use crate::internal::config::up::mise_tool_path;
 use crate::internal::config::up::utils::get_config_mod_times;
@@ -436,6 +439,8 @@ impl DynamicEnv {
 
             // Go over the tool versions in the up environment cache
             for toolversion in up_env.versions_for_dir(&dir).iter() {
+                hasher.update(toolversion.backend.as_bytes());
+                hasher.update(DATA_SEPARATOR.as_bytes());
                 hasher.update(toolversion.tool.as_bytes());
                 hasher.update(DATA_SEPARATOR.as_bytes());
                 hasher.update(toolversion.plugin_name.as_bytes());
@@ -476,36 +481,8 @@ impl DynamicEnv {
         }
 
         if let Some(up_env) = &up_env {
-            // Add the requested environments
-            if !up_env.env_vars.is_empty() {
-                self.features.push("env".to_string());
-            }
-            for env_var in up_env.env_vars.iter() {
-                match (env_var.operation, env_var.value.clone()) {
-                    (EnvOperationEnum::Set, Some(value)) => {
-                        envsetter.set_value(&env_var.name, &value);
-                    }
-                    (EnvOperationEnum::Set, None) => {
-                        envsetter.unset_value(&env_var.name);
-                    }
-                    (EnvOperationEnum::Prepend, Some(value)) => {
-                        envsetter.prepend_to_list(&env_var.name, &value);
-                    }
-                    (EnvOperationEnum::Append, Some(value)) => {
-                        envsetter.append_to_list(&env_var.name, &value);
-                    }
-                    (EnvOperationEnum::Remove, Some(value)) => {
-                        envsetter.remove_from_list(&env_var.name, &value);
-                    }
-                    (EnvOperationEnum::Prefix, Some(value)) => {
-                        envsetter.prefix_value(&env_var.name, &value);
-                    }
-                    (EnvOperationEnum::Suffix, Some(value)) => {
-                        envsetter.suffix_value(&env_var.name, &value);
-                    }
-                    (_, None) => {}
-                }
-            }
+            // Apply direct changes to the environment
+            self.apply_env(up_env, &mut envsetter);
 
             if !keep_shims {
                 // Remove the shims directory from the PATH
@@ -517,155 +494,9 @@ impl DynamicEnv {
                 envsetter.prepend_to_list("PATH", path.to_str().unwrap());
             }
 
-            // Go over the tool versions in the up environment cache
+            // Apply environment changes for the tool versions
             let dir = workdir.reldir(&path).unwrap_or("".to_string());
-            for toolversion in up_env.versions_for_dir(&dir).iter() {
-                let tool = toolversion.tool.clone();
-                let normalized_name = toolversion.normalized_name.clone();
-                let version = toolversion.version.clone();
-                let version_minor = version.split('.').take(2).join(".");
-                let tool_prefix = mise_tool_path(&normalized_name, &version);
-                let bin_path = if toolversion.bin_path.is_empty() {
-                    String::new()
-                } else {
-                    format!("/{}", toolversion.bin_path.clone())
-                };
-
-                self.features.push(format!("{}:{}", tool, version));
-
-                match tool.as_str() {
-                    "ruby" => {
-                        envsetter.remove_from_list_by_fn("PATH", || {
-                            let mut values_to_remove = Vec::new();
-
-                            if let Some(rubyroot) = std::env::var_os("RUBY_ROOT") {
-                                values_to_remove
-                                    .push(format!("{}/bin", rubyroot.to_str().unwrap()));
-                            }
-
-                            if let Some(gemroot) = std::env::var_os("GEM_ROOT") {
-                                values_to_remove.push(format!("{}/bin", gemroot.to_str().unwrap()));
-                            }
-
-                            if let Some(gemhome) = std::env::var_os("GEM_HOME") {
-                                values_to_remove.push(format!("{}/bin", gemhome.to_str().unwrap()));
-                            }
-
-                            values_to_remove
-                        });
-
-                        let gems_dir = format!("{}/lib/ruby/gems", tool_prefix);
-                        let gem_home = format!("{}/{}.0", gems_dir, version_minor);
-
-                        envsetter.set_value("GEM_HOME", &gem_home);
-                        envsetter.set_value("GEM_ROOT", &gem_home);
-                        envsetter.set_value("RUBY_ENGINE", "ruby");
-                        envsetter.set_value("RUBY_ROOT", &tool_prefix);
-                        envsetter.set_value("RUBY_VERSION", &version);
-                        envsetter.prepend_to_list("GEM_PATH", &gem_home);
-                        envsetter.prepend_to_list(
-                            "PATH",
-                            &format!("{}/{}/bin", gems_dir, version_minor),
-                        );
-                        envsetter.prepend_to_list("PATH", &format!("{}/bin", tool_prefix));
-
-                        // Handle the isolated GEM_HOME
-                        if let Some(data_path) = &toolversion.data_path {
-                            envsetter.set_value("GEM_HOME", data_path);
-                            envsetter.prepend_to_list("GEM_PATH", data_path);
-                            envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
-                        }
-                    }
-                    "rust" => {
-                        envsetter.set_value("RUSTUP_HOME", &format!("{}/rustup", mise_path()));
-                        envsetter.set_value("CARGO_HOME", &format!("{}/cargo", mise_path()));
-                        envsetter.set_value("RUSTUP_TOOLCHAIN", &version);
-                        envsetter.prepend_to_list("PATH", &tool_prefix);
-
-                        // Handle the isolated CARGO_INSTALL_PATH
-                        if let Some(data_path) = &toolversion.data_path {
-                            envsetter.set_value("CARGO_INSTALL_ROOT", data_path);
-                            envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
-                        }
-                    }
-                    "go" => {
-                        if let Some(goroot) = std::env::var_os("GOROOT") {
-                            envsetter.remove_from_list(
-                                "PATH",
-                                &format!("{}/bin", goroot.to_str().unwrap()),
-                            );
-                        }
-
-                        if std::env::var_os("GOMODCACHE").is_none() {
-                            let gopath = match std::env::var_os("GOPATH") {
-                                Some(gopath) => match gopath.to_str() {
-                                    Some("") | None => format!("{}/go", user_home()),
-                                    Some(gopath) => gopath.to_string(),
-                                },
-                                None => format!("{}/go", user_home()),
-                            };
-                            envsetter.set_value("GOMODCACHE", &format!("{}/pkg/mod", gopath));
-                        }
-
-                        envsetter.set_value("GOROOT", &tool_prefix);
-                        envsetter.set_value("GOVERSION", &version);
-
-                        let gorootbin = format!("{}/bin", tool_prefix);
-                        envsetter.set_value("GOBIN", &gorootbin);
-                        envsetter.prepend_to_list("PATH", &gorootbin);
-
-                        // Handle the isolated GOPATH
-                        if let Some(data_path) = &toolversion.data_path {
-                            envsetter.prepend_to_list("GOPATH", data_path);
-
-                            let gobin = format!("{}/bin", data_path);
-                            envsetter.set_value("GOBIN", &gobin);
-                            envsetter.prepend_to_list("PATH", &gobin);
-                        }
-                    }
-                    "python" => {
-                        let tool_prefix = if let Some(data_path) = &toolversion.data_path {
-                            envsetter.set_value("VIRTUAL_ENV", data_path);
-                            envsetter.set_value("UV_PROJECT_ENVIRONMENT", data_path);
-                            data_path.clone()
-                        } else {
-                            tool_prefix
-                        };
-
-                        envsetter.unset_value("PYTHONHOME");
-                        envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
-
-                        let poetry_dir = format!("{}/poetry", tool_prefix);
-                        envsetter.set_value("POETRY_CONFIG_DIR", &format!("{}/config", poetry_dir));
-                        envsetter.set_value("POETRY_CACHE_DIR", &format!("{}/cache", poetry_dir));
-                        envsetter.set_value("POETRY_DATA_DIR", &poetry_dir);
-                    }
-                    "node" => {
-                        envsetter.set_value("NODE_VERSION", &version);
-                        envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
-
-                        // Handle the isolated NPM prefix
-                        if let Some(data_path) = &toolversion.data_path {
-                            envsetter.set_value("npm_config_prefix", data_path);
-                            envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
-                        };
-                    }
-                    "helm" => {
-                        envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
-
-                        // Handle the isolated HELM configuration and cache
-                        if let Some(data_path) = &toolversion.data_path {
-                            envsetter
-                                .set_value("HELM_CONFIG_HOME", &format!("{}/config", data_path));
-                            envsetter.set_value("HELM_CACHE_HOME", &format!("{}/cache", data_path));
-                            envsetter.set_value("HELM_DATA_HOME", &format!("{}/data", data_path));
-                        }
-                    }
-                    _ => {
-                        envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
-                    }
-                }
-            }
+            self.apply_versions(up_env, &mut envsetter, &dir);
         }
 
         // If any FLAGS variable is set, we can clean it up by removing the duplicate
@@ -717,6 +548,225 @@ impl DynamicEnv {
         let mut data = self.data.clone().unwrap();
         data.prepare_undo();
         data.export(export_mode.clone());
+    }
+
+    fn apply_env(&mut self, up_env: &UpEnvironment, envsetter: &mut DynamicEnvSetter) {
+        if up_env.env_vars.is_empty() {
+            return;
+        }
+
+        self.features.push("env".to_string());
+
+        // Add the requested environments
+        for env_var in up_env.env_vars.iter() {
+            match (env_var.operation, env_var.value.clone()) {
+                (EnvOperationEnum::Set, Some(value)) => {
+                    envsetter.set_value(&env_var.name, &value);
+                }
+                (EnvOperationEnum::Set, None) => {
+                    envsetter.unset_value(&env_var.name);
+                }
+                (EnvOperationEnum::Prepend, Some(value)) => {
+                    envsetter.prepend_to_list(&env_var.name, &value);
+                }
+                (EnvOperationEnum::Append, Some(value)) => {
+                    envsetter.append_to_list(&env_var.name, &value);
+                }
+                (EnvOperationEnum::Remove, Some(value)) => {
+                    envsetter.remove_from_list(&env_var.name, &value);
+                }
+                (EnvOperationEnum::Prefix, Some(value)) => {
+                    envsetter.prefix_value(&env_var.name, &value);
+                }
+                (EnvOperationEnum::Suffix, Some(value)) => {
+                    envsetter.suffix_value(&env_var.name, &value);
+                }
+                (_, None) => {}
+            }
+        }
+    }
+
+    fn apply_versions(
+        &mut self,
+        up_env: &UpEnvironment,
+        envsetter: &mut DynamicEnvSetter,
+        dir: &str,
+    ) {
+        // Go over the tool versions in the up environment cache
+        for toolversion in up_env.versions_for_dir(dir).iter() {
+            let tool = toolversion.tool.clone();
+            let version = toolversion.version.clone();
+
+            // Handle backends that won't require extra setup
+            match toolversion.backend.as_str() {
+                "" | "default" => {
+                    // Do not do anything here if we use the default backend
+                }
+                "ghrelease" => {
+                    envsetter.prepend_to_list(
+                        "PATH",
+                        &github_release_tool_path(&tool, &version).to_string_lossy(),
+                    );
+                    continue;
+                }
+                "cargo-install" => {
+                    envsetter.prepend_to_list(
+                        "PATH",
+                        &cargo_install_tool_path(&tool, &version).to_string_lossy(),
+                    );
+                    continue;
+                }
+                "go-install" => {
+                    envsetter.prepend_to_list(
+                        "PATH",
+                        &go_install_tool_path(&tool, &version).to_string_lossy(),
+                    );
+                    continue;
+                }
+                _ => {
+                    // Skip the tool if we don't know the backend
+                    continue;
+                }
+            }
+
+            self.features.push(format!("{}:{}", tool, version));
+
+            let normalized_name = toolversion.normalized_name.clone();
+            let tool_prefix = mise_tool_path(&normalized_name, &version);
+            let bin_path = if toolversion.bin_path.is_empty() {
+                String::new()
+            } else {
+                format!("/{}", toolversion.bin_path.clone())
+            };
+
+            match tool.as_str() {
+                "ruby" => {
+                    envsetter.remove_from_list_by_fn("PATH", || {
+                        let mut values_to_remove = Vec::new();
+
+                        if let Some(rubyroot) = std::env::var_os("RUBY_ROOT") {
+                            values_to_remove.push(format!("{}/bin", rubyroot.to_str().unwrap()));
+                        }
+
+                        if let Some(gemroot) = std::env::var_os("GEM_ROOT") {
+                            values_to_remove.push(format!("{}/bin", gemroot.to_str().unwrap()));
+                        }
+
+                        if let Some(gemhome) = std::env::var_os("GEM_HOME") {
+                            values_to_remove.push(format!("{}/bin", gemhome.to_str().unwrap()));
+                        }
+
+                        values_to_remove
+                    });
+
+                    let version_minor = version.split('.').take(2).join(".");
+                    let gems_dir = format!("{}/lib/ruby/gems", tool_prefix);
+                    let gem_home = format!("{}/{}.0", gems_dir, version_minor);
+
+                    envsetter.set_value("GEM_HOME", &gem_home);
+                    envsetter.set_value("GEM_ROOT", &gem_home);
+                    envsetter.set_value("RUBY_ENGINE", "ruby");
+                    envsetter.set_value("RUBY_ROOT", &tool_prefix);
+                    envsetter.set_value("RUBY_VERSION", &version);
+                    envsetter.prepend_to_list("GEM_PATH", &gem_home);
+                    envsetter
+                        .prepend_to_list("PATH", &format!("{}/{}/bin", gems_dir, version_minor));
+                    envsetter.prepend_to_list("PATH", &format!("{}/bin", tool_prefix));
+
+                    // Handle the isolated GEM_HOME
+                    if let Some(data_path) = &toolversion.data_path {
+                        envsetter.set_value("GEM_HOME", data_path);
+                        envsetter.prepend_to_list("GEM_PATH", data_path);
+                        envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
+                    }
+                }
+                "rust" => {
+                    envsetter.set_value("RUSTUP_HOME", &format!("{}/rustup", mise_path()));
+                    envsetter.set_value("CARGO_HOME", &format!("{}/cargo", mise_path()));
+                    envsetter.set_value("RUSTUP_TOOLCHAIN", &version);
+                    envsetter.prepend_to_list("PATH", &tool_prefix);
+
+                    // Handle the isolated CARGO_INSTALL_PATH
+                    if let Some(data_path) = &toolversion.data_path {
+                        envsetter.set_value("CARGO_INSTALL_ROOT", data_path);
+                        envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
+                    }
+                }
+                "go" => {
+                    if let Some(goroot) = std::env::var_os("GOROOT") {
+                        envsetter
+                            .remove_from_list("PATH", &format!("{}/bin", goroot.to_str().unwrap()));
+                    }
+
+                    if std::env::var_os("GOMODCACHE").is_none() {
+                        let gopath = match std::env::var_os("GOPATH") {
+                            Some(gopath) => match gopath.to_str() {
+                                Some("") | None => format!("{}/go", user_home()),
+                                Some(gopath) => gopath.to_string(),
+                            },
+                            None => format!("{}/go", user_home()),
+                        };
+                        envsetter.set_value("GOMODCACHE", &format!("{}/pkg/mod", gopath));
+                    }
+
+                    envsetter.set_value("GOROOT", &tool_prefix);
+                    envsetter.set_value("GOVERSION", &version);
+
+                    let gorootbin = format!("{}/bin", tool_prefix);
+                    envsetter.set_value("GOBIN", &gorootbin);
+                    envsetter.prepend_to_list("PATH", &gorootbin);
+
+                    // Handle the isolated GOPATH
+                    if let Some(data_path) = &toolversion.data_path {
+                        envsetter.prepend_to_list("GOPATH", data_path);
+
+                        let gobin = format!("{}/bin", data_path);
+                        envsetter.set_value("GOBIN", &gobin);
+                        envsetter.prepend_to_list("PATH", &gobin);
+                    }
+                }
+                "python" => {
+                    let tool_prefix = if let Some(data_path) = &toolversion.data_path {
+                        envsetter.set_value("VIRTUAL_ENV", data_path);
+                        envsetter.set_value("UV_PROJECT_ENVIRONMENT", data_path);
+                        data_path.clone()
+                    } else {
+                        tool_prefix
+                    };
+
+                    envsetter.unset_value("PYTHONHOME");
+                    envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+
+                    let poetry_dir = format!("{}/poetry", tool_prefix);
+                    envsetter.set_value("POETRY_CONFIG_DIR", &format!("{}/config", poetry_dir));
+                    envsetter.set_value("POETRY_CACHE_DIR", &format!("{}/cache", poetry_dir));
+                    envsetter.set_value("POETRY_DATA_DIR", &poetry_dir);
+                }
+                "node" => {
+                    envsetter.set_value("NODE_VERSION", &version);
+                    envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+
+                    // Handle the isolated NPM prefix
+                    if let Some(data_path) = &toolversion.data_path {
+                        envsetter.set_value("npm_config_prefix", data_path);
+                        envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
+                    };
+                }
+                "helm" => {
+                    envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+
+                    // Handle the isolated HELM configuration and cache
+                    if let Some(data_path) = &toolversion.data_path {
+                        envsetter.set_value("HELM_CONFIG_HOME", &format!("{}/config", data_path));
+                        envsetter.set_value("HELM_CACHE_HOME", &format!("{}/cache", data_path));
+                        envsetter.set_value("HELM_DATA_HOME", &format!("{}/data", data_path));
+                    }
+                }
+                _ => {
+                    envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+                }
+            }
+        }
     }
 }
 

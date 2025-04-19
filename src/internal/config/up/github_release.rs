@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io;
@@ -10,6 +11,7 @@ use std::process::Command as ProcessCommand;
 
 use itertools::Itertools;
 use md5::Md5;
+use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
@@ -85,6 +87,10 @@ cfg_if::cfg_if! {
             GITHUB_TOKENS.lock().expect("failed to lock github tokens").insert(key.to_string(), value);
         }
     }
+}
+
+pub fn github_release_tool_path(repository: &str, version: &str) -> PathBuf {
+    github_releases_bin_path().join(repository).join(version)
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -569,6 +575,10 @@ pub struct UpConfigGithubRelease {
     )]
     pub auth: GithubAuthConfig,
 
+    /// A list of directories to make the release available for
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub dirs: BTreeSet<String>,
+
     #[serde(default, skip)]
     actual_version: OnceCell<String>,
 
@@ -592,6 +602,7 @@ impl Default for UpConfigGithubRelease {
             api_url: None,
             checksum: GithubReleaseChecksumConfig::default(),
             auth: GithubAuthConfig::default(),
+            dirs: BTreeSet::new(),
             actual_version: OnceCell::new(),
             was_handled: OnceCell::new(),
         }
@@ -771,6 +782,12 @@ impl UpConfigGithubRelease {
             &error_handler.with_key("auth"),
         );
 
+        let dirs = config_value
+            .get_as_str_array("dir", &error_handler.with_key("dir"))
+            .iter()
+            .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
+            .collect::<BTreeSet<_>>();
+
         UpConfigGithubRelease {
             repository,
             version,
@@ -783,6 +800,7 @@ impl UpConfigGithubRelease {
             skip_arch_matching,
             prefer_dist,
             api_url,
+            dirs,
             checksum,
             auth,
             ..UpConfigGithubRelease::default()
@@ -812,8 +830,14 @@ impl UpConfigGithubRelease {
             return;
         }
 
-        let release_version_path = self.release_version_path(&version);
-        environment.add_path(release_version_path);
+        // Update environment
+        environment.add_simple_version(
+            "ghrelease",
+            &self.repository,
+            &version,
+            "",
+            self.dirs.clone(),
+        );
 
         progress_handler.progress("updated cache".to_string());
     }

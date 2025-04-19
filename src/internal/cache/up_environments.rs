@@ -354,8 +354,21 @@ impl UpEnvironment {
         true
     }
 
+    pub fn add_simple_version(
+        &mut self,
+        backend: &str,
+        tool: &str,
+        version: &str,
+        bin_path: &str,
+        dirs: BTreeSet<String>,
+    ) -> bool {
+        self.add_version(backend, tool, "", "", version, bin_path, dirs)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn add_version(
         &mut self,
+        backend: &str,
         tool: &str,
         plugin_name: &str,
         normalized_name: &str,
@@ -364,9 +377,15 @@ impl UpEnvironment {
         dirs: BTreeSet<String>,
     ) -> bool {
         let mut dirs = dirs;
+        if dirs.is_empty() {
+            dirs.insert("".to_string());
+        }
 
         for exists in self.versions.iter() {
-            if exists.normalized_name == normalized_name && exists.version == version {
+            if exists.backend == backend
+                && exists.normalized_name == normalized_name
+                && exists.version == version
+            {
                 dirs.remove(&exists.dir);
                 if dirs.is_empty() {
                     break;
@@ -383,6 +402,7 @@ impl UpEnvironment {
                 tool,
                 plugin_name,
                 normalized_name,
+                backend,
                 version,
                 bin_path,
                 &dir,
@@ -431,6 +451,8 @@ pub struct UpVersion {
     pub tool: String,
     pub plugin_name: String,
     pub normalized_name: String,
+    #[serde(default, skip_serializing_if = "is_default_backend")]
+    pub backend: String,
     pub version: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub bin_path: String,
@@ -440,12 +462,17 @@ pub struct UpVersion {
     pub data_path: Option<String>,
 }
 
+fn is_default_backend(backend: &str) -> bool {
+    backend.is_empty() || backend == "default"
+}
+
 impl From<OldUpVersion> for UpVersion {
     fn from(args: OldUpVersion) -> Self {
         Self {
             tool: args.tool_real_name.unwrap_or(args.tool.clone()),
             plugin_name: args.tool.clone(),
             normalized_name: args.tool,
+            backend: "".to_string(),
             version: args.version,
             bin_path: "bin".to_string(),
             dir: args.dir,
@@ -459,6 +486,7 @@ impl UpVersion {
         tool: &str,
         plugin_name: &str,
         normalized_name: &str,
+        backend: &str,
         version: &str,
         bin_path: &str,
         dir: &str,
@@ -467,6 +495,7 @@ impl UpVersion {
             tool: tool.to_string(),
             plugin_name: plugin_name.to_string(),
             normalized_name: normalized_name.to_string(),
+            backend: backend.to_string(),
             version: version.to_string(),
             bin_path: bin_path.to_string(),
             dir: dir.to_string(),
@@ -931,6 +960,7 @@ mod tests {
 
             // Add versions for different directories
             env.add_version(
+                "backend1",
                 "tool1",
                 "plugin1",
                 "plugin-1",
@@ -939,6 +969,7 @@ mod tests {
                 BTreeSet::from(["dir1".to_string()]),
             );
             env.add_version(
+                "backend2",
                 "tool2",
                 "plugin2",
                 "plugin-2",
@@ -947,6 +978,7 @@ mod tests {
                 BTreeSet::from(["dir1/subdir".to_string()]),
             );
             env.add_version(
+                "backend3",
                 "tool3",
                 "plugin3",
                 "plugin-3",
@@ -1021,6 +1053,7 @@ mod tests {
 
             // Test adding version
             assert!(env.add_version(
+                "backend1",
                 "tool1",
                 "plugin1",
                 "plugin-1",
@@ -1032,6 +1065,7 @@ mod tests {
 
             // Test adding same version doesn't duplicate
             assert!(!env.add_version(
+                "backend1",
                 "tool1",
                 "plugin1",
                 "plugin-1",
@@ -1056,6 +1090,7 @@ mod tests {
                 "tool1",
                 "plugin1",
                 "plugin-1",
+                "backend1",
                 "1.0.0",
                 "bin/path/1",
                 "dir1",
@@ -1063,6 +1098,7 @@ mod tests {
             assert_eq!(version.tool, "tool1");
             assert_eq!(version.plugin_name, "plugin1");
             assert_eq!(version.normalized_name, "plugin-1");
+            assert_eq!(version.backend, "backend1");
             assert_eq!(version.version, "1.0.0");
             assert_eq!(version.bin_path, "bin/path/1");
             assert_eq!(version.dir, "dir1");

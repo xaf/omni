@@ -1419,18 +1419,14 @@ impl UpConfigMise {
         }
 
         // Update environment
-        let mut dirs = self.dirs.clone();
-        if dirs.is_empty() {
-            dirs.insert("".to_string());
-        }
-
         environment.add_version(
+            "", // mise is the default backend
             fqtn.tool(),
             fqtn.plugin_name(),
             &normalized_name,
             &version,
             &bin_path,
-            dirs.clone(),
+            self.dirs.clone(),
         );
 
         progress_handler.progress("updated cache".to_string());

@@ -1,9 +1,11 @@
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::path::PathBuf;
 
 use itertools::Itertools;
+use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
@@ -54,6 +56,10 @@ cfg_if::cfg_if! {
             GO_INSTALL_BIN_PATH.clone()
         }
     }
+}
+
+pub fn go_install_tool_path(package: &str, version: &str) -> PathBuf {
+    go_install_bin_path().join(package).join(version)
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -468,6 +474,10 @@ struct UpConfigGoInstall {
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
     pub build: bool,
 
+    /// A list of directories to make the binary available for
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub dirs: BTreeSet<String>,
+
     /// In case there was an error while parsing the configuration, this field
     /// will contain the error message
     #[serde(default, skip)]
@@ -489,6 +499,7 @@ impl Default for UpConfigGoInstall {
             upgrade: false,
             prerelease: false,
             build: false,
+            dirs: BTreeSet::new(),
             config_error: None,
             actual_version: OnceCell::new(),
             was_handled: OnceCell::new(),
@@ -678,6 +689,12 @@ impl UpConfigGoInstall {
         let build =
             config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
 
+        let dirs = config_value
+            .get_as_str_array("dir", &error_handler.with_key("dir"))
+            .iter()
+            .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
+            .collect::<BTreeSet<_>>();
+
         UpConfigGoInstall {
             path,
             version,
@@ -685,6 +702,7 @@ impl UpConfigGoInstall {
             upgrade,
             prerelease,
             build,
+            dirs,
             ..Default::default()
         }
     }
@@ -710,8 +728,8 @@ impl UpConfigGoInstall {
             return;
         }
 
-        let version_path = self.version_path(version);
-        environment.add_path(version_path.join("bin"));
+        // Update environment
+        environment.add_simple_version("go-install", &self.path, version, "bin", self.dirs.clone());
 
         progress_handler.progress("updated cache".to_string());
     }
