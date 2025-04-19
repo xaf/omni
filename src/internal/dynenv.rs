@@ -593,7 +593,7 @@ impl DynamicEnv {
         dir: &str,
     ) {
         // Go over the tool versions in the up environment cache
-        for toolversion in up_env.versions_for_dir(&dir).iter() {
+        for toolversion in up_env.versions_for_dir(dir).iter() {
             let tool = toolversion.tool.clone();
             let version = toolversion.version.clone();
 

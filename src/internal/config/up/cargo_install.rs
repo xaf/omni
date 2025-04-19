@@ -729,7 +729,7 @@ impl UpConfigCargoInstall {
         environment.add_simple_version(
             "cargo-install",
             &self.crate_name,
-            &version,
+            version,
             "bin",
             self.dirs.clone(),
         );

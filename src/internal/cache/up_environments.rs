@@ -365,6 +365,7 @@ impl UpEnvironment {
         self.add_version(backend, tool, "", "", version, bin_path, dirs)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_version(
         &mut self,
         backend: &str,
@@ -959,6 +960,7 @@ mod tests {
 
             // Add versions for different directories
             env.add_version(
+                "backend1",
                 "tool1",
                 "plugin1",
                 "plugin-1",
@@ -967,6 +969,7 @@ mod tests {
                 BTreeSet::from(["dir1".to_string()]),
             );
             env.add_version(
+                "backend2",
                 "tool2",
                 "plugin2",
                 "plugin-2",
@@ -975,6 +978,7 @@ mod tests {
                 BTreeSet::from(["dir1/subdir".to_string()]),
             );
             env.add_version(
+                "backend3",
                 "tool3",
                 "plugin3",
                 "plugin-3",
@@ -1049,6 +1053,7 @@ mod tests {
 
             // Test adding version
             assert!(env.add_version(
+                "backend1",
                 "tool1",
                 "plugin1",
                 "plugin-1",
@@ -1060,6 +1065,7 @@ mod tests {
 
             // Test adding same version doesn't duplicate
             assert!(!env.add_version(
+                "backend1",
                 "tool1",
                 "plugin1",
                 "plugin-1",
@@ -1084,6 +1090,7 @@ mod tests {
                 "tool1",
                 "plugin1",
                 "plugin-1",
+                "backend1",
                 "1.0.0",
                 "bin/path/1",
                 "dir1",
@@ -1091,6 +1098,7 @@ mod tests {
             assert_eq!(version.tool, "tool1");
             assert_eq!(version.plugin_name, "plugin1");
             assert_eq!(version.normalized_name, "plugin-1");
+            assert_eq!(version.backend, "backend1");
             assert_eq!(version.version, "1.0.0");
             assert_eq!(version.bin_path, "bin/path/1");
             assert_eq!(version.dir, "dir1");
