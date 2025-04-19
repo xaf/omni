@@ -35,6 +35,7 @@ This supports authenticated requests using [the `gh` command line interface](htt
 
 | Parameter        | Type      | Description                                           |
 |------------------|-----------|-------------------------------------------------------|
+| `dir` | path | Relative path (or list of relative paths) to the directory in the project for which to use this tool |
 | `repository` | string | The name of the repository to download the release from, in the `<owner>/<name>` format; can also be provided as an object with the `owner` and `name` keys |
 | `version` | string | The version of the tool to install; see [version handling](#version-handling) below for more details. |
 | `upgrade` | boolean | whether or not to always upgrade to the most up to date matching release, even if an already-installed version matches the requirements *(default: false)* |
@@ -154,6 +155,20 @@ up:
       asset_name: "cross-platform-binary"
       skip_os_matching: true
       skip_arch_matching: true
+
+  # Use this tool only in the specified directory
+  - github-release:
+      repository: xaf/omni
+      version: 1.2.3
+      dir: some/specific/dir
+      
+  # Use this tool in multiple directories
+  - github-release:
+      repository: xaf/omni
+      version: 1.2.3
+      dir:
+        - some/specific/dir
+        - another/dir
 ```
 
 ## Dynamic environment

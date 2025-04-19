@@ -1,8 +1,10 @@
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use itertools::Itertools;
+use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
@@ -50,6 +52,10 @@ cfg_if::cfg_if! {
             CARGO_INSTALL_BIN_PATH.clone()
         }
     }
+}
+
+pub fn cargo_install_tool_path(crate_name: &str, version: &str) -> PathBuf {
+    cargo_install_bin_path().join(crate_name).join(version)
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -463,6 +469,10 @@ struct UpConfigCargoInstall {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_url: Option<String>,
 
+    /// A list of directories to make the binary available for
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub dirs: BTreeSet<String>,
+
     /// In case there was an error while parsing the configuration, this field
     /// will contain the error message
     #[serde(default, skip)]
@@ -485,6 +495,7 @@ impl Default for UpConfigCargoInstall {
             prerelease: false,
             build: false,
             api_url: None,
+            dirs: BTreeSet::new(),
             config_error: None,
             actual_version: OnceCell::new(),
             was_handled: OnceCell::new(),
@@ -674,6 +685,12 @@ impl UpConfigCargoInstall {
         let build =
             config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
 
+        let dirs = config_value
+            .get_as_str_array("dir", &error_handler.with_key("dir"))
+            .iter()
+            .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
+            .collect::<BTreeSet<_>>();
+
         UpConfigCargoInstall {
             crate_name,
             version,
@@ -681,6 +698,7 @@ impl UpConfigCargoInstall {
             upgrade,
             prerelease,
             build,
+            dirs,
             ..Default::default()
         }
     }
@@ -706,6 +724,15 @@ impl UpConfigCargoInstall {
             progress_handler.progress(format!("failed to update github release cache: {}", err));
             return;
         }
+
+        // Update environment
+        environment.add_simple_version(
+            "cargo-install",
+            &self.crate_name,
+            &version,
+            "bin",
+            self.dirs.clone(),
+        );
 
         let version_crate_name = self.version_crate_name(version);
         environment.add_path(version_crate_name.join("bin"));

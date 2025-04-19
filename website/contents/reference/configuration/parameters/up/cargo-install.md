@@ -14,6 +14,7 @@ This will automatically install a version of [`rust`](rust) if none is available
 
 | Parameter        | Type      | Description                                           |
 |------------------|-----------|-------------------------------------------------------|
+| `dir` | path | Relative path (or list of relative paths) to the directory in the project for which to use this tool |
 | `crate` | string | The name of the crate to install |
 | `version` | string | The version to install; see [version handling](#version-handling) below for more details. |
 | `exact` | boolean | Whether to match the exact version or not; if set to `true`, `cargo install <crate>@<version>` will be called directly instead of listing the available versions and following the [version handling](#version-handling) rules *(default: `false`)* |
@@ -94,6 +95,20 @@ up:
       - exa: 0.9.0
       - crate: bat
         version: 0.15.0
+        
+  # Use this tool only in the specified directory
+  - cargo-install:
+      crate: ripgrep
+      version: 14.0.1
+      dir: tools/dir
+      
+  # Use this tool in multiple directories
+  - cargo-install:
+      crate: ripgrep
+      version: 14.0.1
+      dir:
+        - tools/dir
+        - scripts/dir
 ```
 
 ## Dynamic environment
