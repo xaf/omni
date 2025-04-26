@@ -396,20 +396,21 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
     if config.path_repo_updates.pre_auth {
         let mut auth_hosts = HashMap::new();
         for path_entry in &omnipath_entries {
-            let git_env = git_env(path_entry.to_string());
-            let repo_id = match git_env.id() {
-                Some(repo_id) => repo_id,
+            // Get the updater for that path, if any; if there are no updater,
+            // it means we can skip the authentication check since that repository
+            // won't be updated anyway
+            let updater = match GitRepoUpdater::from_path(path_entry.to_string()) {
+                Some(updater) => updater,
                 None => continue,
             };
-            let repo_root = git_env.root().unwrap().to_string();
 
-            if let Ok(git_url) = full_git_url_parse(&repo_id) {
+            if let Ok(git_url) = full_git_url_parse(&updater.repo_id) {
                 if let Some(host) = git_url.host {
                     let key = (host.clone(), git_url.scheme.to_string());
 
                     if let Some(succeeded) = auth_hosts.get(&key) {
                         if !succeeded {
-                            failed_early_auth.insert(repo_root.clone());
+                            failed_early_auth.insert(updater.path.clone());
                         }
                         continue;
                     }
@@ -417,7 +418,7 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     // Check using git ls-remote
                     let mut cmd = TokioCommand::new("git");
                     cmd.arg("ls-remote");
-                    cmd.current_dir(&repo_root);
+                    cmd.current_dir(&updater.path);
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
@@ -432,7 +433,7 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     auth_hosts.insert(key, result.is_ok());
                     if result.is_err() {
                         omni_error!(format!("failed to authenticate to {}", host.light_cyan()));
-                        failed_early_auth.insert(repo_root);
+                        failed_early_auth.insert(updater.path.clone());
                     }
                 }
             }
