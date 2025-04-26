@@ -399,7 +399,7 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
             // Get the updater for that path, if any; if there are no updater,
             // it means we can skip the authentication check since that repository
             // won't be updated anyway
-            let updater = match GitRepoUpdater::from_path(&path_entry.to_string()) {
+            let updater = match GitRepoUpdater::from_path(path_entry.to_string()) {
                 Some(updater) => updater,
                 None => continue,
             };
