@@ -475,12 +475,13 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                         progress_handler.hide();
                     });
 
+                    // Run the command
                     let result = run_command_with_handler(
                         &mut cmd,
                         move |_stdout, stderr| {
                             if let Some(stderr) = stderr {
                                 let mut timestamp = security_key_timestamp.lock().unwrap();
-                                if stderr.starts_with("debug1: sk_select_by_cred: found key") {
+                                if stderr.contains("sk_select_by_cred:") {
                                     *timestamp = Some(std::time::Instant::now());
                                 } else if (*timestamp).is_some() {
                                     // Any other stderr message resets the timestamp
