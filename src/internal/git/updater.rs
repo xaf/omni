@@ -10,6 +10,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use duct::cmd;
 use indicatif::MultiProgress;
 use tempfile::NamedTempFile;
 use time::format_description::well_known::Rfc3339;
@@ -418,13 +419,24 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     // Check using git ls-remote
                     let mut cmd = TokioCommand::new("git");
                     cmd.arg("ls-remote");
+                    cmd.arg("--heads");
                     cmd.current_dir(&updater.path);
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
+                    // Override the ssh command so that we can detect if
+                    // we are waiting on a security key touch
+                    cmd.env("GIT_SSH_COMMAND", get_verbose_ssh_command());
+
+                    // Start a thread that will show a message
+                    // if the command is taking too long
+
                     let result = run_command_with_handler(
                         &mut cmd,
-                        |_stdout, _stderr| {
+                        |_stdout, stderr| {
+                            if let Some(stderr) = stderr {
+                                eprintln!("STDERR: {}", stderr);
+                            }
                             // Do nothing
                         },
                         RunConfig::new().with_timeout(config.path_repo_updates.pre_auth_timeout),
@@ -678,6 +690,26 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
 
     // Return the list of updated paths
     (updated_paths, errored_paths)
+}
+
+fn get_verbose_ssh_command() -> String {
+    // Prepare an environment variable to override
+    // the ssh command used by git
+    let mut ssh_command = "ssh".to_string();
+
+    if let Some(env_ssh_command) =
+        std::env::var_os("GIT_SSH_COMMAND").and_then(|s| s.into_string().ok())
+    {
+        ssh_command = env_ssh_command.trim().to_string();
+    } else if let Ok(cfg_ssh_command) = cmd!("git", "config", "--get", "core.sshCommand").read() {
+        let cfg_ssh_command = cfg_ssh_command.trim();
+        if !cfg_ssh_command.is_empty() {
+            ssh_command = cfg_ssh_command.to_string();
+        }
+    };
+
+    // Add 3rd level verbosity to the command
+    format!("{} -vvv", ssh_command)
 }
 
 pub enum GitRepoUpdaterRefType {
