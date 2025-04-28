@@ -6,6 +6,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::exit;
 use std::process::Command as StdCommand;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -428,19 +430,60 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     // we are waiting on a security key touch
                     cmd.env("GIT_SSH_COMMAND", get_verbose_ssh_command());
 
-                    // Start a thread that will show a message
-                    // if the command is taking too long
+                    // Start a thread that will show a message if SSH security key needs attention
+                    use std::sync::{Arc, Mutex};
+
+                    let security_key_timestamp = Arc::new(Mutex::new(None::<std::time::Instant>));
+                    let stop_signal = Arc::new(AtomicBool::new(false));
+
+                    let timestamp_monitor_clone = security_key_timestamp.clone();
+                    let stop_signal_monitor_clone = stop_signal.clone();
+                    let monitor_thread = thread::spawn(move || {
+                        let duration = Duration::from_millis(400);
+                        while !stop_signal_monitor_clone.load(Ordering::Relaxed) {
+                            // Check if we should display a message about security key
+                            {
+                                let mut timestamp_guard = timestamp_monitor_clone.lock().unwrap();
+                                if let Some(timestamp) = *timestamp_guard {
+                                    if timestamp.elapsed() > duration {
+                                        eprintln!(
+                                            "{}",
+                                            "🔑 Waiting on security key".light_black().italic()
+                                        );
+                                        // Reset timestamp after showing message
+                                        *timestamp_guard = None;
+                                        // Try breaking here
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // Sleep for a short time before checking again
+                            thread::sleep(Duration::from_millis(100));
+                        }
+                    });
 
                     let result = run_command_with_handler(
                         &mut cmd,
-                        |_stdout, stderr| {
+                        move |_stdout, stderr| {
                             if let Some(stderr) = stderr {
-                                eprintln!("STDERR: {}", stderr);
+                                let mut timestamp = security_key_timestamp.lock().unwrap();
+                                if stderr.starts_with("debug1: sk_select_by_cred: found key") {
+                                    *timestamp = Some(std::time::Instant::now());
+                                } else if (*timestamp).is_some() {
+                                    // Any other stderr message resets the timestamp
+                                    *timestamp = None;
+                                }
                             }
-                            // Do nothing
                         },
-                        RunConfig::new().with_timeout(config.path_repo_updates.pre_auth_timeout),
+                        RunConfig::new()
+                            .with_timeout(config.path_repo_updates.pre_auth_timeout)
+                            .without_wait_for_stderr(),
                     );
+
+                    // Send the stop signal to the monitor thread and wait for thread to complete
+                    stop_signal.store(true, Ordering::SeqCst);
+                    let _ = monitor_thread.join();
 
                     auth_hosts.insert(key, result.is_ok());
                     if result.is_err() {
@@ -709,7 +752,7 @@ fn get_verbose_ssh_command() -> String {
     };
 
     // Add 3rd level verbosity to the command
-    format!("{} -vvv", ssh_command)
+    format!("{} -v", ssh_command)
 }
 
 pub enum GitRepoUpdaterRefType {

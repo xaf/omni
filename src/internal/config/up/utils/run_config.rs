@@ -9,6 +9,7 @@ pub struct RunConfig {
     pub timeout: Option<Duration>,
     pub strip_ctrl_chars: bool,
     pub askpass: bool,
+    pub wait_for_stderr: bool,
 }
 
 impl Default for RunConfig {
@@ -17,6 +18,7 @@ impl Default for RunConfig {
             timeout: None,
             strip_ctrl_chars: true,
             askpass: false,
+            wait_for_stderr: true,
         }
     }
 }
@@ -38,6 +40,11 @@ impl RunConfig {
 
     pub fn with_askpass(&mut self) -> Self {
         self.askpass = true;
+        self.clone()
+    }
+
+    pub fn without_wait_for_stderr(&mut self) -> Self {
+        self.wait_for_stderr = false;
         self.clone()
     }
 

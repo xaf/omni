@@ -239,7 +239,7 @@ where
 
             loop {
                 tokio::select! {
-                    stdout_result = stdout.read(&mut stdout_buffer) => {
+                    stdout_result = stdout.read(&mut stdout_buffer), if stdout_open => {
                         match stdout_result {
                             Ok(0) => stdout_open = false,  // End of stdout stream
                             Ok(n) => {
@@ -260,7 +260,7 @@ where
                             Err(_err) => break,
                         }
                     }
-                    stderr_result = stderr.read(&mut stderr_buffer) => {
+                    stderr_result = stderr.read(&mut stderr_buffer), if stderr_open => {
                         match stderr_result {
                             Ok(0) => stderr_open = false,  // End of stderr stream
                             Ok(n) => {
@@ -359,7 +359,7 @@ where
 
             loop {
                 tokio::select! {
-                    stdout_line = stdout_reader.next_line() => {
+                    stdout_line = stdout_reader.next_line(), if stdout_open => {
                         match stdout_line {
                             Ok(Some(line)) => {
                                 last_read = std::time::Instant::now();
@@ -372,7 +372,7 @@ where
                             Err(err) => return Err(UpError::Exec(err.to_string())),
                         }
                     }
-                    stderr_line = stderr_reader.next_line() => {
+                    stderr_line = stderr_reader.next_line(), if stderr_open => {
                         match stderr_line {
                             Ok(Some(line)) => {
                                 last_read = std::time::Instant::now();
@@ -396,7 +396,7 @@ where
                     }
                 }
 
-                if !stdout_open && !stderr_open {
+                if !stdout_open && (!stderr_open || !run_config.wait_for_stderr) {
                     break;
                 }
             }
