@@ -9,6 +9,8 @@ use std::process::Command as StdCommand;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -30,6 +32,7 @@ use crate::internal::config::up::utils::PrintProgressHandler;
 use crate::internal::config::up::utils::ProgressHandler;
 use crate::internal::config::up::utils::RunConfig;
 use crate::internal::config::up::utils::SpinnerProgressHandler;
+use crate::internal::config::up::utils::VoidProgressHandler;
 use crate::internal::env::current_exe;
 use crate::internal::env::running_as_sudo;
 use crate::internal::env::shell_is_interactive;
@@ -431,8 +434,6 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     cmd.env("GIT_SSH_COMMAND", get_verbose_ssh_command());
 
                     // Start a thread that will show a message if SSH security key needs attention
-                    use std::sync::{Arc, Mutex};
-
                     let security_key_timestamp = Arc::new(Mutex::new(None::<std::time::Instant>));
                     let stop_signal = Arc::new(AtomicBool::new(false));
 
@@ -440,20 +441,28 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     let stop_signal_monitor_clone = stop_signal.clone();
                     let monitor_thread = thread::spawn(move || {
                         let duration = Duration::from_millis(400);
+                        let mut wait_for_security_key = false;
+                        let mut progress_handler: Box<dyn ProgressHandler> =
+                            Box::new(VoidProgressHandler::new());
+
                         while !stop_signal_monitor_clone.load(Ordering::Relaxed) {
                             // Check if we should display a message about security key
-                            {
+                            if !wait_for_security_key {
                                 let mut timestamp_guard = timestamp_monitor_clone.lock().unwrap();
                                 if let Some(timestamp) = *timestamp_guard {
                                     if timestamp.elapsed() > duration {
-                                        eprintln!(
-                                            "{}",
-                                            "🔑 Waiting on security key".light_black().italic()
-                                        );
+                                        wait_for_security_key = true;
+                                        let desc = "Waiting on security key".light_black().italic();
+                                        progress_handler = if shell_is_interactive() {
+                                            Box::new(SpinnerProgressHandler::new(desc, None))
+                                        } else {
+                                            Box::new(PrintProgressHandler::new(desc, None))
+                                        };
+
+                                        progress_handler.progress("".to_string());
+
                                         // Reset timestamp after showing message
                                         *timestamp_guard = None;
-                                        // Try breaking here
-                                        break;
                                     }
                                 }
                             }
@@ -461,6 +470,9 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                             // Sleep for a short time before checking again
                             thread::sleep(Duration::from_millis(100));
                         }
+
+                        progress_handler.success_with_message("".to_string());
+                        progress_handler.hide();
                     });
 
                     let result = run_command_with_handler(
