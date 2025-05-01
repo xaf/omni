@@ -302,9 +302,14 @@ where
                             }
                         }
                     }
+                    _ = command.wait() => {
+                        // The command has finished, we can stop reading
+                        stdout_open = false;
+                        stderr_open = false;
+                    }
                 }
 
-                if !stdout_open && !stderr_open {
+                if !stdout_open && (!stderr_open || !run_config.wait_for_stderr) {
                     break;
                 }
             }
@@ -348,6 +353,17 @@ async fn async_run_progress_readlines<F>(
 where
     F: FnMut(Option<String>, Option<String>),
 {
+    let mut listener_manager = match run_config
+        .listener_manager_for_command(process_command)
+        .await
+    {
+        Ok(listener_manager) => listener_manager,
+        Err(err) => {
+            return Err(UpError::Exec(err));
+        }
+    };
+    listener_manager.start();
+
     if let Ok(mut command) = process_command.spawn() {
         if let (Some(stdout), Some(stderr)) = (command.stdout.take(), command.stderr.take()) {
             let mut last_read = std::time::Instant::now();
@@ -362,7 +378,9 @@ where
                     stdout_line = stdout_reader.next_line(), if stdout_open => {
                         match stdout_line {
                             Ok(Some(line)) => {
+                                eprintln!("DEBUG: stdout: {}", line);
                                 last_read = std::time::Instant::now();
+                                listener_manager.recv_stdout(&line).await;
                                 handler_fn(Some(if run_config.strip_ctrl_chars {
                                     filter_control_characters(&line)
                                 } else { line }), None);
@@ -375,13 +393,20 @@ where
                     stderr_line = stderr_reader.next_line(), if stderr_open => {
                         match stderr_line {
                             Ok(Some(line)) => {
+                                eprintln!("DEBUG: stderr: {}", line);
                                 last_read = std::time::Instant::now();
+                                listener_manager.recv_stderr(&line).await;
                                 handler_fn(None, Some(if run_config.strip_ctrl_chars {
                                     filter_control_characters(&line)
                                 } else { line }));
                             }
                             Ok(None) => stderr_open = false,  // End of stderr stream
                             Err(err) => return Err(UpError::Exec(err.to_string())),
+                        }
+                    }
+                    Some((handler, _interactive)) = listener_manager.next() => {
+                        if let Err(err) = handler().await {
+                            handler_fn(None, Some(err.to_string()));
                         }
                     }
                     _ = tokio::time::sleep(Duration::from_secs(1)) => {
@@ -394,12 +419,22 @@ where
                             }
                         }
                     }
+                    _ = command.wait() => {
+                        // The command has finished, we can stop reading
+                        stdout_open = false;
+                        stderr_open = false;
+                    }
                 }
 
                 if !stdout_open && (!stderr_open || !run_config.wait_for_stderr) {
                     break;
                 }
             }
+        }
+
+        // Close the listener
+        if let Err(err) = listener_manager.stop().await {
+            handler_fn(None, Some(err.to_string()));
         }
 
         let exit_status = command.wait().await;

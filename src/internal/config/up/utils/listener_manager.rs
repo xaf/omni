@@ -14,6 +14,8 @@ pub trait Listener: Send + Sync {
     fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String>;
     fn next(&mut self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>>;
     fn stop(&mut self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
+    fn recv_stderr(&mut self, stderr: &str) {}
+    fn recv_stdout(&mut self, stdout: &str) {}
 }
 
 type ListenerActiveFuture = Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send>>;
@@ -145,6 +147,24 @@ impl ListenerManager {
             Ok(())
         } else {
             Err("Error stopping listeners".to_string())
+        }
+    }
+
+    pub async fn recv_stderr(&mut self, stderr: &str) {
+        eprintln!("DEBUG: listeners number: {}", self.listeners.len());
+        for listener in &self.listeners {
+            eprintln!("DEBUG: listener!");
+            let mut lock = listener.lock().await;
+            eprintln!("DEBUG: listener locked!");
+            lock.recv_stderr(stderr);
+            eprintln!("DEBUG: listener done!");
+        }
+    }
+
+    pub async fn recv_stdout(&mut self, stdout: &str) {
+        for listener in &self.listeners {
+            let mut lock = listener.lock().await;
+            lock.recv_stdout(stdout);
         }
     }
 }

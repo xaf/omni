@@ -3,12 +3,14 @@ use tokio::time::Duration;
 
 use crate::internal::config::up::utils::AskPassListener;
 use crate::internal::config::up::utils::ListenerManager;
+use crate::internal::config::up::utils::SecurityKeyListener;
 
 #[derive(Debug, Clone)]
 pub struct RunConfig {
     pub timeout: Option<Duration>,
     pub strip_ctrl_chars: bool,
     pub askpass: bool,
+    pub security_key: bool,
     pub wait_for_stderr: bool,
 }
 
@@ -18,6 +20,7 @@ impl Default for RunConfig {
             timeout: None,
             strip_ctrl_chars: true,
             askpass: false,
+            security_key: false,
             wait_for_stderr: true,
         }
     }
@@ -40,6 +43,11 @@ impl RunConfig {
 
     pub fn with_askpass(&mut self) -> Self {
         self.askpass = true;
+        self.clone()
+    }
+
+    pub fn with_security_key(&mut self) -> Self {
+        self.security_key = true;
         self.clone()
     }
 
@@ -69,6 +77,11 @@ impl RunConfig {
                     return Err(err.to_string());
                 }
             }
+        }
+
+        if self.security_key {
+            let listener = SecurityKeyListener::new();
+            listener_manager.add_listener(Box::new(listener));
         }
 
         listener_manager.set_process_env(process_command).await?;

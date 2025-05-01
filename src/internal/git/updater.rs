@@ -429,10 +429,6 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
-                    // Override the ssh command so that we can detect if
-                    // we are waiting on a security key touch
-                    cmd.env("GIT_SSH_COMMAND", get_verbose_ssh_command());
-
                     // Start a thread that will show a message if SSH security key needs attention
                     let security_key_timestamp = Arc::new(Mutex::new(None::<std::time::Instant>));
                     let stop_signal = Arc::new(AtomicBool::new(false));
@@ -479,24 +475,24 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     let result = run_command_with_handler(
                         &mut cmd,
                         move |_stdout, stderr| {
-                            if let Some(stderr) = stderr {
-                                let mut timestamp = security_key_timestamp.lock().unwrap();
-                                if stderr.contains("sk_select_by_cred:") {
-                                    *timestamp = Some(std::time::Instant::now());
-                                } else if (*timestamp).is_some() {
-                                    // Any other stderr message resets the timestamp
-                                    *timestamp = None;
-                                }
-                            }
+                            // if let Some(stderr) = stderr {
+                            // let mut timestamp = security_key_timestamp.lock().unwrap();
+                            // if stderr.contains("sk_select_by_cred:") {
+                            // *timestamp = Some(std::time::Instant::now());
+                            // } else if (*timestamp).is_some() {
+                            // // Any other stderr message resets the timestamp
+                            // *timestamp = None;
+                            // }
+                            // }
                         },
                         RunConfig::new()
                             .with_timeout(config.path_repo_updates.pre_auth_timeout)
-                            .without_wait_for_stderr(),
+                            .with_security_key(), // .without_wait_for_stderr()
                     );
 
                     // Send the stop signal to the monitor thread and wait for thread to complete
-                    stop_signal.store(true, Ordering::SeqCst);
-                    let _ = monitor_thread.join();
+                    // stop_signal.store(true, Ordering::SeqCst);
+                    // let _ = monitor_thread.join();
 
                     auth_hosts.insert(key, result.is_ok());
                     if result.is_err() {
