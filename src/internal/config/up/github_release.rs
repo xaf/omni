@@ -44,6 +44,7 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::check_allowed;
 use crate::internal::config::ConfigValue;
+use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::data_home;
 use crate::internal::self_updater::current_arch;
 use crate::internal::self_updater::current_os;
@@ -166,11 +167,20 @@ impl UpConfigGithubReleases {
             }
 
             // Otherwise, we have a table of repositories, where repositories are
-            // the keys and the values are the configuration for the repository;
-            // we want to go over them in lexico-graphical order to ensure that
-            // the order is consistent
+            // the keys and the values are the configuration for the repository
             let mut releases = Vec::new();
-            for repo in table.keys().sorted() {
+            for repo in table.keys().sorted_by(|a, b| {
+                // We want to go over the repositories in lexico-graphical order to
+                // ensure that the order is consistent, with the exception of `cli/cli`
+                // which should always be first (since it provides `gh`)
+                if *a == "cli/cli" {
+                    return std::cmp::Ordering::Less;
+                } else if *b == "cli/cli" {
+                    return std::cmp::Ordering::Greater;
+                } else {
+                    return a.to_lowercase().cmp(&b.to_lowercase());
+                }
+            }) {
                 let value = table.get(repo).expect("repo config not found");
                 let repository = match ConfigValue::from_str(repo) {
                     Ok(value) => value,
@@ -243,6 +253,11 @@ impl UpConfigGithubReleases {
 
         let num = self.releases.len();
         for (idx, release) in self.releases.iter().enumerate() {
+            if idx > 0 {
+                // Reload the environment between releases
+                update_dynamic_env_for_command_from_env(".", environment);
+            }
+
             let subhandler = progress_handler.subhandler(
                 &format!(
                     "[{current:padding$}/{total:padding$}] {release} ",
