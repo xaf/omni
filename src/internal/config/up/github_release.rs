@@ -167,20 +167,11 @@ impl UpConfigGithubReleases {
             }
 
             // Otherwise, we have a table of repositories, where repositories are
-            // the keys and the values are the configuration for the repository
+            // the keys and the values are the configuration for the repository;
+            // we want to go over them in lexico-graphical order to ensure that
+            // the order is consistent
             let mut releases = Vec::new();
-            for repo in table.keys().sorted_by(|a, b| {
-                // We want to go over the repositories in lexico-graphical order to
-                // ensure that the order is consistent, with the exception of `cli/cli`
-                // which should always be first (since it provides `gh`)
-                if *a == "cli/cli" {
-                    return std::cmp::Ordering::Less;
-                } else if *b == "cli/cli" {
-                    return std::cmp::Ordering::Greater;
-                } else {
-                    return a.to_lowercase().cmp(&b.to_lowercase());
-                }
-            }) {
+            for repo in table.keys().sorted() {
                 let value = table.get(repo).expect("repo config not found");
                 let repository = match ConfigValue::from_str(repo) {
                     Ok(value) => value,
@@ -202,10 +193,17 @@ impl UpConfigGithubReleases {
                 };
 
                 repo_config.insert("repository".to_string(), repository);
-                releases.push(UpConfigGithubRelease::from_table(
-                    &repo_config,
-                    &error_handler.with_key(repo),
-                ));
+                let release =
+                    UpConfigGithubRelease::from_table(&repo_config, &error_handler.with_key(repo));
+
+                if release.is_gh() {
+                    // Special case for the `gh` tool, we want to bump that to the top
+                    // of the list so that if `gh` is requested to be installed, it can
+                    // be used for the follow-up installations of github releases
+                    releases.insert(0, release);
+                } else {
+                    releases.push(release);
+                }
             }
 
             if releases.is_empty() {
@@ -1964,6 +1962,10 @@ impl UpConfigGithubRelease {
             Some(handled) => handled.clone(),
             None => GithubReleaseHandled::Unhandled,
         }
+    }
+
+    fn is_gh(&self) -> bool {
+        self.api_url.is_none() && self.repository.to_lowercase() == "cli/cli"
     }
 }
 
