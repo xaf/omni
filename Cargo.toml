@@ -47,7 +47,7 @@ lazy_static = "1.4.0"
 libz-sys = { version = "1.1.21", features = ["static"] }  # So we can force static linking
 machine-uid = "0.5.2"
 md-5 = "0.10.6"
-nix = "0.30.0"
+nix = { version = "0.30.0", features = ["fs", "process", "signal"] }
 node-semver = "2.2.0"
 normalize-path = "0.2.1"
 num-bigint = "0.4.6"
