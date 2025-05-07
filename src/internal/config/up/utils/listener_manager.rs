@@ -11,18 +11,20 @@ pub type EventHandlerFn =
     Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send>;
 
 pub trait Listener: Send + Sync {
-    fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String>;
-    fn next(&mut self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>>;
-    fn stop(&mut self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
-    fn recv_stderr(&mut self, stderr: &str) {}
-    fn recv_stdout(&mut self, stdout: &str) {}
+    fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String> {
+        Ok(())
+    }
+    fn next(&self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>>;
+    fn stop(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
+    fn recv_stderr(&self, stderr: &str) {}
+    fn recv_stdout(&self, stdout: &str) {}
 }
 
 type ListenerActiveFuture = Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send>>;
 
 #[derive(Default)]
 pub struct ListenerManager {
-    listeners: Vec<Arc<Mutex<Box<dyn Listener>>>>,
+    listeners: Vec<Arc<dyn Listener>>,
     active_futures: HashMap<usize, ListenerActiveFuture>,
     started: bool,
 }
@@ -55,15 +57,12 @@ impl ListenerManager {
 
     pub fn add_listener(&mut self, listener: Box<dyn Listener>) {
         let index = self.listeners.len();
-        let listener = Arc::new(Mutex::new(listener));
+        let listener: Arc<dyn Listener> = Arc::from(listener);
 
         // Start the future immediately if we add a listener after start()
         if self.started {
             let listener_clone = listener.clone();
-            let future = Box::pin(async move {
-                let mut lock = listener_clone.lock().await;
-                lock.next().await
-            });
+            let future = Box::pin(async move { listener_clone.next().await });
             self.active_futures.insert(index, future);
         }
 
@@ -72,19 +71,15 @@ impl ListenerManager {
 
     pub async fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String> {
         for listener in &self.listeners {
-            let lock = listener.lock().await;
-            lock.set_process_env(process)?;
+            listener.set_process_env(process).await?;
         }
         Ok(())
     }
 
     pub fn start(&mut self) {
         for (index, listener) in self.listeners.iter().enumerate() {
-            let listener_clone = listener.clone();
-            let future = Box::pin(async move {
-                let mut lock = listener_clone.lock().await;
-                lock.next().await
-            });
+            let listener_clone = Arc::clone(listener);
+            let future = Box::pin(async move { listener_clone.next().await });
             self.active_futures.insert(index, future);
         }
         self.started = true;
@@ -113,10 +108,7 @@ impl ListenerManager {
 
         // Immediately start a new future for this listener
         let listener = self.listeners[listener_index].clone();
-        let future = Box::pin(async move {
-            let mut lock = listener.lock().await;
-            lock.next().await
-        });
+        let future = Box::pin(async move { listener.next().await });
         self.active_futures.insert(listener_index, future);
 
         Some((handler, interactive))
@@ -133,11 +125,8 @@ impl ListenerManager {
             .listeners
             .iter()
             .map(|listener| {
-                let listener_clone = listener.clone();
-                async move {
-                    let mut lock = listener_clone.lock().await;
-                    lock.stop().await
-                }
+                let listener = Arc::clone(listener);
+                async move { listener.stop().await }
             })
             .collect::<Vec<_>>();
 
@@ -150,21 +139,20 @@ impl ListenerManager {
         }
     }
 
-    pub async fn recv_stderr(&mut self, stderr: &str) {
+    // This calls a non-mutable method on the listener, so we don't need to
+    // lock the listener
+    pub async fn recv_stderr(&self, stderr: &str) {
         eprintln!("DEBUG: listeners number: {}", self.listeners.len());
         for listener in &self.listeners {
             eprintln!("DEBUG: listener!");
-            let mut lock = listener.lock().await;
-            eprintln!("DEBUG: listener locked!");
-            lock.recv_stderr(stderr);
+            listener.recv_stderr(stderr);
             eprintln!("DEBUG: listener done!");
         }
     }
 
-    pub async fn recv_stdout(&mut self, stdout: &str) {
+    pub async fn recv_stdout(&self, stdout: &str) {
         for listener in &self.listeners {
-            let mut lock = listener.lock().await;
-            lock.recv_stdout(stdout);
+            listener.recv_stdout(stdout);
         }
     }
 }

@@ -34,19 +34,24 @@ impl Drop for SecurityKeyListener {
 }
 
 impl Listener for SecurityKeyListener {
-    fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String> {
-        let verbose_ssh_cmd = get_verbose_ssh_command(1);
-        process.env("GIT_SSH_COMMAND", &verbose_ssh_cmd);
-        eprintln!("Setting env: GIT_SSH_COMMAND={}", verbose_ssh_cmd);
+    // fn set_process_env(
+    // &self,
+    // process: &mut TokioCommand,
+    // ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+    // Box::pin(async move {
+    // let verbose_ssh_cmd = get_verbose_ssh_command(1);
+    // process.env("GIT_SSH_COMMAND", &verbose_ssh_cmd);
+    // eprintln!("Setting env: GIT_SSH_COMMAND={}", verbose_ssh_cmd);
 
-        Ok(())
-    }
+    // Ok(())
+    // })
+    // }
 
-    fn next(&mut self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>> {
+    fn next(&self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>> {
         // Create a stream copy that we can move into the future
         Box::pin(async move {
             loop {
-                eprintln!("Waiting on notification");
+                eprintln!("Waiting on notification BLAH");
                 // Wait for a notification
                 self.notify.notified().await;
 
@@ -81,14 +86,14 @@ impl Listener for SecurityKeyListener {
         })
     }
 
-    fn stop(&mut self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+    fn stop(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         Box::pin(async move {
             self.hide_progress_bar();
             Ok(())
         })
     }
 
-    fn recv_stderr(&mut self, stderr: &str) {
+    fn recv_stderr(&self, stderr: &str) {
         eprintln!("HELLOOOOO");
         eprintln!("DEBUG: stderr: {}", stderr);
         let mut timestamp = self.sk_select_timestamp;
@@ -116,7 +121,7 @@ impl SecurityKeyListener {
         }
     }
 
-    fn show_progress_bar(&mut self) {
+    fn show_progress_bar(&self) {
         println!("{}", "Waiting on security key...".light_black().italic());
         // if self.progress_handler.is_some() {
         // // If the progress handler is already set, do nothing
@@ -135,7 +140,7 @@ impl SecurityKeyListener {
         // self.progress_handler = Some(progress_handler);
     }
 
-    fn hide_progress_bar(&mut self) {
+    fn hide_progress_bar(&self) {
         // if let Some(handler) = self.progress_handler.take() {
         // handler.success_with_message("".to_string());
         // handler.hide();

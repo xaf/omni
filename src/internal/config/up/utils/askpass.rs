@@ -19,6 +19,7 @@ use tokio::io::BufReader;
 use tokio::net::UnixListener;
 use tokio::net::UnixStream;
 use tokio::process::Command as TokioCommand;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::internal::config::global_config;
 use crate::internal::config::template::render_askpass_template;
@@ -129,9 +130,14 @@ impl AskPassRequest {
 }
 
 #[derive(Debug)]
-pub struct AskPassListener {
+struct AskPassInner {
     listener: UnixListener,
     tmp_dir: TempDir,
+}
+
+#[derive(Debug)]
+pub struct AskPassListener {
+    inner: TokioMutex<AskPassInner>,
 }
 
 impl Drop for AskPassListener {
@@ -149,8 +155,9 @@ impl Drop for AskPassListener {
 impl Listener for AskPassListener {
     fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String> {
         let needs_askpass = Self::needs_askpass();
+        let lock = self.inner.lock().await;
         for tool in &needs_askpass {
-            let askpass_path = Self::askpass_path(&self.tmp_dir, tool);
+            let askpass_path = Self::askpass_path(&lock.tmp_dir, tool);
             let askpass_path = askpass_path.to_string_lossy().to_string();
             process.env(format!("{}_ASKPASS", tool.to_uppercase()), &askpass_path);
         }
@@ -161,12 +168,14 @@ impl Listener for AskPassListener {
         Ok(())
     }
 
-    fn next(&mut self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>> {
+    fn next(&self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>> {
         // Create a stream copy that we can move into the future
         Box::pin(async move {
+            let mut lock = self.inner.lock().await;
+
             // Accept a connection from the socket
             loop {
-                match self.listener.accept().await {
+                match lock.listener.accept().await {
                     Ok((mut stream, _addr)) => {
                         // Create the handler function with the correct type
                         let handler: EventHandlerFn = Box::new(move || {
@@ -183,10 +192,12 @@ impl Listener for AskPassListener {
         })
     }
 
-    fn stop(&mut self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+    fn stop(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         Box::pin(async move {
+            let mut lock = self.inner.lock().await;
+
             // Take ownership of the tmp_dir and handle cleanup
-            let tmp_dir = mem::replace(&mut self.tmp_dir, TempDir::new().unwrap());
+            let tmp_dir = mem::replace(&mut lock.tmp_dir, TempDir::new().unwrap());
             let tmp_dir_path = tmp_dir.path().to_path_buf();
             if let Err(_err) = tmp_dir.close() {
                 if let Err(err) = force_remove_dir_all(tmp_dir_path) {
@@ -321,12 +332,12 @@ impl AskPassListener {
         }
 
         // Create the listener
-        match UnixListener::bind(&socket_path) {
-            Ok(listener) => Ok(Some(Self { listener, tmp_dir })),
-            Err(err) => Err(UpError::Exec(
-                format!("failed to bind to socket: {:?}", err).to_string(),
-            )),
-        }
+        let listener = UnixListener::bind(&socket_path)
+            .map_err(|err| UpError::Exec(format!("failed to bind to socket: {:?}", err)))?;
+
+        Ok(Some(Self {
+            inner: TokioMutex::new(AskPassInner { listener, tmp_dir }),
+        }))
     }
 
     pub async fn handle_request(stream: &mut UnixStream) -> Result<(), String> {
