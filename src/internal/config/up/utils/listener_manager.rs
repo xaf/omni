@@ -5,19 +5,31 @@ use std::sync::Arc;
 
 use futures::future::select_all;
 use tokio::process::Command as TokioCommand;
-use tokio::sync::Mutex;
 
 pub type EventHandlerFn =
     Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send>;
 
 pub trait Listener: Send + Sync {
-    fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String> {
-        Ok(())
+    fn set_process_env<'a>(
+        &'a self,
+        _process: &'a mut TokioCommand,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move { Ok(()) })
     }
     fn next(&self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>>;
     fn stop(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
-    fn recv_stderr(&self, stderr: &str) {}
-    fn recv_stdout(&self, stdout: &str) {}
+    fn recv_stderr<'a>(
+        &'a self,
+        _stderr: &'a str,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {})
+    }
+    fn recv_stdout<'a>(
+        &'a self,
+        _stdout: &'a str,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {})
+    }
 }
 
 type ListenerActiveFuture = Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send>>;
@@ -139,20 +151,15 @@ impl ListenerManager {
         }
     }
 
-    // This calls a non-mutable method on the listener, so we don't need to
-    // lock the listener
     pub async fn recv_stderr(&self, stderr: &str) {
-        eprintln!("DEBUG: listeners number: {}", self.listeners.len());
         for listener in &self.listeners {
-            eprintln!("DEBUG: listener!");
-            listener.recv_stderr(stderr);
-            eprintln!("DEBUG: listener done!");
+            listener.recv_stderr(stderr).await;
         }
     }
 
     pub async fn recv_stdout(&self, stdout: &str) {
         for listener in &self.listeners {
-            listener.recv_stdout(stdout);
+            listener.recv_stdout(stdout).await;
         }
     }
 }

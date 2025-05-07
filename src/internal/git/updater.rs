@@ -6,15 +6,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::exit;
 use std::process::Command as StdCommand;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use duct::cmd;
 use indicatif::MultiProgress;
 use tempfile::NamedTempFile;
 use time::format_description::well_known::Rfc3339;
@@ -32,7 +27,6 @@ use crate::internal::config::up::utils::PrintProgressHandler;
 use crate::internal::config::up::utils::ProgressHandler;
 use crate::internal::config::up::utils::RunConfig;
 use crate::internal::config::up::utils::SpinnerProgressHandler;
-use crate::internal::config::up::utils::VoidProgressHandler;
 use crate::internal::env::current_exe;
 use crate::internal::env::running_as_sudo;
 use crate::internal::env::shell_is_interactive;
@@ -429,70 +423,15 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
-                    // Start a thread that will show a message if SSH security key needs attention
-                    let security_key_timestamp = Arc::new(Mutex::new(None::<std::time::Instant>));
-                    let stop_signal = Arc::new(AtomicBool::new(false));
-
-                    let timestamp_monitor_clone = security_key_timestamp.clone();
-                    let stop_signal_monitor_clone = stop_signal.clone();
-                    let monitor_thread = thread::spawn(move || {
-                        let duration = Duration::from_millis(400);
-                        let mut wait_for_security_key = false;
-                        let mut progress_handler: Box<dyn ProgressHandler> =
-                            Box::new(VoidProgressHandler::new());
-
-                        while !stop_signal_monitor_clone.load(Ordering::Relaxed) {
-                            // Check if we should display a message about security key
-                            if !wait_for_security_key {
-                                let mut timestamp_guard = timestamp_monitor_clone.lock().unwrap();
-                                if let Some(timestamp) = *timestamp_guard {
-                                    if timestamp.elapsed() > duration {
-                                        wait_for_security_key = true;
-                                        let desc = "Waiting on security key".light_black().italic();
-                                        progress_handler = if shell_is_interactive() {
-                                            Box::new(SpinnerProgressHandler::new(desc, None))
-                                        } else {
-                                            Box::new(PrintProgressHandler::new(desc, None))
-                                        };
-
-                                        progress_handler.progress("".to_string());
-
-                                        // Reset timestamp after showing message
-                                        *timestamp_guard = None;
-                                    }
-                                }
-                            }
-
-                            // Sleep for a short time before checking again
-                            thread::sleep(Duration::from_millis(100));
-                        }
-
-                        progress_handler.success_with_message("".to_string());
-                        progress_handler.hide();
-                    });
-
                     // Run the command
                     let result = run_command_with_handler(
                         &mut cmd,
-                        move |_stdout, stderr| {
-                            // if let Some(stderr) = stderr {
-                            // let mut timestamp = security_key_timestamp.lock().unwrap();
-                            // if stderr.contains("sk_select_by_cred:") {
-                            // *timestamp = Some(std::time::Instant::now());
-                            // } else if (*timestamp).is_some() {
-                            // // Any other stderr message resets the timestamp
-                            // *timestamp = None;
-                            // }
-                            // }
-                        },
+                        |_stdout, _stderr| {},
                         RunConfig::new()
                             .with_timeout(config.path_repo_updates.pre_auth_timeout)
-                            .with_security_key(), // .without_wait_for_stderr()
+                            .with_askpass()
+                            .with_security_key(),
                     );
-
-                    // Send the stop signal to the monitor thread and wait for thread to complete
-                    // stop_signal.store(true, Ordering::SeqCst);
-                    // let _ = monitor_thread.join();
 
                     auth_hosts.insert(key, result.is_ok());
                     if result.is_err() {
@@ -742,26 +681,6 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
 
     // Return the list of updated paths
     (updated_paths, errored_paths)
-}
-
-fn get_verbose_ssh_command() -> String {
-    // Prepare an environment variable to override
-    // the ssh command used by git
-    let mut ssh_command = "ssh".to_string();
-
-    if let Some(env_ssh_command) =
-        std::env::var_os("GIT_SSH_COMMAND").and_then(|s| s.into_string().ok())
-    {
-        ssh_command = env_ssh_command.trim().to_string();
-    } else if let Ok(cfg_ssh_command) = cmd!("git", "config", "--get", "core.sshCommand").read() {
-        let cfg_ssh_command = cfg_ssh_command.trim();
-        if !cfg_ssh_command.is_empty() {
-            ssh_command = cfg_ssh_command.to_string();
-        }
-    };
-
-    // Add 3rd level verbosity to the command
-    format!("{} -v", ssh_command)
 }
 
 pub enum GitRepoUpdaterRefType {

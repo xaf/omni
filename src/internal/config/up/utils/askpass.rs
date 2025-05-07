@@ -130,14 +130,14 @@ impl AskPassRequest {
 }
 
 #[derive(Debug)]
-struct AskPassInner {
+struct AskPassListenerInner {
     listener: UnixListener,
     tmp_dir: TempDir,
 }
 
 #[derive(Debug)]
 pub struct AskPassListener {
-    inner: TokioMutex<AskPassInner>,
+    inner: TokioMutex<AskPassListenerInner>,
 }
 
 impl Drop for AskPassListener {
@@ -153,28 +153,32 @@ impl Drop for AskPassListener {
 }
 
 impl Listener for AskPassListener {
-    fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String> {
-        let needs_askpass = Self::needs_askpass();
-        let lock = self.inner.lock().await;
-        for tool in &needs_askpass {
-            let askpass_path = Self::askpass_path(&lock.tmp_dir, tool);
-            let askpass_path = askpass_path.to_string_lossy().to_string();
-            process.env(format!("{}_ASKPASS", tool.to_uppercase()), &askpass_path);
-        }
+    fn set_process_env<'a>(
+        &'a self,
+        process: &'a mut TokioCommand,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            let needs_askpass = Self::needs_askpass();
+            let lock = self.inner.lock().await;
+            for tool in &needs_askpass {
+                let askpass_path = Self::askpass_path(&lock.tmp_dir, tool);
+                let askpass_path = askpass_path.to_string_lossy().to_string();
+                process.env(format!("{}_ASKPASS", tool.to_uppercase()), &askpass_path);
+            }
 
-        process.env("SSH_ASKPASS_REQUIRE", "force");
-        process.env_remove("DISPLAY");
+            process.env("SSH_ASKPASS_REQUIRE", "force");
+            process.env_remove("DISPLAY");
 
-        Ok(())
+            Ok(())
+        })
     }
 
     fn next(&self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>> {
         // Create a stream copy that we can move into the future
         Box::pin(async move {
-            let mut lock = self.inner.lock().await;
-
             // Accept a connection from the socket
             loop {
+                let lock = self.inner.lock().await;
                 match lock.listener.accept().await {
                     Ok((mut stream, _addr)) => {
                         // Create the handler function with the correct type
@@ -336,7 +340,7 @@ impl AskPassListener {
             .map_err(|err| UpError::Exec(format!("failed to bind to socket: {:?}", err)))?;
 
         Ok(Some(Self {
-            inner: TokioMutex::new(AskPassInner { listener, tmp_dir }),
+            inner: TokioMutex::new(AskPassListenerInner { listener, tmp_dir }),
         }))
     }
 

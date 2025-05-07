@@ -15,7 +15,7 @@ use crate::internal::user_interface::print::filter_control_characters;
 use crate::internal::user_interface::StringColor;
 use crate::omni_warning;
 
-pub trait ProgressHandler {
+pub trait ProgressHandler: Send + Sync {
     fn println(&self, message: String);
     fn progress(&self, message: String);
     fn success(&self);
@@ -24,6 +24,12 @@ pub trait ProgressHandler {
     fn error_with_message(&self, message: String);
     fn hide(&self);
     fn show(&self);
+}
+
+impl std::fmt::Debug for dyn ProgressHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "ProgressHandler")
+    }
 }
 
 pub fn run_progress(
@@ -309,7 +315,7 @@ where
                     }
                 }
 
-                if !stdout_open && (!stderr_open || !run_config.wait_for_stderr) {
+                if !stdout_open && !stderr_open {
                     break;
                 }
             }
@@ -378,7 +384,6 @@ where
                     stdout_line = stdout_reader.next_line(), if stdout_open => {
                         match stdout_line {
                             Ok(Some(line)) => {
-                                eprintln!("DEBUG: stdout: {}", line);
                                 last_read = std::time::Instant::now();
                                 listener_manager.recv_stdout(&line).await;
                                 handler_fn(Some(if run_config.strip_ctrl_chars {
@@ -393,7 +398,6 @@ where
                     stderr_line = stderr_reader.next_line(), if stderr_open => {
                         match stderr_line {
                             Ok(Some(line)) => {
-                                eprintln!("DEBUG: stderr: {}", line);
                                 last_read = std::time::Instant::now();
                                 listener_manager.recv_stderr(&line).await;
                                 handler_fn(None, Some(if run_config.strip_ctrl_chars {
@@ -426,7 +430,7 @@ where
                     }
                 }
 
-                if !stdout_open && (!stderr_open || !run_config.wait_for_stderr) {
+                if !stdout_open && !stderr_open {
                     break;
                 }
             }

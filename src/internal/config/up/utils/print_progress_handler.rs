@@ -1,4 +1,5 @@
-use std::cell::RefCell;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::internal::config::up::utils::ProgressHandler;
 use crate::internal::user_interface::StringColor;
@@ -6,7 +7,7 @@ use crate::internal::user_interface::StringColor;
 #[derive(Debug, Clone)]
 pub struct PrintProgressHandler {
     template: String,
-    message: RefCell<String>,
+    message: Arc<Mutex<String>>,
 }
 
 impl PrintProgressHandler {
@@ -29,16 +30,18 @@ impl PrintProgressHandler {
 
         PrintProgressHandler {
             template,
-            message: RefCell::new("".to_string()),
+            message: Arc::new(Mutex::new("".to_string())),
         }
     }
 
     fn set_message(&self, message: impl ToString) {
-        self.message.replace(message.to_string());
+        let mut lock = self.message.lock().unwrap();
+        *lock = message.to_string();
     }
 
     fn get_message(&self) -> String {
-        self.message.borrow().clone()
+        let lock = self.message.lock().unwrap();
+        lock.clone()
     }
 }
 

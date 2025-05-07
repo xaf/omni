@@ -11,7 +11,6 @@ pub struct RunConfig {
     pub strip_ctrl_chars: bool,
     pub askpass: bool,
     pub security_key: bool,
-    pub wait_for_stderr: bool,
 }
 
 impl Default for RunConfig {
@@ -21,7 +20,6 @@ impl Default for RunConfig {
             strip_ctrl_chars: true,
             askpass: false,
             security_key: false,
-            wait_for_stderr: true,
         }
     }
 }
@@ -48,11 +46,6 @@ impl RunConfig {
 
     pub fn with_security_key(&mut self) -> Self {
         self.security_key = true;
-        self.clone()
-    }
-
-    pub fn without_wait_for_stderr(&mut self) -> Self {
-        self.wait_for_stderr = false;
         self.clone()
     }
 
