@@ -40,12 +40,20 @@ const MAX_SOCKET_PATH_LEN: usize = 104;
 pub struct AskPassRequest {
     #[serde(rename = "p", alias = "prompt")]
     prompt: String,
+    #[serde(
+        default,
+        rename = "t",
+        alias = "prompt_type",
+        skip_serializing_if = "String::is_empty"
+    )]
+    prompt_type: String,
 }
 
 impl AskPassRequest {
-    pub fn new(prompt: impl ToString) -> Self {
+    pub fn new(prompt: impl ToString, prompt_type: impl ToString) -> Self {
         Self {
             prompt: prompt.to_string(),
+            prompt_type: prompt_type.to_string().to_lowercase(),
         }
     }
 
@@ -316,6 +324,10 @@ impl AskPassListener {
 
             // Render the script
             let script = render_askpass_template(&context).map_err(|err| {
+                eprintln!(
+                    "[✘] Failed to render askpass script for {}: {:?}",
+                    tool, err
+                );
                 UpError::Exec(format!("failed to render askpass script: {:?}", err))
             })?;
 
@@ -383,21 +395,31 @@ impl AskPassListener {
             .map_err(|err| format!("failed to parse request: {:?}", err))?;
 
         // Handle the request
-        let question = requestty::Question::password("askpass_request")
-            .ask_if_answered(true)
-            .on_esc(requestty::OnEsc::Terminate)
-            .message(request.prompt())
-            .build();
+        let password = if request.prompt_type == "none" {
+            // Print the prompt
+            eprintln!("{} {}", "!".green().bold(), request.prompt().bold());
 
-        let password = match requestty::prompt_one(question) {
-            Ok(answer) => match answer {
-                requestty::Answer::String(password) => password,
-                _ => return Err("no password provided".to_string()),
-            },
-            Err(err) => {
-                println!("{}", format!("[✘] {:?}", err).red());
-                return Err("no password provided".to_string());
-            }
+            // Return an empty string if the prompt type is "none"
+            "".to_string()
+        } else {
+            let question = requestty::Question::password("askpass_request")
+                .ask_if_answered(true)
+                .on_esc(requestty::OnEsc::Terminate)
+                .message(request.prompt())
+                .build();
+
+            let password = match requestty::prompt_one(question) {
+                Ok(answer) => match answer {
+                    requestty::Answer::String(password) => password,
+                    _ => return Err("no password provided".to_string()),
+                },
+                Err(err) => {
+                    println!("{}", format!("[✘] {:?}", err).red());
+                    return Err("no password provided".to_string());
+                }
+            };
+
+            password
         };
 
         let future = stream.write_all(password.as_bytes());

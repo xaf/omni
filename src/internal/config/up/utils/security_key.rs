@@ -8,6 +8,7 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::Notify;
 
 use crate::internal::config::up::utils::EventHandlerFn;
+// use crate::internal::config::up::utils::EventHandlerOutput;
 use crate::internal::config::up::utils::Listener;
 use crate::internal::config::up::utils::PrintProgressHandler;
 use crate::internal::config::up::utils::ProgressHandler;
@@ -63,7 +64,14 @@ impl Listener for SecurityKeyListener {
                 let timestamp = match self.read_timestamp().await {
                     Some(ts) => ts,
                     None => {
-                        // If no timestamp, get to the next iteration
+                        // If no timestamp but we got woken up, let's make sure
+                        // we hide any progress bar we had going on and return
+                        // a handler that will show back the main progress bar
+                        self.hide_progress_bar().await;
+                        // let handler: EventHandlerFn = Box::new(move || {
+                        // Box::pin(async move { Ok(EventHandlerOutput::ShowProgress) })
+                        // });
+                        // return (handler, false);
                         continue;
                     }
                 };
@@ -83,6 +91,9 @@ impl Listener for SecurityKeyListener {
                 // If the timestamp is still there, let's create a progress handler
                 // to show that we are waiting on the security key
                 self.show_progress_bar().await;
+                // let handler: EventHandlerFn =
+                // Box::new(move || Box::pin(async move { Ok(EventHandlerOutput::HideProgress) }));
+                // return (handler, true);
             }
         })
     }

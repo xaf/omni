@@ -429,8 +429,7 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                         |_stdout, _stderr| {},
                         RunConfig::new()
                             .with_timeout(config.path_repo_updates.pre_auth_timeout)
-                            .with_askpass()
-                            .with_security_key(),
+                            .with_askpass(), // .with_security_key(),
                     );
 
                     auth_hosts.insert(key, result.is_ok());
