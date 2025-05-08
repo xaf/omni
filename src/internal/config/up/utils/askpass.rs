@@ -408,7 +408,7 @@ impl AskPassListener {
                 .message(request.prompt())
                 .build();
 
-            let password = match requestty::prompt_one(question) {
+            match requestty::prompt_one(question) {
                 Ok(answer) => match answer {
                     requestty::Answer::String(password) => password,
                     _ => return Err("no password provided".to_string()),
@@ -417,9 +417,7 @@ impl AskPassListener {
                     println!("{}", format!("[✘] {:?}", err).red());
                     return Err("no password provided".to_string());
                 }
-            };
-
-            password
+            }
         };
 
         let future = stream.write_all(password.as_bytes());
