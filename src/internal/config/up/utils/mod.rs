@@ -31,9 +31,6 @@ pub(crate) use progress_handler::ProgressHandler;
 pub(crate) mod run_config;
 pub(crate) use run_config::RunConfig;
 
-pub(crate) mod security_key;
-pub(crate) use security_key::SecurityKeyListener;
-
 pub(crate) mod shims;
 pub(crate) use shims::handle_shims;
 pub(crate) use shims::reshim;

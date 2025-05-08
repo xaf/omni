@@ -10,7 +10,6 @@ pub struct RunConfig {
     pub timeout: Option<Duration>,
     pub strip_ctrl_chars: bool,
     pub askpass: bool,
-    pub security_key: bool,
 }
 
 impl Default for RunConfig {
@@ -19,7 +18,6 @@ impl Default for RunConfig {
             timeout: None,
             strip_ctrl_chars: true,
             askpass: false,
-            security_key: false,
         }
     }
 }
@@ -44,11 +42,6 @@ impl RunConfig {
         self.clone()
     }
 
-    pub fn with_security_key(&mut self) -> Self {
-        self.security_key = true;
-        self.clone()
-    }
-
     pub fn timeout(&self) -> Option<Duration> {
         self.timeout
     }
@@ -70,11 +63,6 @@ impl RunConfig {
                     return Err(err.to_string());
                 }
             }
-        }
-
-        if self.security_key {
-            let listener = SecurityKeyListener::new();
-            listener_manager.add_listener(Box::new(listener));
         }
 
         listener_manager.set_process_env(process_command).await?;
