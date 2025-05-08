@@ -1,4 +1,6 @@
-use std::cell::Cell;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering as AtomicOrdering;
+use std::sync::Arc;
 
 use indicatif::MultiProgress;
 use indicatif::ProgressBar;
@@ -17,7 +19,7 @@ pub struct SpinnerProgressHandler {
     template: String,
     ensure_newline: bool,
     base_len: usize,
-    last_message_len: Cell<usize>,
+    last_message_len: Arc<AtomicUsize>,
 }
 
 impl SpinnerProgressHandler {
@@ -80,7 +82,7 @@ impl SpinnerProgressHandler {
             template,
             ensure_newline,
             base_len,
-            last_message_len: Cell::new(0),
+            last_message_len: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -96,11 +98,11 @@ impl SpinnerProgressHandler {
     fn update_last_message(&self, message: &str) {
         let message = strip_ansi_codes(message);
         let len = message.len();
-        self.last_message_len.set(len);
+        self.last_message_len.store(len, AtomicOrdering::Relaxed);
     }
 
     fn cur_len(&self) -> usize {
-        self.base_len + self.last_message_len.get()
+        self.base_len + self.last_message_len.load(AtomicOrdering::Relaxed)
     }
 
     fn ensure_newline(&self) {

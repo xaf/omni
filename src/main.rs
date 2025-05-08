@@ -67,8 +67,8 @@ impl MainArgs {
                 clap::Arg::new("askpass")
                     .long("askpass")
                     .short('A')
-                    .num_args(2)
-                    .value_names(["prompt", "socket path"]),
+                    .num_args(2..=3)
+                    .value_names(["prompt", "socket path", "prompt type"]),
             )
             .arg(
                 clap::Arg::new("local")
@@ -124,12 +124,17 @@ impl MainArgs {
 
         if let Some(askpass) = matches.get_many::<String>("askpass") {
             let askpass = askpass.collect::<Vec<_>>();
-            if askpass.len() != 2 {
+            if askpass.len() < 2 || askpass.len() > 3 {
                 exit(1);
             }
 
             let prompt = askpass[0].as_str();
-            let request = AskPassRequest::new(prompt);
+            let prompt_type = if askpass.len() == 3 {
+                askpass[2].as_str()
+            } else {
+                ""
+            };
+            let request = AskPassRequest::new(prompt, prompt_type);
 
             let socket_path = askpass[1].as_str();
             match request.send(socket_path) {

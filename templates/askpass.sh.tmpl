@@ -4,60 +4,97 @@
 # of password requests during omni operations. It is not meant to be
 # run directly by the user.
 
+prompt_type="${% raw %}{{% endraw %}{{ TOOL | upper }}_ASKPASS_PROMPT:-}"
+
 {% if not INTERACTIVE and not ENABLE_GUI -%}
-exit 1
-{%- endif %}
+if [ "$prompt_type" != "none" ]; then
+    # If the prompt type is not 'none', then we can't run
+    # when not interactive.
+    exit 1
+fi
+{% endif -%}
 
 {% if ENABLE_GUI and (not INTERACTIVE or PREFER_GUI) -%}
 get_password_gui() {
-    if [[ -z "$OMNI_SUBCOMMAND" ]]; then
-	echo "This was not called from omni" >&2
-	exit 1
-    fi
-
     local show_details=false
     local triggering_command omni_command
-    local prompt prompt_base prompt_details
+    local prompt prompt_base prompt_details prompt_action
+    local ask_answer
 
     triggering_command=$(ps -p $PPID -o command= | sed 's/"/\\"/g')
-    omni_command="omni ${OMNI_SUBCOMMAND}"
+    omni_command="omni${OMNI_SUBCOMMAND:+ ${OMNI_SUBCOMMAND}}"
 
-    prompt_base="'${omni_command}' wants to run '${triggering_command}'.\\n\\nTo allow this, enter your \\\"{{ TOOL }}\\\" password."
-    prompt_details="'${omni_command}' wants to run '${triggering_command}' as part of:\\n\\n{{ COMMAND | escape_multiline_command(times=2) }}\\n\\nTo allow this, enter your \\\"{{ TOOL }}\\\" password."
+    prompt_action="To allow this, enter your \\\"{{ TOOL }}\\\" password."
+    ask_answer=true
+{%  if TOOL == "ssh" -%}
+    if [ -n "$*" ]; then
+	prompt_action="$*"
+	echo "HELLO 1">>/tmp/askpass-test-2.log
 
-{%   if TOOL == "ssh" -%}
-{%     set prompt = "${*:-$prompt}" -%}
-{%   else -%}
-{%     set prompt = "$prompt" -%}
+        # Check if the prompt ends with a colon (with or without a space)
+	if ! echo "$*" | perl -ne 'exit(!/:\s*$/);'; then
+	    echo "HELLO 2">>/tmp/askpass-test-2.log
+	    ask_answer=false
+	fi
+    fi
 {%   endif -%}
+
+    prompt_base="'${omni_command}' wants to run '${triggering_command}'.\\n\\n${prompt_action}"
+    prompt_details="'${omni_command}' wants to run '${triggering_command}' as part of:\\n\\n{{ COMMAND | escape_multiline_command(times=2) }}\\n\\n${prompt_action}"
 
     if command -v osascript >/dev/null; then
 	use_osascript() {
 	    local output exit_code buttons
 
+	    base_buttons='"Cancel", "Ok"'
+	    default_button="Ok"
+	    if [ "$prompt_type" = "confirm" ]; then
+		base_buttons='"No", "Yes"'
+		default_button="Yes"
+	    elif [ "$prompt_type" = "none" ]; then
+		base_buttons='"Close"'
+		default_button="Close"
+	    fi
+
 	    if [ "$show_details" = true ]{% if TOOL == "ssh" %} || [ -n "$*" ]{% endif %}; then
-		buttons='{"Cancel", "Ok"}'
+		buttons='{'"${base_buttons}"'}'
 		prompt="$prompt_details"
 	    else
-		buttons='{"Details", "Cancel", "Ok"}'
+		buttons='{"Details", '"${base_buttons}"'}'
 		prompt="$prompt_base"
 	    fi
 
+	    local answer_default answer_hidden answer_textreturned dialog_timeout
+	    answer_default="default answer \"\""
+	    answer_hidden="with hidden answer"
+	    answer_textreturned="text returned of dialogResult"
+	    dialog_timeout="60"
+	    if [ "$ask_answer" = false ]; then
+		answer_default=""
+		answer_hidden=""
+		answer_textreturned="\"\""
+		dialog_timeout="10"
+		echo "HELLO3" >>/tmp/askpass-test-2.log
+	    fi
+
 	    output=$(osascript <<EOF
+		set dialog_icon to "System:Library:CoreServices:CoreTypes.bundle:Contents:Resources:LockedIcon.icns"
+		set dialog_title to "Omni ({{ TOOL }})"
+		set dialog_timeout to ${dialog_timeout}
 		set dialogResult to (\
-		    display dialog "{{ prompt }}" \
-		    with title "Omni Password Request ({{ TOOL }})" \
+		    display dialog "${prompt}" \
+		    with title dialog_title \
 		    buttons ${buttons} \
-		    default button "Ok" \
-		    default answer "" \
-		    with icon file "System:Library:CoreServices:CoreTypes.bundle:Contents:Resources:LockedIcon.icns" \
-		    with hidden answer \
-		    giving up after 60 \
+		    default button "${default_button}" \
+		    ${answer_default} \
+		    with icon file dialog_icon \
+		    ${answer_hidden} \
+		    giving up after dialog_timeout \
 		)
 		set buttonPressed to button returned of dialogResult
-		set textReturned to text returned of dialogResult
+		set textReturned to ${answer_textreturned}
 
-		if buttonPressed is "Cancel" then
+		if buttonPressed is "Cancel" or "No" then
 		    return 1
 		else if buttonPressed is "Details" then
 		    return 37
@@ -87,7 +124,6 @@ get_password_gui() {
 }
 {%- endif %}
 
-{% if INTERACTIVE -%}
 get_password_cli() {
 {%   if TOOL == "ssh" -%}
     PROMPT="${*:-"{{ TOOL }} password:"}"
@@ -95,18 +131,34 @@ get_password_cli() {
 {%   else -%}
 {%     set prompt = TOOL ~ " password:" -%}
 {%   endif -%}
-    {{ OMNI_BIN }} --askpass "{{ prompt }}" "{{ SOCKET_PATH }}"
+    {{ OMNI_BIN }} --askpass "{{ prompt }}" "{{ SOCKET_PATH }}" "${prompt_type}"
     exit $?
 }
-{%- endif %}
 
-{% if INTERACTIVE and PREFER_GUI -%}
-{%   set functions = ["get_password_gui", "get_password_cli"] -%}
-{% elif INTERACTIVE and not PREFER_GUI -%}
-{%   set functions = ["get_password_cli", "get_password_gui"] -%}
+try_cli() {
+  {% if not INTERACTIVE %}
+  if [ "$prompt_type" != "none" ]; then
+	return
+  fi
+  {% endif %}
+
+  type -t get_password_cli >/dev/null 2>&1 && \
+    get_password_cli "$@"
+}
+
+try_gui() {
+  type -t get_password_gui >/dev/null 2>&1 && \
+    get_password_gui "$@"
+}
+
+{% if PREFER_GUI -%}
+{%   set functions = ["try_gui", "try_cli"] -%}
 {% else -%}
-{%   set functions = ["get_password_gui"] -%}
+{%   set functions = ["try_cli", "try_gui"] -%}
 {% endif -%}
 {% for function in functions -%}
-{{ function }}
+{{ function }} "$@"
 {% endfor %}
+
+# If we get here, then we could not get a password
+exit 1

@@ -418,16 +418,18 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                     // Check using git ls-remote
                     let mut cmd = TokioCommand::new("git");
                     cmd.arg("ls-remote");
+                    cmd.arg("--heads");
                     cmd.current_dir(&updater.path);
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
+                    // Run the command
                     let result = run_command_with_handler(
                         &mut cmd,
-                        |_stdout, _stderr| {
-                            // Do nothing
-                        },
-                        RunConfig::new().with_timeout(config.path_repo_updates.pre_auth_timeout),
+                        |_stdout, _stderr| {},
+                        RunConfig::new()
+                            .with_timeout(config.path_repo_updates.pre_auth_timeout)
+                            .with_askpass(),
                     );
 
                     auth_hosts.insert(key, result.is_ok());

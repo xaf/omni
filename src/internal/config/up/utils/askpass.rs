@@ -19,6 +19,7 @@ use tokio::io::BufReader;
 use tokio::net::UnixListener;
 use tokio::net::UnixStream;
 use tokio::process::Command as TokioCommand;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::internal::config::global_config;
 use crate::internal::config::template::render_askpass_template;
@@ -39,12 +40,20 @@ const MAX_SOCKET_PATH_LEN: usize = 104;
 pub struct AskPassRequest {
     #[serde(rename = "p", alias = "prompt")]
     prompt: String,
+    #[serde(
+        default,
+        rename = "t",
+        alias = "prompt_type",
+        skip_serializing_if = "String::is_empty"
+    )]
+    prompt_type: String,
 }
 
 impl AskPassRequest {
-    pub fn new(prompt: impl ToString) -> Self {
+    pub fn new(prompt: impl ToString, prompt_type: impl ToString) -> Self {
         Self {
             prompt: prompt.to_string(),
+            prompt_type: prompt_type.to_string().to_lowercase(),
         }
     }
 
@@ -129,9 +138,14 @@ impl AskPassRequest {
 }
 
 #[derive(Debug)]
-pub struct AskPassListener {
+struct AskPassListenerInner {
     listener: UnixListener,
     tmp_dir: TempDir,
+}
+
+#[derive(Debug)]
+pub struct AskPassListener {
+    inner: TokioMutex<AskPassListenerInner>,
 }
 
 impl Drop for AskPassListener {
@@ -147,26 +161,33 @@ impl Drop for AskPassListener {
 }
 
 impl Listener for AskPassListener {
-    fn set_process_env(&self, process: &mut TokioCommand) -> Result<(), String> {
-        let needs_askpass = Self::needs_askpass();
-        for tool in &needs_askpass {
-            let askpass_path = Self::askpass_path(&self.tmp_dir, tool);
-            let askpass_path = askpass_path.to_string_lossy().to_string();
-            process.env(format!("{}_ASKPASS", tool.to_uppercase()), &askpass_path);
-        }
+    fn set_process_env<'a>(
+        &'a self,
+        process: &'a mut TokioCommand,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            let needs_askpass = Self::needs_askpass();
+            let lock = self.inner.lock().await;
+            for tool in &needs_askpass {
+                let askpass_path = Self::askpass_path(&lock.tmp_dir, tool);
+                let askpass_path = askpass_path.to_string_lossy().to_string();
+                process.env(format!("{}_ASKPASS", tool.to_uppercase()), &askpass_path);
+            }
 
-        process.env("SSH_ASKPASS_REQUIRE", "force");
-        process.env_remove("DISPLAY");
+            process.env("SSH_ASKPASS_REQUIRE", "force");
+            process.env_remove("DISPLAY");
 
-        Ok(())
+            Ok(())
+        })
     }
 
-    fn next(&mut self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>> {
+    fn next(&self) -> Pin<Box<dyn Future<Output = (EventHandlerFn, bool)> + Send + '_>> {
         // Create a stream copy that we can move into the future
         Box::pin(async move {
             // Accept a connection from the socket
             loop {
-                match self.listener.accept().await {
+                let lock = self.inner.lock().await;
+                match lock.listener.accept().await {
                     Ok((mut stream, _addr)) => {
                         // Create the handler function with the correct type
                         let handler: EventHandlerFn = Box::new(move || {
@@ -183,10 +204,12 @@ impl Listener for AskPassListener {
         })
     }
 
-    fn stop(&mut self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+    fn stop(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         Box::pin(async move {
+            let mut lock = self.inner.lock().await;
+
             // Take ownership of the tmp_dir and handle cleanup
-            let tmp_dir = mem::replace(&mut self.tmp_dir, TempDir::new().unwrap());
+            let tmp_dir = mem::replace(&mut lock.tmp_dir, TempDir::new().unwrap());
             let tmp_dir_path = tmp_dir.path().to_path_buf();
             if let Err(_err) = tmp_dir.close() {
                 if let Err(err) = force_remove_dir_all(tmp_dir_path) {
@@ -301,6 +324,10 @@ impl AskPassListener {
 
             // Render the script
             let script = render_askpass_template(&context).map_err(|err| {
+                eprintln!(
+                    "[✘] Failed to render askpass script for {}: {:?}",
+                    tool, err
+                );
                 UpError::Exec(format!("failed to render askpass script: {:?}", err))
             })?;
 
@@ -321,12 +348,12 @@ impl AskPassListener {
         }
 
         // Create the listener
-        match UnixListener::bind(&socket_path) {
-            Ok(listener) => Ok(Some(Self { listener, tmp_dir })),
-            Err(err) => Err(UpError::Exec(
-                format!("failed to bind to socket: {:?}", err).to_string(),
-            )),
-        }
+        let listener = UnixListener::bind(&socket_path)
+            .map_err(|err| UpError::Exec(format!("failed to bind to socket: {:?}", err)))?;
+
+        Ok(Some(Self {
+            inner: TokioMutex::new(AskPassListenerInner { listener, tmp_dir }),
+        }))
     }
 
     pub async fn handle_request(stream: &mut UnixStream) -> Result<(), String> {
@@ -368,20 +395,28 @@ impl AskPassListener {
             .map_err(|err| format!("failed to parse request: {:?}", err))?;
 
         // Handle the request
-        let question = requestty::Question::password("askpass_request")
-            .ask_if_answered(true)
-            .on_esc(requestty::OnEsc::Terminate)
-            .message(request.prompt())
-            .build();
+        let password = if request.prompt_type == "none" {
+            // Print the prompt
+            eprintln!("{} {}", "!".green().bold(), request.prompt().bold());
 
-        let password = match requestty::prompt_one(question) {
-            Ok(answer) => match answer {
-                requestty::Answer::String(password) => password,
-                _ => return Err("no password provided".to_string()),
-            },
-            Err(err) => {
-                println!("{}", format!("[✘] {:?}", err).red());
-                return Err("no password provided".to_string());
+            // Return an empty string if the prompt type is "none"
+            "".to_string()
+        } else {
+            let question = requestty::Question::password("askpass_request")
+                .ask_if_answered(true)
+                .on_esc(requestty::OnEsc::Terminate)
+                .message(request.prompt())
+                .build();
+
+            match requestty::prompt_one(question) {
+                Ok(answer) => match answer {
+                    requestty::Answer::String(password) => password,
+                    _ => return Err("no password provided".to_string()),
+                },
+                Err(err) => {
+                    println!("{}", format!("[✘] {:?}", err).red());
+                    return Err("no password provided".to_string());
+                }
             }
         };
 
