@@ -26,18 +26,19 @@ get_password_gui() {
 
     prompt_action="To allow this, enter your \\\"{{ TOOL }}\\\" password."
     ask_answer=true
-{%  if TOOL == "ssh" -%}
     if [ -n "$*" ]; then
-	prompt_action="$*"
-	echo "HELLO 1">>/tmp/askpass-test-2.log
+	# If the prompt is not just 'password', then override
+	# the provided details
+	if ! echo "$*" | perl -ne 'exit(!/^Password:\s?$/i)'; then
+	    prompt_action="$*"
+	fi
 
-        # Check if the prompt ends with a colon (with or without a space)
+        # Check if the prompt ends with a colon
+	# (with or without a space)
 	if ! echo "$*" | perl -ne 'exit(!/:\s*$/);'; then
-	    echo "HELLO 2">>/tmp/askpass-test-2.log
 	    ask_answer=false
 	fi
     fi
-{%   endif -%}
 
     prompt_base="'${omni_command}' wants to run '${triggering_command}'.\\n\\n${prompt_action}"
     prompt_details="'${omni_command}' wants to run '${triggering_command}' as part of:\\n\\n{{ COMMAND | escape_multiline_command(times=2) }}\\n\\n${prompt_action}"
@@ -74,7 +75,6 @@ get_password_gui() {
 		answer_hidden=""
 		answer_textreturned="\"\""
 		dialog_timeout="10"
-		echo "HELLO3" >>/tmp/askpass-test-2.log
 	    fi
 
 	    output=$(osascript <<EOF
@@ -125,30 +125,31 @@ get_password_gui() {
 {%- endif %}
 
 get_password_cli() {
-{%   if TOOL == "ssh" -%}
-    PROMPT="${*:-"{{ TOOL }} password:"}"
-{%     set prompt = "$PROMPT" -%}
-{%   else -%}
-{%     set prompt = TOOL ~ " password:" -%}
-{%   endif -%}
-    {{ OMNI_BIN }} --askpass "{{ prompt }}" "{{ SOCKET_PATH }}" "${prompt_type}"
+    local prompt
+    prompt="$*"
+    if [ -z "$prompt" ] || \
+	    (echo "$prompt" | perl -ne 'exit(!/^Password:\s?$/i)'); then
+	prompt="{{ TOOL }} password:"
+    fi
+
+    {{ OMNI_BIN }} --askpass "${prompt}" "{{ SOCKET_PATH }}" "${prompt_type}"
     exit $?
 }
 
 try_cli() {
-  {% if not INTERACTIVE %}
-  if [ "$prompt_type" != "none" ]; then
+    {% if not INTERACTIVE %}
+    if [ "${prompt_type}" != "none" ]; then
 	return
-  fi
-  {% endif %}
+    fi
+    {% endif %}
 
-  type -t get_password_cli >/dev/null 2>&1 && \
-    get_password_cli "$@"
+    type -t get_password_cli >/dev/null 2>&1 && \
+	get_password_cli "$@"
 }
 
 try_gui() {
-  type -t get_password_gui >/dev/null 2>&1 && \
-    get_password_gui "$@"
+    type -t get_password_gui >/dev/null 2>&1 && \
+	get_password_gui "$@"
 }
 
 {% if PREFER_GUI -%}
