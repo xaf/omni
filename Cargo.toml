@@ -89,7 +89,7 @@ walkdir = "2.4.0"
 which = "7.0.3"
 whoami = "1.6.0"
 xz2 = "0.1.7"
-zip-extract = "0.2.3"
+zip-extract = "0.3.0"
 
 [package.metadata.cargo-machete]
 ignored = ["libz-sys", "openssl"]
