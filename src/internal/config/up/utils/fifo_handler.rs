@@ -48,10 +48,10 @@ impl TempFifo {
             }),
             Err(err) => {
                 // Convert nix error to io::Error
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to create FIFO: {}", err),
-                ))
+                Err(std::io::Error::other(format!(
+                    "Failed to create FIFO: {}",
+                    err
+                )))
             }
         }
     }
@@ -190,10 +190,7 @@ impl FifoReader {
                 }
                 Ok(_) => {
                     if let Err(e) = sender.send(buffer.to_string()) {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Failed to send data: {}", e),
-                        ));
+                        return Err(std::io::Error::other(format!("Failed to send data: {}", e)));
                     }
 
                     // Reset the retry flag if we successfully sent data
@@ -241,9 +238,9 @@ impl FifoReader {
             let _ = Self::open_fifo_out(&self.fifo_path);
 
             // Now we can join the reader thread
-            handle.join().map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::Other, "Reader thread panicked")
-            })??;
+            handle
+                .join()
+                .map_err(|_| std::io::Error::other("Reader thread panicked"))??;
         }
 
         // Collect any final messages that might have been sent while joining

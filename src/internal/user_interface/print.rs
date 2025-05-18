@@ -146,11 +146,7 @@ pub fn term_width() -> usize {
 
     const MAX_WIDTH: usize = 120;
     if width < MAX_WIDTH + 4 {
-        if width > 4 {
-            width - 4
-        } else {
-            0
-        }
+        width.saturating_sub(4)
     } else {
         MAX_WIDTH
     }

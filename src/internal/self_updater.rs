@@ -486,9 +486,10 @@ impl OmniRelease {
         let mut git_pull = TokioCommand::new("git");
         git_pull.arg("pull");
         git_pull.current_dir(
-            Path::new(&homebrew_repository().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::Other, "failed to get homebrew repository")
-            })?)
+            Path::new(
+                &homebrew_repository()
+                    .ok_or_else(|| io::Error::other("failed to get homebrew repository"))?,
+            )
             .join("Library")
             .join("Taps")
             .join("xaf")
@@ -499,7 +500,7 @@ impl OmniRelease {
 
         let run = run_progress(&mut git_pull, Some(progress_handler), RunConfig::default());
         if let Err(err) = run {
-            return Err(io::Error::new(io::ErrorKind::Other, err.to_string()));
+            return Err(io::Error::other(err.to_string()));
         }
 
         let mut brew_upgrade = TokioCommand::new("brew");
@@ -516,7 +517,7 @@ impl OmniRelease {
             RunConfig::default(),
         );
         if let Err(err) = run {
-            return Err(io::Error::new(io::ErrorKind::Other, err.to_string()));
+            return Err(io::Error::other(err.to_string()));
         }
 
         Ok(true)
@@ -525,13 +526,10 @@ impl OmniRelease {
     fn download(&self, progress_handler: &dyn ProgressHandler) -> io::Result<bool> {
         let binary = self.compatible_binary();
         if binary.is_none() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "no compatible binary found for {} {}",
-                    *RELEASE_OS, *RELEASE_ARCH,
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "no compatible binary found for {} {}",
+                *RELEASE_OS, *RELEASE_ARCH,
+            )));
         }
         let binary = binary.unwrap();
 
@@ -542,10 +540,7 @@ impl OmniRelease {
         // Prepare the path to the tar.gz
         let archive_name = Path::new(binary.url.as_str()).file_name();
         if archive_name.is_none() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "failed to get archive name",
-            ));
+            return Err(io::Error::other("failed to get archive name"));
         }
         let archive_name = archive_name.unwrap();
         let tarball_path = tmp_dir.path().join(archive_name);
@@ -554,10 +549,10 @@ impl OmniRelease {
         progress_handler.progress(format!("downloading: {}", binary.url));
         let response = reqwest::blocking::get(binary.url.as_str());
         if response.is_err() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("failed to download: {:?}", response),
-            ));
+            return Err(io::Error::other(format!(
+                "failed to download: {:?}",
+                response
+            )));
         }
         let mut response = response.unwrap();
 
@@ -576,13 +571,10 @@ impl OmniRelease {
         let sha256 = format!("{:x}", hasher.finalize());
         if sha256 != binary.sha256 {
             // Hashes don't match, something went wrong
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "hashes don't match: expected {}, got {}",
-                    binary.sha256, sha256
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "hashes don't match: expected {}, got {}",
+                binary.sha256, sha256
+            )));
         }
 
         // Extract the archive in the temp directory

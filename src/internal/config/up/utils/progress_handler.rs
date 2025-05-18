@@ -90,7 +90,7 @@ async fn async_get_output(
     {
         Ok(listener_manager) => listener_manager,
         Err(err) => {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, err));
+            return Err(std::io::Error::other(err));
         }
     };
     listener_manager.start();
@@ -116,10 +116,7 @@ async fn async_get_output(
             ),
             _ => {
                 let _ = listener_manager.stop().await;
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "stdout or stderr missing",
-                ));
+                return Err(std::io::Error::other("stdout or stderr missing"));
             }
         };
 
