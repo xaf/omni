@@ -82,19 +82,10 @@ pub fn omni_cmd(cmd: &str) -> Result<(), io::Error> {
         .append(true)
         .read(true)
         .open(cmd_file.clone())
-        .map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Unable to open omni command file: {}", e),
-            )
-        })?;
+        .map_err(|e| io::Error::other(format!("Unable to open omni command file: {}", e)))?;
 
-    writeln!(file, "{}", cmd).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("Unable to write to omni command file: {}", e),
-        )
-    })?;
+    writeln!(file, "{}", cmd)
+        .map_err(|e| io::Error::other(format!("Unable to write to omni command file: {}", e)))?;
 
     drop(file);
 

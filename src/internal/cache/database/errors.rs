@@ -26,9 +26,9 @@ impl From<CacheManagerError> for rusqlite::Error {
             CacheManagerError::TimeParseError(e) => {
                 rusqlite::Error::ToSqlConversionFailure(Box::new(e))
             }
-            CacheManagerError::Other(e) => rusqlite::Error::ToSqlConversionFailure(Box::new(
-                std::io::Error::new(std::io::ErrorKind::Other, e),
-            )),
+            CacheManagerError::Other(e) => {
+                rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(e)))
+            }
         }
     }
 }
