@@ -44,6 +44,7 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::check_allowed;
 use crate::internal::config::ConfigValue;
+use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::data_home;
 use crate::internal::self_updater::current_arch;
 use crate::internal::self_updater::current_os;
@@ -192,10 +193,17 @@ impl UpConfigGithubReleases {
                 };
 
                 repo_config.insert("repository".to_string(), repository);
-                releases.push(UpConfigGithubRelease::from_table(
-                    &repo_config,
-                    &error_handler.with_key(repo),
-                ));
+                let release =
+                    UpConfigGithubRelease::from_table(&repo_config, &error_handler.with_key(repo));
+
+                if release.is_gh() {
+                    // Special case for the `gh` tool, we want to bump that to the top
+                    // of the list so that if `gh` is requested to be installed, it can
+                    // be used for the follow-up installations of github releases
+                    releases.insert(0, release);
+                } else {
+                    releases.push(release);
+                }
             }
 
             if releases.is_empty() {
@@ -243,6 +251,11 @@ impl UpConfigGithubReleases {
 
         let num = self.releases.len();
         for (idx, release) in self.releases.iter().enumerate() {
+            if idx > 0 {
+                // Reload the environment between releases
+                update_dynamic_env_for_command_from_env(".", environment);
+            }
+
             let subhandler = progress_handler.subhandler(
                 &format!(
                     "[{current:padding$}/{total:padding$}] {release} ",
@@ -1949,6 +1962,10 @@ impl UpConfigGithubRelease {
             Some(handled) => handled.clone(),
             None => GithubReleaseHandled::Unhandled,
         }
+    }
+
+    fn is_gh(&self) -> bool {
+        self.api_url.is_none() && self.repository.to_lowercase() == "cli/cli"
     }
 }
 
