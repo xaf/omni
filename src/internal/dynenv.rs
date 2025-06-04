@@ -612,14 +612,18 @@ impl DynamicEnv {
                 "cargo-install" => {
                     envsetter.prepend_to_list(
                         "PATH",
-                        &cargo_install_tool_path(&tool, &version).to_string_lossy(),
+                        &cargo_install_tool_path(&tool, &version)
+                            .join("bin")
+                            .to_string_lossy(),
                     );
                     continue;
                 }
                 "go-install" => {
                     envsetter.prepend_to_list(
                         "PATH",
-                        &go_install_tool_path(&tool, &version).to_string_lossy(),
+                        &go_install_tool_path(&tool, &version)
+                            .join("bin")
+                            .to_string_lossy(),
                     );
                     continue;
                 }
