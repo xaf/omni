@@ -1560,7 +1560,7 @@ mod tests {
                 assert!(path_additions.len() >= 2);
 
                 let gem_path_additions = env_data.lists.get("GEM_PATH").unwrap();
-                assert!(gem_path_additions.len() >= 1);
+                assert!(!gem_path_additions.is_empty());
             }
 
             #[test]
@@ -1634,7 +1634,7 @@ mod tests {
                 );
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
             }
 
             #[test]
@@ -1702,7 +1702,7 @@ mod tests {
                 );
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
             }
 
             #[test]
@@ -1756,7 +1756,7 @@ mod tests {
                 }
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
             }
 
             #[test]
@@ -1825,7 +1825,7 @@ mod tests {
                 );
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
             }
 
             #[test]
@@ -1872,7 +1872,7 @@ mod tests {
                 let env_data = envsetter.get_env_data();
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
             }
 
             #[test]
@@ -1942,7 +1942,7 @@ mod tests {
                 let env_data = envsetter.get_env_data();
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
                 assert!(dynamic_env
                     .features
                     .contains(&"generic_tool:1.0.0".to_string()));
@@ -1966,7 +1966,7 @@ mod tests {
                 let env_data = envsetter.get_env_data();
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
                 assert!(dynamic_env
                     .features
                     .contains(&"some_tool:1.0.0".to_string()));
@@ -1990,7 +1990,7 @@ mod tests {
                 let env_data = envsetter.get_env_data();
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
                 assert!(dynamic_env
                     .features
                     .contains(&"another_tool:2.0.0".to_string()));
@@ -2014,7 +2014,7 @@ mod tests {
                 let env_data = envsetter.get_env_data();
 
                 assert!(
-                    env_data.lists.get("PATH").is_none()
+                    !env_data.lists.contains_key("PATH")
                         || env_data.lists.get("PATH").unwrap().is_empty()
                 );
                 assert!(!dynamic_env
@@ -2034,7 +2034,7 @@ mod tests {
                 let env_data = envsetter.get_env_data();
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
                 assert!(!path_additions[0].value.contains("/bin"));
             }
 
@@ -2056,7 +2056,7 @@ mod tests {
                 let env_data = envsetter.get_env_data();
 
                 let path_additions = env_data.lists.get("PATH").unwrap();
-                assert!(path_additions.len() >= 1);
+                assert!(!path_additions.is_empty());
                 assert!(path_additions[0].value.contains("/custom/bin"));
             }
 
