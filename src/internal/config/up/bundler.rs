@@ -128,7 +128,7 @@ impl UpConfigBundler {
         );
 
         if let Err(err) = &result {
-            progress_handler.error_with_message(format!("bundle install failed: {}", err));
+            progress_handler.error_with_message(format!("bundle install failed: {err}"));
             return result;
         }
 
@@ -148,11 +148,11 @@ impl UpConfigBundler {
             let path = self.path.clone().unwrap();
             let path = abs_path(path).to_str().unwrap().to_string();
 
-            progress_handler.progress(format!("removing {}", path));
+            progress_handler.progress(format!("removing {path}"));
 
             if let Err(err) = std::fs::remove_dir_all(&path) {
-                progress_handler.error_with_message(format!("failed to remove {}: {}", path, err));
-                return Err(UpError::Exec(format!("failed to remove {}: {}", path, err)));
+                progress_handler.error_with_message(format!("failed to remove {path}: {err}"));
+                return Err(UpError::Exec(format!("failed to remove {path}: {err}")));
             }
 
             // Cleanup the parents as long as they are empty directories

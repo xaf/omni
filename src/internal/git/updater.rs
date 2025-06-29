@@ -115,7 +115,7 @@ pub fn auto_update_on_command_not_found() -> bool {
                     _ => unreachable!(),
                 },
                 Err(err) => {
-                    println!("{}", format!("[✘] {:?}", err).red());
+                    println!("{}", format!("[✘] {err:?}").red());
                     false
                 }
             };
@@ -238,11 +238,9 @@ pub fn report_update_error() {
 
     if is_user_shell {
         if let Some(error_log) = OmniPathCache::get().try_exclusive_update_error_log() {
-            omni_print!(format!(
-                "background update failed; log is available at {}",
-                error_log,
-            )
-            .light_red());
+            omni_print!(
+                format!("background update failed; log is available at {error_log}",).light_red()
+            );
         }
     }
 }
@@ -592,20 +590,20 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
                                 }
                             }
                             Err(err) => {
-                                let msg = format!("failed to wait on process: {}", err);
+                                let msg = format!("failed to wait on process: {err}");
                                 omni_error!(msg.clone());
                                 updates_per_path.insert(
                                     repo_path.clone(),
-                                    Err(format!("omni up failed: {}", msg)),
+                                    Err(format!("omni up failed: {msg}")),
                                 );
                             }
                         }
                     }
                     Err(err) => {
-                        let msg = format!("failed to spawn process: {}", err);
+                        let msg = format!("failed to spawn process: {err}");
                         omni_error!(msg.clone());
                         updates_per_path
-                            .insert(repo_path.clone(), Err(format!("omni up failed: {}", msg)));
+                            .insert(repo_path.clone(), Err(format!("omni up failed: {msg}")));
                     }
                 }
             }
@@ -806,7 +804,7 @@ fn update_git_branch(
     local_branch_cmd.stderr(std::process::Stdio::null());
 
     let output = local_branch_cmd.output().map_err(|err| {
-        let msg = format!("git branch failed: {}", err);
+        let msg = format!("git branch failed: {err}");
         progress_handler.error_with_message(msg.clone());
         msg
     })?;
@@ -825,10 +823,8 @@ fn update_git_branch(
     }
 
     if !ref_match.matches(&local_branch) {
-        let msg = format!(
-            "current branch {} does not match {}; skipping update",
-            local_branch, ref_match,
-        );
+        let msg =
+            format!("current branch {local_branch} does not match {ref_match}; skipping update",);
         progress_handler.error_with_message(msg.clone());
         return Err(msg);
     }
@@ -843,13 +839,13 @@ fn update_git_branch(
         let mut remote_name_cmd = StdCommand::new("git");
         remote_name_cmd.arg("config");
         remote_name_cmd.arg("--get");
-        remote_name_cmd.arg(format!("branch.{}.remote", local_branch));
+        remote_name_cmd.arg(format!("branch.{local_branch}.remote"));
         remote_name_cmd.current_dir(repo_path);
         remote_name_cmd.stdout(std::process::Stdio::piped());
         remote_name_cmd.stderr(std::process::Stdio::null());
 
         let output = remote_name_cmd.output().map_err(|err| {
-            let msg = format!("git config failed: {}", err);
+            let msg = format!("git config failed: {err}");
             progress_handler.error_with_message(msg.clone());
             msg
         })?;
@@ -877,7 +873,7 @@ fn update_git_branch(
         remote_branch_cmd.stderr(std::process::Stdio::null());
 
         let output = local_branch_cmd.output().map_err(|err| {
-            let msg = format!("git rev-parse failed: {}", err);
+            let msg = format!("git rev-parse failed: {err}");
             progress_handler.error_with_message(msg.clone());
             msg
         })?;
@@ -898,10 +894,10 @@ fn update_git_branch(
             return Err(msg);
         }
 
-        let remote_branch_full = format!("{}/{}", remote_name, remote_branch);
+        let remote_branch_full = format!("{remote_name}/{remote_branch}");
 
         // Fetch the updates for the remote branch
-        progress_handler.progress(format!("fetching updates for {}", remote_branch_full));
+        progress_handler.progress(format!("fetching updates for {remote_branch_full}"));
         let mut git_fetch_cmd = TokioCommand::new("git");
         git_fetch_cmd.arg("fetch");
         git_fetch_cmd.arg(remote_name);
@@ -912,7 +908,7 @@ fn update_git_branch(
 
         let output = get_command_output(&mut git_fetch_cmd, RunConfig::new().with_askpass())
             .map_err(|err| {
-                let msg = format!("git fetch failed: {}", err);
+                let msg = format!("git fetch failed: {err}");
                 progress_handler.error_with_message(msg.clone());
                 msg
             })?;
@@ -927,18 +923,18 @@ fn update_git_branch(
         }
 
         // Use git rev-list to check if the branch is up to date
-        progress_handler.progress(format!("checking if {} is up to date", local_branch));
+        progress_handler.progress(format!("checking if {local_branch} is up to date"));
         let mut git_rev_parse_cmd = StdCommand::new("git");
         git_rev_parse_cmd.arg("rev-list");
         git_rev_parse_cmd.arg("--left-right");
         git_rev_parse_cmd.arg("--count");
-        git_rev_parse_cmd.arg(format!("{}...{}", remote_branch_full, local_branch));
+        git_rev_parse_cmd.arg(format!("{remote_branch_full}...{local_branch}"));
         git_rev_parse_cmd.current_dir(repo_path);
         git_rev_parse_cmd.stdout(std::process::Stdio::piped());
         git_rev_parse_cmd.stderr(std::process::Stdio::piped());
 
         let output = git_rev_parse_cmd.output().map_err(|err| {
-            let msg = format!("git rev-list failed: {}", err);
+            let msg = format!("git rev-list failed: {err}");
             progress_handler.error_with_message(msg.clone());
             msg
         })?;
@@ -957,7 +953,7 @@ fn update_git_branch(
         // we need to validate we do have two digits in the output, or error out
         let values = rev_list_output.split_whitespace().collect::<Vec<&str>>();
         if values.len() != 2 {
-            let msg = format!("failed to parse rev-list output: {}", rev_list_output);
+            let msg = format!("failed to parse rev-list output: {rev_list_output}");
             progress_handler.error_with_message(msg.clone());
             return Err(msg);
         }
@@ -967,7 +963,7 @@ fn update_git_branch(
             .map(|value| value.parse::<u32>())
             .collect::<Result<Vec<u32>, _>>()
             .map_err(|err| {
-                let msg = format!("failed to parse rev-list output: {}", err);
+                let msg = format!("failed to parse rev-list output: {err}");
                 progress_handler.error_with_message(msg.clone());
                 msg
             })?;
@@ -990,7 +986,7 @@ fn update_git_branch(
         git_reset_cmd.stderr(std::process::Stdio::piped());
 
         let output = git_reset_cmd.output().map_err(|err| {
-            let msg = format!("git reset failed: {}", err);
+            let msg = format!("git reset failed: {err}");
             progress_handler.error_with_message(msg.clone());
             msg
         })?;
@@ -1025,7 +1021,7 @@ fn update_git_branch(
 
         let output = get_command_output(&mut git_pull_cmd, RunConfig::new().with_askpass())
             .map_err(|err| {
-                let msg = format!("git pull failed: {}", err);
+                let msg = format!("git pull failed: {err}");
                 progress_handler.error_with_message(msg.clone());
                 msg
             })?;
@@ -1071,7 +1067,7 @@ fn update_git_tag(
     local_branch_cmd.stderr(std::process::Stdio::null());
 
     let output = local_branch_cmd.output().map_err(|err| {
-        let msg = format!("git branch failed: {}", err);
+        let msg = format!("git branch failed: {err}");
         progress_handler.error_with_message(msg.clone());
         msg
     })?;
@@ -1101,7 +1097,7 @@ fn update_git_tag(
     git_tag_cmd.stderr(std::process::Stdio::null());
 
     let output = git_tag_cmd.output().map_err(|err| {
-        let msg = format!("git tag failed: {}", err);
+        let msg = format!("git tag failed: {err}");
         progress_handler.error_with_message(msg.clone());
         msg
     })?;
@@ -1133,7 +1129,7 @@ fn update_git_tag(
 
     let output = get_command_output(&mut git_fetch_tags_cmd, RunConfig::new().with_askpass())
         .map_err(|err| {
-            let msg = format!("git fetch failed: {}", err);
+            let msg = format!("git fetch failed: {err}");
             progress_handler.error_with_message(msg.clone());
             msg
         })?;
@@ -1164,7 +1160,7 @@ fn update_git_tag(
     git_tag_cmd.stderr(std::process::Stdio::null());
 
     let output = git_tag_cmd.output().map_err(|err| {
-        let msg = format!("git tag failed: {}", err);
+        let msg = format!("git tag failed: {err}");
         progress_handler.error_with_message(msg.clone());
         msg
     })?;
@@ -1210,7 +1206,7 @@ fn update_git_tag(
     git_checkout_cmd.stderr(std::process::Stdio::null());
 
     let output = git_checkout_cmd.output().map_err(|err| {
-        let msg = format!("git checkout failed: {}", err);
+        let msg = format!("git checkout failed: {err}");
         progress_handler.error_with_message(msg.clone());
         msg
     })?;

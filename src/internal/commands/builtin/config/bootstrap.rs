@@ -275,7 +275,7 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
             // And return true to save the configuration
             true
         }) {
-            return Err(format!("Failed to update user configuration: {}", err));
+            return Err(format!("Failed to update user configuration: {err}"));
         }
     }
 
@@ -446,7 +446,7 @@ fn question_worktree() -> (String, bool) {
             _ => unreachable!(),
         },
         Err(err) => {
-            println!("{}\x1B[0K", format!("[✘] {:?}", err).red());
+            println!("{}\x1B[0K", format!("[✘] {err:?}").red());
             return ("".to_string(), false);
         }
     };
@@ -490,7 +490,7 @@ fn question_repo_path_format(worktree: String) -> (String, bool) {
                 (
                     &current_repo_path_format,
                     false,
-                    format!("e.g. {}", example_str),
+                    format!("e.g. {example_str}"),
                 ),
             );
         }
@@ -512,7 +512,7 @@ fn question_repo_path_format(worktree: String) -> (String, bool) {
             } else {
                 example.to_string()
             };
-            format!("{} {}", format, format!("({})", example).light_black())
+            format!("{} {}", format, format!("({example})").light_black())
         })
         .collect();
 
@@ -557,8 +557,7 @@ fn question_repo_path_format(worktree: String) -> (String, bool) {
                                 let var = capture.get(1).unwrap().as_str();
                                 if var != "repo" && var != "org" && var != "host" {
                                     return Err(format!(
-                                        "The format contains an unknown variable: %{{{}}}",
-                                        var
+                                        "The format contains an unknown variable: %{{{var}}}"
                                     )
                                     .to_string()
                                     .light_red());
@@ -575,7 +574,7 @@ fn question_repo_path_format(worktree: String) -> (String, bool) {
                             _ => unreachable!(),
                         },
                         Err(err) => {
-                            println!("{}\x1B[0K", format!("[✘] {:?}", err).red());
+                            println!("{}\x1B[0K", format!("[✘] {err:?}").red());
                             return ("".to_string(), false);
                         }
                     }
@@ -585,7 +584,7 @@ fn question_repo_path_format(worktree: String) -> (String, bool) {
             _ => unreachable!(),
         },
         Err(err) => {
-            println!("{}\x1B[0K", format!("[✘] {:?}", err).red());
+            println!("{}\x1B[0K", format!("[✘] {err:?}").red());
             return ("".to_string(), false);
         }
     };
@@ -732,7 +731,7 @@ fn question_org(worktree: &str) -> (Vec<OrgConfig>, bool) {
             _ => unreachable!(),
         },
         Err(err) => {
-            println!("{}\x1B[0K", format!("[✘] {:?}", err).red());
+            println!("{}\x1B[0K", format!("[✘] {err:?}").red());
             return (vec![], false);
         }
     };
@@ -791,7 +790,7 @@ fn question_org(worktree: &str) -> (Vec<OrgConfig>, bool) {
             _ => unreachable!(),
         },
         Err(err) => {
-            println!("{}\x1B[0K", format!("[✘] {:?}", err).red());
+            println!("{}\x1B[0K", format!("[✘] {err:?}").red());
             return (vec![], false);
         }
     };
@@ -817,7 +816,7 @@ fn question_org(worktree: &str) -> (Vec<OrgConfig>, bool) {
                 _ => unreachable!(),
             },
             Err(err) => {
-                println!("{}\x1B[0K", format!("[✘] {:?}", err).red());
+                println!("{}\x1B[0K", format!("[✘] {err:?}").red());
                 return (vec![], false);
             }
         }
@@ -939,7 +938,7 @@ fn question_rc_file(current_shell: &Shell) -> (PathBuf, bool) {
             _ => unreachable!(),
         },
         Err(err) => {
-            println!("{}\x1B[0K", format!("[✘] {:?}", err).red());
+            println!("{}\x1B[0K", format!("[✘] {err:?}").red());
             return (PathBuf::new(), false);
         }
     };

@@ -111,7 +111,7 @@ impl UpConfigCustom {
                 .to_string()
         };
 
-        progress_handler.init(format!("{}:", name).light_blue());
+        progress_handler.init(format!("{name}:").light_blue());
 
         if !global_config()
             .up_command
@@ -129,7 +129,7 @@ impl UpConfigCustom {
         }
 
         if let Err(err) = self.meet(environment, progress_handler) {
-            progress_handler.error_with_message(format!("{}", err).light_red());
+            progress_handler.error_with_message(format!("{err}").light_red());
             return Err(UpError::StepFailed(name, progress_handler.step()));
         }
 
@@ -151,7 +151,7 @@ impl UpConfigCustom {
                 .to_string()
         };
 
-        progress_handler.init(format!("{}:", name).light_blue());
+        progress_handler.init(format!("{name}:").light_blue());
 
         if let Some(_unmeet) = &self.unmeet {
             if !self.met().unwrap_or(true) {
@@ -162,7 +162,7 @@ impl UpConfigCustom {
             progress_handler.progress("reverting".light_black());
 
             if let Err(err) = self.unmeet(progress_handler) {
-                progress_handler.error_with_message(format!("{}", err).light_red());
+                progress_handler.error_with_message(format!("{err}").light_red());
                 return Err(err);
             }
         }
@@ -217,7 +217,7 @@ impl UpConfigCustom {
 
             // Prepare the FIFO reader to handle the OMNI_ENV file
             let mut fifo_reader =
-                FifoReader::new().map_err(|err| UpError::Exec(format!("{}", err)))?;
+                FifoReader::new().map_err(|err| UpError::Exec(format!("{err}")))?;
 
             // Prepare and run the command
             let mut command = TokioCommand::new("bash");
@@ -237,7 +237,7 @@ impl UpConfigCustom {
             // Close the fifo handler
             let lines = match fifo_reader.stop() {
                 Ok(lines) => lines,
-                Err(err) => return Err(UpError::Exec(format!("{}", err))),
+                Err(err) => return Err(UpError::Exec(format!("{err}"))),
             };
 
             // Parse the contents of the environment file
@@ -355,8 +355,7 @@ where
             for var in vars {
                 if !is_valid_env_name(var) {
                     return Err(UpError::Exec(format!(
-                        "invalid environment variable name: '{}', in 'unset' operation",
-                        var
+                        "invalid environment variable name: '{var}', in 'unset' operation"
                     )));
                 }
 
@@ -388,8 +387,7 @@ where
             if let Some((var, value)) = line.split_once(operation_str) {
                 if !is_valid_env_name(var) {
                     return Err(UpError::Exec(format!(
-                        "invalid environment variable name: '{}', in '{}' operation",
-                        var, operation_str
+                        "invalid environment variable name: '{var}', in '{operation_str}' operation"
                     )));
                 }
 
@@ -407,8 +405,7 @@ where
         if let Some((var, delimiter)) = line.split_once("<<") {
             if !is_valid_env_name(var) {
                 return Err(UpError::Exec(format!(
-                    "invalid environment variable name: '{}', in '<<' operation",
-                    var
+                    "invalid environment variable name: '{var}', in '<<' operation"
                 )));
             }
 
@@ -435,8 +432,7 @@ where
             // Validate the delimiter
             if !is_valid_delimiter(delimiter) {
                 return Err(UpError::Exec(format!(
-                    "invalid delimiter: '{}', in '<<' operation",
-                    delimiter
+                    "invalid delimiter: '{delimiter}', in '<<' operation"
                 )));
             }
 
@@ -462,8 +458,7 @@ where
 
             if !ended {
                 return Err(UpError::Exec(format!(
-                    "expected delimiter '{}' to end '<<' operation",
-                    delimiter
+                    "expected delimiter '{delimiter}' to end '<<' operation"
                 )));
             }
 
@@ -538,8 +533,7 @@ where
 
         // If no operation was found, return an error
         return Err(UpError::Exec(format!(
-            "invalid environment operation: '{}'",
-            line
+            "invalid environment operation: '{line}'"
         )));
     }
 

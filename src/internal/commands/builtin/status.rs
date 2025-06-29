@@ -104,7 +104,7 @@ impl StatusCommand {
         } else {
             "not loaded".light_red()
         };
-        println!("{}{}", prefix, status);
+        println!("{prefix}{status}");
     }
 
     fn print_configuration(&self, args: &StatusCommandArgs) {
@@ -148,7 +148,7 @@ impl StatusCommand {
             println!("{}{}", prefix, "none".light_red());
         } else {
             for config_file in &config_loader.loaded_config_files {
-                println!("{}- {}", prefix, config_file);
+                println!("{prefix}- {config_file}");
             }
         }
     }
@@ -187,7 +187,7 @@ impl StatusCommand {
             for org in ORG_LOADER.printable_orgs() {
                 let mut org_str = org.config.handle.to_string();
                 if let Some(worktree) = &org.config.worktree {
-                    org_str.push_str(&format!(" ({})", worktree).light_black());
+                    org_str.push_str(&format!(" ({worktree})").light_black());
                 }
 
                 if org.config.trusted {
@@ -196,7 +196,7 @@ impl StatusCommand {
                     org_str.push_str(&format!(" {}", "untrusted").light_red().italic());
                 }
 
-                println!("{}- {}", prefix, org_str);
+                println!("{prefix}- {org_str}");
             }
         }
     }
@@ -272,7 +272,7 @@ impl StatusCommand {
         }
 
         let yaml_code = yaml_lines.join("\n  │ ");
-        format!("  │ {}", yaml_code)
+        format!("  │ {yaml_code}")
     }
 }
 

@@ -109,7 +109,7 @@ impl MainArgs {
                 // unreachable!("help flag is disabled");
                 // }
                 _ => {
-                    let err_str = format!("{}", err);
+                    let err_str = format!("{err}");
                     let err_str = err_str
                         .split('\n')
                         .take_while(|line| !line.is_empty())
@@ -139,7 +139,7 @@ impl MainArgs {
             let socket_path = askpass[1].as_str();
             match request.send(socket_path) {
                 Ok(password) => {
-                    print!("{}", password);
+                    print!("{password}");
                     exit(0);
                 }
                 Err(_err) => exit(1),

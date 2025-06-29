@@ -291,11 +291,11 @@ impl Command {
         } else {
             self.name().join(" ")
         };
-        let mut usage = format!("omni {}", name).bold();
+        let mut usage = format!("omni {name}").bold();
 
         if let Some(syntax) = self.syntax() {
             if let Some(syntax_usage) = syntax.usage {
-                usage += &format!(" {}", syntax_usage);
+                usage += &format!(" {syntax_usage}");
             } else if !syntax.parameters.is_empty() {
                 let params = syntax.parameters.clone();
 
@@ -442,12 +442,12 @@ impl Command {
 
                         eprintln!("{} {}", "Usage:".underline().bold(), wrapped_usage[0]);
                         wrapped_usage.iter().skip(1).for_each(|line| {
-                            eprintln!("       {}", line);
+                            eprintln!("       {line}");
                         });
                         continue;
                     }
                     if idx > 0 {
-                        eprintln!("{}", line);
+                        eprintln!("{line}");
                     } else {
                         omni_print!(format!(
                             "{} {}",
@@ -501,7 +501,7 @@ impl Command {
                     &self.source_dir(),
                     format!(
                         "Do you want to run {} provided by this directory?",
-                        format!("omni {}", name).light_yellow(),
+                        format!("omni {name}").light_yellow(),
                     ),
                 ) {
                     omni_error!(format!(
@@ -718,7 +718,7 @@ impl Command {
                 // Split the first char and the following ones, if any
                 // as they would become the next argument
                 let (arg, next_arg) = arg_name.split_at(1);
-                let arg = format!("-{}", arg);
+                let arg = format!("-{arg}");
 
                 let next_arg = if next_arg.is_empty() {
                     None
@@ -834,7 +834,7 @@ impl Command {
                 seen_parameters.push((parameter.name(), vec![]));
 
                 if let Some(next_arg) = next_arg {
-                    current_arg = Some(format!("-{}", next_arg));
+                    current_arg = Some(format!("-{next_arg}"));
                 }
             }
 
@@ -878,7 +878,7 @@ impl Command {
                 .filter(|name| name.starts_with(&comp_value))
                 .sorted()
                 .for_each(|name| {
-                    println!("{}", name);
+                    println!("{name}");
                 });
 
             // Autocomplete '--' if there is a last parameter
@@ -895,7 +895,7 @@ impl Command {
                     .iter()
                     .filter(|val| val.starts_with(&comp_value))
                     .for_each(|val| {
-                        println!("{}", val);
+                        println!("{val}");
                     });
 
                 // We've done the whole completion for that parameter, no
@@ -912,7 +912,7 @@ impl Command {
 
                 path_auto_complete(&comp_value, include_repositories, include_files)
                     .iter()
-                    .for_each(|s| println!("{}", s));
+                    .for_each(|s| println!("{s}"));
 
                 // We offered path autocompletions, no need to delegate
                 // to the underlying command

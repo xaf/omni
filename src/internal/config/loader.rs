@@ -175,14 +175,14 @@ impl ConfigLoader {
         let mut config_files = vec![];
 
         // We can just check for a single file /etc/omni/(pre/post).yaml
-        let file = format!("/etc/omni/{}.yaml", prefix);
+        let file = format!("/etc/omni/{prefix}.yaml");
         if PathBuf::from(&file).is_file() {
             config_files.push(file);
         }
 
         // Use a glob pattern to check in /etc/omni/(pre/post).d/<file>.yaml
         // and apply the files in lexicographical order
-        let glob_pattern = format!("/etc/omni/{}.d/*.yaml", prefix);
+        let glob_pattern = format!("/etc/omni/{prefix}.d/*.yaml");
         if let Ok(entries) = glob::glob(&glob_pattern) {
             for path in entries.into_iter().flatten().sorted() {
                 if !path.is_file() {
@@ -363,7 +363,7 @@ impl ConfigLoader {
 
         let mut workdir_config_files = vec![];
         for workdir_config_file in WORKDIR_CONFIG_FILES.iter() {
-            workdir_config_files.push(format!("{}/{}", wd_root, workdir_config_file));
+            workdir_config_files.push(format!("{wd_root}/{workdir_config_file}"));
         }
 
         new_config_loader.import_config_files(workdir_config_files, ConfigScope::Workdir);
@@ -421,7 +421,7 @@ impl ConfigLoader {
             Err(err) => {
                 omni_print!(format!(
                     "{} {}",
-                    format!("configuration error: unable to parse {}:", config_file).red(),
+                    format!("configuration error: unable to parse {config_file}:").red(),
                     err
                 ));
                 exit(1);

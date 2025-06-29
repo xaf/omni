@@ -393,7 +393,7 @@ impl BuiltinCommand for TidyCommand {
             ));
 
             for repository in repositories.iter() {
-                eprintln!("{}", repository);
+                eprintln!("{repository}");
             }
 
             omni_info!(format!("use {} to organize them", "--yes".light_blue()));
@@ -431,7 +431,7 @@ impl BuiltinCommand for TidyCommand {
                     _ => unreachable!(),
                 },
                 Err(err) => {
-                    println!("{}", format!("[✘] {:?}", err).red());
+                    println!("{}", format!("[✘] {err:?}").red());
                     exit(0);
                 }
             }
@@ -459,7 +459,7 @@ impl BuiltinCommand for TidyCommand {
             if let Some(progress_bar) = &progress_bar {
                 progress_bar.println(s);
             } else {
-                eprintln!("{}", s);
+                eprintln!("{s}");
             }
         };
 
@@ -617,7 +617,7 @@ impl TidyGitRepo {
         let mut tidy_repos = Vec::new();
         for repository in repositories.iter() {
             if let Some(s) = spinner.clone() {
-                s.set_message(format!("Analyzing: {}", repository))
+                s.set_message(format!("Analyzing: {repository}"))
             }
 
             if let Some(tidy_repo) = Self::new(repository) {

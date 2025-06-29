@@ -61,13 +61,13 @@ impl AskPassRequest {
         // Check if the file exists and is a socket
         let socket_path = PathBuf::from(socket_path_str);
         if !socket_path.exists() {
-            return Err(format!("socket path does not exist: {}", socket_path_str));
+            return Err(format!("socket path does not exist: {socket_path_str}"));
         }
 
         let metadata = match socket_path.metadata() {
             Ok(metadata) => metadata,
             Err(err) => {
-                return Err(format!("error getting metadata for socket path: {}", err));
+                return Err(format!("error getting metadata for socket path: {err}"));
             }
         };
 
@@ -78,7 +78,7 @@ impl AskPassRequest {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(err) => {
-                return Err(format!("error creating tokio runtime: {}", err));
+                return Err(format!("error creating tokio runtime: {err}"));
             }
         };
 
@@ -86,19 +86,19 @@ impl AskPassRequest {
             let mut stream = match UnixStream::connect(socket_path).await {
                 Ok(stream) => stream,
                 Err(err) => {
-                    return Err(format!("error connecting to socket: {}", err));
+                    return Err(format!("error connecting to socket: {err}"));
                 }
             };
 
             // Serialize the request object to a string
             let request = serde_json::to_string(&self)
-                .map_err(|err| format!("error serializing request: {}", err))?;
+                .map_err(|err| format!("error serializing request: {err}"))?;
             // Make all bytes be the request + the 0 byte
-            let request = format!("{}\0", request);
+            let request = format!("{request}\0");
 
             // Send the request through the socket
             if let Err(err) = stream.write_all(request.as_bytes()).await {
-                return Err(format!("error writing to socket: {}", err));
+                return Err(format!("error writing to socket: {err}"));
             }
 
             // Wrap the socket in a BufReader for reading lines
@@ -117,7 +117,7 @@ impl AskPassRequest {
                 }
                 Err(err) => {
                     // Error reading from the socket
-                    Err(format!("error reading from socket: {}", err))
+                    Err(format!("error reading from socket: {err}"))
                 }
             };
 
@@ -265,7 +265,7 @@ impl AskPassListener {
             Ok(tmp_dir) => tmp_dir,
             Err(err) => {
                 return Err(UpError::Exec(
-                    format!("failed to create temporary directory: {:?}", err).to_string(),
+                    format!("failed to create temporary directory: {err:?}").to_string(),
                 ))
             }
         };
@@ -282,7 +282,7 @@ impl AskPassListener {
                     .tempdir_in("/tmp") // Use /tmp to avoid long paths
                     .map_err(|err| {
                         UpError::Exec(
-                            format!("failed to create temporary directory: {:?}", err).to_string(),
+                            format!("failed to create temporary directory: {err:?}").to_string(),
                         )
                     })?;
 
@@ -324,17 +324,14 @@ impl AskPassListener {
 
             // Render the script
             let script = render_askpass_template(&context).map_err(|err| {
-                eprintln!(
-                    "[✘] Failed to render askpass script for {}: {:?}",
-                    tool, err
-                );
-                UpError::Exec(format!("failed to render askpass script: {:?}", err))
+                eprintln!("[✘] Failed to render askpass script for {tool}: {err:?}");
+                UpError::Exec(format!("failed to render askpass script: {err:?}"))
             })?;
 
             // Write the script to the file
             if let Err(err) = std::fs::write(&askpass_path, script) {
                 return Err(UpError::Exec(
-                    format!("failed to write askpass script: {:?}", err).to_string(),
+                    format!("failed to write askpass script: {err:?}").to_string(),
                 ));
             }
 
@@ -342,14 +339,14 @@ impl AskPassListener {
             let permissions = Permissions::from_mode(0o700);
             if let Err(err) = set_permissions(&askpass_path, permissions) {
                 return Err(UpError::Exec(
-                    format!("failed to set permissions on askpass script: {:?}", err).to_string(),
+                    format!("failed to set permissions on askpass script: {err:?}").to_string(),
                 ));
             }
         }
 
         // Create the listener
         let listener = UnixListener::bind(&socket_path)
-            .map_err(|err| UpError::Exec(format!("failed to bind to socket: {:?}", err)))?;
+            .map_err(|err| UpError::Exec(format!("failed to bind to socket: {err:?}")))?;
 
         Ok(Some(Self {
             inner: TokioMutex::new(AskPassListenerInner { listener, tmp_dir }),
@@ -383,7 +380,7 @@ impl AskPassListener {
                             buf.push(byte as char);
                         }
                         Err(err) => {
-                            return Err(format!("failed to read request from socket: {:?}", err));
+                            return Err(format!("failed to read request from socket: {err:?}"));
                         }
                     }
                 }
@@ -392,7 +389,7 @@ impl AskPassListener {
 
         // Deserialize the request object
         let request: AskPassRequest = serde_json::from_str(&buf)
-            .map_err(|err| format!("failed to parse request: {:?}", err))?;
+            .map_err(|err| format!("failed to parse request: {err:?}"))?;
 
         // Handle the request
         let password = if request.prompt_type == "none" {
@@ -414,7 +411,7 @@ impl AskPassListener {
                     _ => return Err("no password provided".to_string()),
                 },
                 Err(err) => {
-                    println!("{}", format!("[✘] {:?}", err).red());
+                    println!("{}", format!("[✘] {err:?}").red());
                     return Err("no password provided".to_string());
                 }
             }
@@ -425,7 +422,7 @@ impl AskPassListener {
         match result {
             Ok(_) => {}
             Err(err) => {
-                return Err(format!("failed to write to socket: {:?}", err));
+                return Err(format!("failed to write to socket: {err:?}"));
             }
         }
 

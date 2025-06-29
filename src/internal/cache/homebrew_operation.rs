@@ -861,19 +861,13 @@ mod tests {
                 while let Some((name, version, is_cask)) = deleted_versions.borrow_mut().pop() {
                     assert!(
                         expected_delete.remove(&(name.clone(), version.clone(), is_cask)),
-                        "Unexpected deletion of name={}, version={:?}, cask={}",
-                        name,
-                        version,
-                        is_cask,
+                        "Unexpected deletion of name={name}, version={version:?}, cask={is_cask}",
                     );
                 }
 
                 if !expected_delete.is_empty() {
                     let (name, version, is_cask) = expected_delete.iter().next().unwrap();
-                    panic!(
-                        "Expected deletion of name={}, version={:?}, cask={}",
-                        name, version, is_cask
-                    );
+                    panic!("Expected deletion of name={name}, version={version:?}, cask={is_cask}");
                 }
             });
         }
@@ -1029,7 +1023,7 @@ mod tests {
                                 |row| row.get::<_, i64>(0),
                             )
                             .expect("Failed to query homebrew_install");
-                        assert_eq!(exists, 1, "Install name={:?}, version={:?}, cask={} should exist exactly once, found {}", install_name, version, is_cask, exists);
+                        assert_eq!(exists, 1, "Install name={install_name:?}, version={version:?}, cask={is_cask} should exist exactly once, found {exists}");
                     }
                 }
             });
@@ -1073,7 +1067,7 @@ mod tests {
                             |row| row.get::<_, i64>(0),
                         )
                         .expect("Failed to query homebrew_install");
-                    assert_eq!(exists, 1, "Version {:?} not found", version);
+                    assert_eq!(exists, 1, "Version {version:?} not found");
                 }
             });
         }

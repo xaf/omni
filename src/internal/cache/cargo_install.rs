@@ -316,7 +316,7 @@ mod tests {
                             |row| row.get(0),
                         )
                         .expect("Failed to query requirement");
-                    assert!(required, "Requirement for {} should exist", env_id);
+                    assert!(required, "Requirement for {env_id} should exist");
                 }
             });
         }

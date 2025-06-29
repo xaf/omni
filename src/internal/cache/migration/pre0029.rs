@@ -438,7 +438,7 @@ pub fn convert_cache_pre_0_0_29() -> io::Result<()> {
     for (wd_id, env) in pre0029_cache.env {
         let uuid = uuid::Uuid::new_v4();
         let short_uuid = uuid.to_string()[..8].to_string();
-        let version = format!("{}%{}", wd_id, short_uuid);
+        let version = format!("{wd_id}%{short_uuid}");
 
         post0029_cache
             .workdir_env

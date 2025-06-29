@@ -75,7 +75,7 @@ impl UpEnvironmentsCache {
         let mut new_env: bool = true;
         let mut replace_env: bool = true;
         let env_hash = environment.hash_string();
-        let env_version_id = format!("{}%{}", workdir_id, env_hash);
+        let env_version_id = format!("{workdir_id}%{env_hash}");
         let cache_env_config = global_config().cache.environment;
 
         let mut db = CacheManager::get();
@@ -800,33 +800,29 @@ mod tests {
                 if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
                     // Write to cache.environment.max_total, using a yaml string
                     *config_value = ConfigValue::from_str(
-                        format!(
-                            "cache:\n  environment:\n    max_total: {}",
-                            expected_max_total
-                        )
-                        .as_str(),
+                        format!("cache:\n  environment:\n    max_total: {expected_max_total}")
+                            .as_str(),
                     )
                     .expect("Failed to create config value");
 
                     true
                 }) {
-                    panic!("Failed to edit main user config file: {}", err);
+                    panic!("Failed to edit main user config file: {err}");
                 }
 
                 // Check if the config was written correctly
                 let max_total = match global_config().cache.environment.max_total {
                     None => panic!("Failed to set max_total (None)"),
-                    Some(n) if n != expected_max_total => panic!(
-                        "Failed to set max_total (expected {}, got {})",
-                        expected_max_total, n
-                    ),
+                    Some(n) if n != expected_max_total => {
+                        panic!("Failed to set max_total (expected {expected_max_total}, got {n})")
+                    }
                     Some(n) => n,
                 };
 
                 // Create environments up to max_total limit
                 let mut env = UpEnvironment::new().init();
                 for i in 0..(max_total + 3) {
-                    let workdir = format!("workdir{}", i);
+                    let workdir = format!("workdir{i}");
                     cache
                         .assign_environment(&workdir, None, &mut env)
                         .expect("Failed to assign environment");
@@ -848,33 +844,29 @@ mod tests {
                 if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
                     // Write to cache.environment.max_total, using a yaml string
                     *config_value = ConfigValue::from_str(
-                        format!(
-                            "cache:\n  environment:\n    max_total: {}",
-                            expected_max_total
-                        )
-                        .as_str(),
+                        format!("cache:\n  environment:\n    max_total: {expected_max_total}")
+                            .as_str(),
                     )
                     .expect("Failed to create config value");
 
                     true
                 }) {
-                    panic!("Failed to edit main user config file: {}", err);
+                    panic!("Failed to edit main user config file: {err}");
                 }
 
                 // Check if the config was written correctly
                 let max_total = match global_config().cache.environment.max_total {
                     None => panic!("Failed to set max_total (None)"),
-                    Some(n) if n != expected_max_total => panic!(
-                        "Failed to set max_total (expected {}, got {})",
-                        expected_max_total, n
-                    ),
+                    Some(n) if n != expected_max_total => {
+                        panic!("Failed to set max_total (expected {expected_max_total}, got {n})")
+                    }
                     Some(n) => n,
                 };
 
                 // Create environments up to max_total limit
                 for i in 0..(max_total + 3) {
                     let mut env = UpEnvironment::new().init();
-                    env.add_env_var("TEST_VAR".to_string(), format!("value{}", i));
+                    env.add_env_var("TEST_VAR".to_string(), format!("value{i}"));
 
                     cache
                         .assign_environment("workdir", None, &mut env)
@@ -898,8 +890,7 @@ mod tests {
                     // Write to cache.environment.max_total, using a yaml string
                     *config_value = ConfigValue::from_str(
                         format!(
-                            "cache:\n  environment:\n    max_per_workdir: {}",
-                            expected_max_per_workdir
+                            "cache:\n  environment:\n    max_per_workdir: {expected_max_per_workdir}"
                         )
                         .as_str(),
                     )
@@ -907,15 +898,14 @@ mod tests {
 
                     true
                 }) {
-                    panic!("Failed to edit main user config file: {}", err);
+                    panic!("Failed to edit main user config file: {err}");
                 }
 
                 // Check if the config was written correctly
                 let max_per_workdir = match global_config().cache.environment.max_per_workdir {
                     None => panic!("Failed to set max_per_workdir (None)"),
                     Some(n) if n != expected_max_per_workdir => panic!(
-                        "Failed to set max_per_workdir (expected {}, got {})",
-                        expected_max_per_workdir, n
+                        "Failed to set max_per_workdir (expected {expected_max_per_workdir}, got {n})"
                     ),
                     Some(n) => n,
                 };
@@ -923,10 +913,10 @@ mod tests {
                 // Create environments up to max_total limit
                 let num_workdirs = 5;
                 for i in 0..num_workdirs {
-                    let workdir = format!("workdir{}", i);
+                    let workdir = format!("workdir{i}");
                     for j in 0..(max_per_workdir + 3) {
                         let mut env = UpEnvironment::new().init();
-                        env.add_env_var("TEST_VAR".to_string(), format!("value.{}.{}", i, j));
+                        env.add_env_var("TEST_VAR".to_string(), format!("value.{i}.{j}"));
 
                         cache
                             .assign_environment(&workdir, None, &mut env)

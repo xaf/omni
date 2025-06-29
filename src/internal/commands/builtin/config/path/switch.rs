@@ -216,7 +216,7 @@ impl BuiltinCommand for ConfigPathSwitchCommand {
                                 .template("{spinner:.green} {msg:.green}")
                                 .unwrap(),
                         );
-                        spinner.set_message(format!("Looking for {}", lookup_repo));
+                        spinner.set_message(format!("Looking for {lookup_repo}"));
                         spinner.enable_steady_tick(Duration::from_millis(50));
                         Some(spinner)
                     } else {
@@ -271,7 +271,7 @@ impl BuiltinCommand for ConfigPathSwitchCommand {
                                 .template("{spinner:.green} {msg:.green}")
                                 .unwrap(),
                         );
-                        spinner.set_message(format!("Looking for {}", lookup_repo));
+                        spinner.set_message(format!("Looking for {lookup_repo}"));
                         spinner.enable_steady_tick(Duration::from_millis(50));
                         Some(spinner)
                     } else {
@@ -399,7 +399,7 @@ impl BuiltinCommand for ConfigPathSwitchCommand {
                         .template("{spinner:.green} {msg:.green}")
                         .unwrap(),
                 );
-                spinner.set_message(format!("Looking for {}", repo_handle));
+                spinner.set_message(format!("Looking for {repo_handle}"));
                 spinner.enable_steady_tick(Duration::from_millis(50));
                 Some(spinner)
             } else {
@@ -447,7 +447,7 @@ impl BuiltinCommand for ConfigPathSwitchCommand {
                 omni_error!(format!(
                     "failed to change directory {}: {}",
                     format!("({})", switch_to_path.to_string_lossy()).light_black(),
-                    format!("{}", err).red()
+                    format!("{err}").red()
                 ));
                 exit(1);
             }

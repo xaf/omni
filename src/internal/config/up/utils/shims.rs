@@ -58,7 +58,7 @@ pub fn handle_shims() {
         Ok(binary_path) => binary_path,
         Err(err) => {
             // Exit with 127 if the binary was not found
-            eprintln!("{}: {}", binary, err);
+            eprintln!("{binary}: {err}");
             exit(127);
         }
     };
@@ -71,7 +71,7 @@ pub fn handle_shims() {
 
     // If we reach this point, it means that the exec failed
     // so we'll print the error and exit with 126
-    eprintln!("{}: {}", binary, err);
+    eprintln!("{binary}: {err}");
     exit(126);
 }
 
@@ -259,13 +259,13 @@ pub fn reshim(progress_handler: &dyn ProgressHandler) -> Result<Option<String>, 
     } else if num_created > 0 || num_updated > 0 || num_removed > 0 {
         let mut counts = vec![];
         if num_created > 0 {
-            counts.push(format!("+{}", num_created).light_green());
+            counts.push(format!("+{num_created}").light_green());
         }
         if num_updated > 0 {
-            counts.push(format!("~{}", num_updated).light_yellow());
+            counts.push(format!("~{num_updated}").light_yellow());
         }
         if num_removed > 0 {
-            counts.push(format!("-{}", num_removed).light_red());
+            counts.push(format!("-{num_removed}").light_red());
         }
         let msg = format!(
             "{} shim{}",

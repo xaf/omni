@@ -564,13 +564,13 @@ impl PromptType {
 
                         let errmsg = match (min, max) {
                             (Some(min), Some(max)) => {
-                                format!("Answer must be between {} and {}", min, max)
+                                format!("Answer must be between {min} and {max}")
                             }
                             (Some(min), None) => {
-                                format!("Answer must be greater than or equal to {}", min)
+                                format!("Answer must be greater than or equal to {min}")
                             }
                             (None, Some(max)) => {
-                                format!("Answer must be lower than or equal to {}", max)
+                                format!("Answer must be lower than or equal to {max}")
                             }
                             _ => unreachable!(),
                         };
@@ -616,13 +616,13 @@ impl PromptType {
 
                         let errmsg = match (min, max) {
                             (Some(min), Some(max)) => {
-                                format!("Answer must be between {} and {}", min, max)
+                                format!("Answer must be between {min} and {max}")
                             }
                             (Some(min), None) => {
-                                format!("Answer must be greater than or equal to {}", min)
+                                format!("Answer must be greater than or equal to {min}")
                             }
                             (None, Some(max)) => {
-                                format!("Answer must be lower than or equal to {}", max)
+                                format!("Answer must be lower than or equal to {max}")
                             }
                             _ => unreachable!(),
                         };
@@ -723,7 +723,7 @@ impl PromptType {
                 _ => unimplemented!(),
             },
             Err(err) => {
-                println!("{}", format!("[✘] {:?}", err).red());
+                println!("{}", format!("[✘] {err:?}").red());
                 return false;
             }
         };
@@ -812,7 +812,7 @@ impl PromptChoicesConfig {
                         Ok(choices)
                     }
                 }
-                Err(err) => Err(format!("failed to parse choices template as yaml: {}", err)),
+                Err(err) => Err(format!("failed to parse choices template as yaml: {err}")),
             },
         }
     }

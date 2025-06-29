@@ -71,7 +71,7 @@ pub fn is_trusted_or_ask(path: &str, ask: String) -> bool {
             _ => unreachable!(),
         },
         Err(err) => {
-            println!("{}", format!("[✘] {:?}", err).red());
+            println!("{}", format!("[✘] {err:?}").red());
             false
         }
     }

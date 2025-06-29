@@ -232,7 +232,7 @@ impl FromStr for SuggestCloneTypeEnum {
         match s.to_lowercase().as_str() {
             "package" => Ok(Self::Package),
             "worktree" => Ok(Self::Worktree),
-            _ => Err(format!("Invalid: {}", s)),
+            _ => Err(format!("Invalid: {s}")),
         }
     }
 }

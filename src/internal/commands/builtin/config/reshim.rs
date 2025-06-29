@@ -71,7 +71,7 @@ impl BuiltinCommand for ConfigReshimCommand {
                 progress_handler.success_with_message("nothing to do".light_black());
             }
             Err(e) => {
-                progress_handler.error_with_message(format!("{}", e));
+                progress_handler.error_with_message(format!("{e}"));
                 exit(1);
             }
         }

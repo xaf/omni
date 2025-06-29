@@ -1227,9 +1227,9 @@ impl SyntaxOptArg {
                 .iter()
                 .map(|ph| {
                     if self.required {
-                        format!("<{}>", ph)
+                        format!("<{ph}>")
                     } else {
-                        format!("[{}]", ph)
+                        format!("[{ph}]")
                     }
                 })
                 .map(|ph| if use_colors { ph.light_cyan() } else { ph })
@@ -1258,7 +1258,7 @@ impl SyntaxOptArg {
             // we need to add "..." to the end
             let repr =
                 if self.arg_type().is_array() || max_num.is_none() || max_num.unwrap() > min_num {
-                    format!("{}...", repr)
+                    format!("{repr}...")
                 } else {
                     repr
                 };
@@ -1334,7 +1334,7 @@ impl SyntaxOptArg {
                             .iter()
                             .cycle()
                             .take(min)
-                            .map(|repr| format!("<{}>", repr))
+                            .map(|repr| format!("<{repr}>"))
                             .map(|repr| if use_colors { repr.light_cyan() } else { repr })
                             .collect::<Vec<_>>()
                             .join(" ")
@@ -1360,18 +1360,18 @@ impl SyntaxOptArg {
                                 .expect("there should be at least one placeholder")
                         );
                         let repr = if use_colors { repr.light_cyan() } else { repr };
-                        format!("{}...", repr)
+                        format!("{repr}...")
                     }
                     (min, _) => {
                         let repr = placeholders
                             .iter()
                             .cycle()
                             .take(min)
-                            .map(|repr| format!("<{}>", repr))
+                            .map(|repr| format!("<{repr}>"))
                             .map(|repr| if use_colors { repr.light_cyan() } else { repr })
                             .collect::<Vec<_>>()
                             .join(" ");
-                        format!("{}...", repr)
+                        format!("{repr}...")
                     }
                 };
 
@@ -1807,8 +1807,7 @@ fn transform_repo_path(value: Option<String>) -> Result<Option<String>, ParseArg
     }
 
     Err(ParseArgsErrorKind::InvalidValue(format!(
-        "invalid repository path: {}",
-        value
+        "invalid repository path: {value}"
     )))
 }
 
@@ -2038,10 +2037,10 @@ impl fmt::Display for SyntaxOptArgNumValues {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Any => write!(f, ".."),
-            Self::Exactly(value) => write!(f, "{}", value),
-            Self::AtLeast(min) => write!(f, "{}..", min),
-            Self::AtMost(max) => write!(f, "..={}", max),
-            Self::Between(min, max) => write!(f, "{}..={}", min, max),
+            Self::Exactly(value) => write!(f, "{value}"),
+            Self::AtLeast(min) => write!(f, "{min}.."),
+            Self::AtMost(max) => write!(f, "..={max}"),
+            Self::Between(min, max) => write!(f, "{min}..={max}"),
         }
     }
 }
@@ -3444,13 +3443,13 @@ mod tests {
                     match &expectation {
                         Some(errmsg) => match &parsed_args {
                             Ok(_args) => {
-                                panic!("case with args {:?} should have failed but succeeded", argv)
+                                panic!("case with args {argv:?} should have failed but succeeded")
                             }
                             Err(e) => assert_eq!((argv, e.simple()), (argv, errmsg.to_string())),
                         },
                         None => {
                             if let Err(ref e) = parsed_args {
-                                panic!("case with args {:?} should have succeeded but failed with error: {}", argv, e);
+                                panic!("case with args {argv:?} should have succeeded but failed with error: {e}");
                             }
                         }
                     }
@@ -3470,7 +3469,7 @@ mod tests {
                     ) {
                         Ok(args) => {
                             if expectation.is_err() {
-                                panic!("{:?} should have failed", argv)
+                                panic!("{argv:?} should have failed")
                             }
                             args
                         }
@@ -3479,7 +3478,7 @@ mod tests {
                                 assert_eq!((&argv, e.simple()), (&argv, expect_err.to_string()));
                                 continue;
                             }
-                            panic!("{:?} should have succeeded, instead: {}", argv, e);
+                            panic!("{argv:?} should have succeeded, instead: {e}");
                         }
                     };
 
@@ -4163,8 +4162,7 @@ mod tests {
                         Ok(args) => {
                             if error.is_some() {
                                 panic!(
-                                    "case {} with argv {:?} should have failed, instead: {:?}",
-                                    i, argv, args
+                                    "case {i} with argv {argv:?} should have failed, instead: {args:?}"
                                 );
                             }
 
@@ -4222,8 +4220,7 @@ mod tests {
                                 continue;
                             }
                             panic!(
-                                "case {} with argv {:?} should have succeeded, instead: {}",
-                                i, argv, e
+                                "case {i} with argv {argv:?} should have succeeded, instead: {e}"
                             );
                         }
                     }
@@ -4301,7 +4298,7 @@ mod tests {
                     ("OMNI_ARG_NO_GROUP_VALUE_5", "no-group3.3"),
                 ];
 
-                eprintln!("{:?}", args);
+                eprintln!("{args:?}");
 
                 let expectations_len = expectations.len();
                 for (key, value) in expectations {

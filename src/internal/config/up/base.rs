@@ -230,7 +230,7 @@ impl UpConfig {
         let (new_env, newly_assigned, assigned_environment) = UpEnvironmentsCache::get()
             .assign_environment(&workdir_id, options.commit_sha.clone(), environment)
             .map_err(|err| {
-                progress_handler.error_with_message(format!("failed to update cache: {}", err));
+                progress_handler.error_with_message(format!("failed to update cache: {err}"));
                 UpError::Cache(err.to_string())
             })?;
 
@@ -245,8 +245,7 @@ impl UpConfig {
             progress_handler.progress("committing environment dependencies".to_string());
             if let Err(err) = self.commit(options, &assigned_environment) {
                 progress_handler.error_with_message(format!(
-                    "failed to commit environment dependencies: {}",
-                    err
+                    "failed to commit environment dependencies: {err}"
                 ));
                 return Err(UpError::Cache(err.to_string()));
             }

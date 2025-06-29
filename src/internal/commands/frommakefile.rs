@@ -213,6 +213,6 @@ impl MakefileCommand {
             .args(argv)
             .exec();
 
-        panic!("Something went wrong: {:?}", err);
+        panic!("Something went wrong: {err:?}");
     }
 }

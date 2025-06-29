@@ -340,7 +340,7 @@ mod tests {
 
                 // Add and verify each type
                 for (i, value) in values.iter().enumerate() {
-                    let prompt_id = format!("prompt{}", i);
+                    let prompt_id = format!("prompt{i}");
                     assert!(cache
                         .add_answer(
                             &prompt_id,

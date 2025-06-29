@@ -455,7 +455,7 @@ impl UpCommand {
                     _ => unreachable!(),
                 },
                 Err(err) => {
-                    println!("{}", format!("[✘] {:?}", err).red());
+                    println!("{}", format!("[✘] {err:?}").red());
                     false
                 }
             }
@@ -553,7 +553,7 @@ impl UpCommand {
                 _ => unreachable!(),
             },
             Err(err) => {
-                println!("{}", format!("[✘] {:?}", err).red());
+                println!("{}", format!("[✘] {err:?}").red());
             }
         };
 
@@ -842,7 +842,7 @@ impl UpCommand {
                 let msg = if num_suggested > 0 {
                     format!(
                         "cloned {}",
-                        format!("({} suggested)", num_suggested).light_black()
+                        format!("({num_suggested} suggested)").light_black()
                     )
                 } else {
                     "cloned".to_string()
@@ -852,7 +852,7 @@ impl UpCommand {
                 }
             } else if let Err(err) = result {
                 if let Some(handler) = progress_handler {
-                    handler.error_with_message(format!("failed: {}", err))
+                    handler.error_with_message(format!("failed: {err}"))
                 }
             }
         }
@@ -963,7 +963,7 @@ impl UpCommand {
                 _ => unreachable!(),
             },
             Err(err) => {
-                println!("{}", format!("[✘] {:?}", err).red());
+                println!("{}", format!("[✘] {err:?}").red());
                 return (vec![], HashSet::new());
             }
         }
@@ -996,7 +996,7 @@ impl UpCommand {
                 _ => unreachable!(),
             },
             Err(err) => {
-                println!("{}", format!("[✘] {:?}", err).red());
+                println!("{}", format!("[✘] {err:?}").red());
             }
         };
 
@@ -1034,8 +1034,8 @@ impl UpCommand {
                     write!(
                         backend,
                         "{} as 📦, {} in 🌳",
-                        format!("{}", count_pkg).bold(),
-                        format!("{}", count_wt).bold(),
+                        format!("{count_pkg}").bold(),
+                        format!("{count_wt}").bold(),
                     )
                 })
                 .choices(choices)
@@ -1064,7 +1064,7 @@ impl UpCommand {
                     _ => unreachable!(),
                 },
                 Err(err) => {
-                    println!("{}", format!("[✘] {:?}", err).red());
+                    println!("{}", format!("[✘] {err:?}").red());
                     // If we get here, we want to cancel the cloning entirely
                     selected_to_clone = vec![];
                 }
@@ -1145,7 +1145,7 @@ impl UpCommand {
 
         match operation {
             SyncUpdateOperation::Init(init) => {
-                panic!("unexpected init message: {:?}", init);
+                panic!("unexpected init message: {init:?}");
             }
             SyncUpdateOperation::Exit(exit_code) => exit(exit_code),
             SyncUpdateOperation::OmniWarning(message) => {
@@ -1158,7 +1158,7 @@ impl UpCommand {
                 omni_info!(message);
             }
             SyncUpdateOperation::Progress(progress) => {
-                panic!("unexpected progress message: {:?}", progress)
+                panic!("unexpected progress message: {progress:?}")
             }
         }
     }
@@ -1371,8 +1371,8 @@ impl BuiltinCommand for UpCommand {
             if let Err(err) = std::env::set_current_dir(wd_root) {
                 omni_error!(format!(
                     "failed to change directory {}: {}",
-                    format!("({})", wd_root).light_black(),
-                    format!("{}", err).red()
+                    format!("({wd_root})").light_black(),
+                    format!("{err}").red()
                 ));
                 exit(1);
             }
@@ -1604,8 +1604,7 @@ impl BuiltinCommand for UpCommand {
                 if let Err(err) = up_config.up(&options, &mut environment) {
                     self.handle_sync_operation(
                         SyncUpdateOperation::OmniError(format!(
-                            "issue while setting repo up: {}",
-                            err
+                            "issue while setting repo up: {err}"
                         )),
                         &options,
                     );
@@ -1621,8 +1620,7 @@ impl BuiltinCommand for UpCommand {
                     ) {
                         self.handle_sync_operation(
                             SyncUpdateOperation::OmniWarning(format!(
-                                "failed to update cache: {}",
-                                err
+                                "failed to update cache: {err}"
                             )),
                             &options,
                         );
@@ -1635,8 +1633,7 @@ impl BuiltinCommand for UpCommand {
                 if let Err(err) = up_config.down(&options) {
                     self.handle_sync_operation(
                         SyncUpdateOperation::OmniError(format!(
-                            "issue while tearing repo down: {}",
-                            err
+                            "issue while tearing repo down: {err}"
                         )),
                         &options,
                     );

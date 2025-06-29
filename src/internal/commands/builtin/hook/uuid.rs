@@ -50,7 +50,7 @@ impl BuiltinCommand for HookUuidCommand {
 
     fn exec(&self, _argv: Vec<String>) {
         let uuid = Uuid::new_v4();
-        println!("{}", uuid);
+        println!("{uuid}");
         exit(0);
     }
 }

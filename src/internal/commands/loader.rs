@@ -414,7 +414,7 @@ impl CommandLoader {
                         if PAGE_SIZE < sub_names.len() {
                             print!("\x1B[1A\x1B[2K"); // This clears the line, so there's no artifact left
                         }
-                        println!("{}", format!("[✘] {:?}", err).red());
+                        println!("{}", format!("[✘] {err:?}").red());
                     }
                 }
 
@@ -523,7 +523,7 @@ impl CommandLoader {
                     if PAGE_SIZE < with_score.len() {
                         print!("\x1B[1A\x1B[2K"); // This clears the line, so there's no artifact left
                     }
-                    println!("{}", format!("[✘] {:?}", err).red());
+                    println!("{}", format!("[✘] {err:?}").red());
                 }
             }
         }

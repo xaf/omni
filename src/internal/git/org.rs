@@ -70,7 +70,7 @@ impl SearchEntry {
 
         let regex_path = self.regex_path.join(".git");
         let regex = if let Some(regex_path) = regex_path.to_str() {
-            let regex_str = format!("^{}$", regex_path);
+            let regex_str = format!("^{regex_path}$");
             if let Ok(regex) = regex::Regex::new(regex_str.as_str()) {
                 regex
             } else {
@@ -361,7 +361,7 @@ impl OrgLoader {
 
         let mut visited = HashSet::new();
         let mut matches = HashSet::new();
-        let find_match = format!("/{}", repo);
+        let find_match = format!("/{repo}");
         for worktree in worktrees.iter() {
             if !visited.insert(worktree.to_owned()) {
                 continue;
@@ -604,7 +604,7 @@ impl OrgLoader {
             let start = std::time::Instant::now();
 
             // Walk worktrees to try and find the repo
-            let slash_rel_path = format!("/{}", rel_path);
+            let slash_rel_path = format!("/{rel_path}");
             for worktree in worktrees.iter() {
                 for entry in WalkDir::new(worktree).follow_links(true) {
                     if let Ok(entry) = entry {
@@ -768,7 +768,7 @@ impl OrgLoader {
                     if page_size < with_score.len() {
                         print!("\x1B[1A\x1B[2K"); // This clears the line, so there's no artifact left
                     }
-                    println!("{}", format!("[✘] {:?}", err).red());
+                    println!("{}", format!("[✘] {err:?}").red());
                 }
             }
         }
@@ -1318,6 +1318,6 @@ impl std::fmt::Display for Repo {
             repo.push_str(".git");
         }
 
-        write!(f, "{}", repo)
+        write!(f, "{repo}")
     }
 }

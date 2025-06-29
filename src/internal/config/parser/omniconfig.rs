@@ -37,12 +37,12 @@ lazy_static! {
     #[derive(Debug, Serialize, Deserialize, Clone)]
     static ref DEFAULT_WORKTREE: String = {
         let home = user_home();
-        let mut default_worktree_path = format!("{}/git", home);
+        let mut default_worktree_path = format!("{home}/git");
         if !std::path::Path::new(&default_worktree_path).is_dir() {
             // Check if GOPATH is set and GOPATH/src exists and is a directory
             let gopath = std::env::var("GOPATH").unwrap_or_else(|_| "".to_string());
             if !gopath.is_empty() {
-                let gopath_src = format!("{}/src", gopath);
+                let gopath_src = format!("{gopath}/src");
                 if std::path::Path::new(&gopath_src).is_dir() {
                     default_worktree_path = gopath_src;
                 }

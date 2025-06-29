@@ -127,7 +127,7 @@ impl InitHookAlias {
             .map(|s| s.to_string())
             .collect::<Vec<_>>();
 
-        let full_command = format!("omni {}", command);
+        let full_command = format!("omni {command}");
 
         Self {
             alias,
@@ -320,5 +320,5 @@ fn dump_integration(args: HookInitCommandArgs, integration: &[u8]) {
     let result = Tera::one_off(&integration, &context, false)
         .expect("failed to render integration template");
 
-    println!("{}", result);
+    println!("{result}");
 }

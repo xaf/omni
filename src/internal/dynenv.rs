@@ -125,7 +125,7 @@ fn check_workdir_config_updated(
         .sorted_by_key(|(config_file, _)| config_file.to_owned())
         .map(|(_, modtime)| modtime)
         .join(",");
-    let expected_value = format!("{}:{}", wdid, flattened);
+    let expected_value = format!("{wdid}:{flattened}");
     let hashed = blake3::hash(expected_value.as_bytes()).to_hex()[..16].to_string();
 
     // Check if we have, in the environment, a variable that
@@ -633,7 +633,7 @@ impl DynamicEnv {
                 }
             }
 
-            self.features.push(format!("{}:{}", tool, version));
+            self.features.push(format!("{tool}:{version}"));
 
             let normalized_name = toolversion.normalized_name.clone();
             let tool_prefix = mise_tool_path(&normalized_name, &version);
@@ -664,8 +664,8 @@ impl DynamicEnv {
                     });
 
                     let version_minor = version.split('.').take(2).join(".");
-                    let gems_dir = format!("{}/lib/ruby/gems", tool_prefix);
-                    let gem_home = format!("{}/{}.0", gems_dir, version_minor);
+                    let gems_dir = format!("{tool_prefix}/lib/ruby/gems");
+                    let gem_home = format!("{gems_dir}/{version_minor}.0");
 
                     envsetter.set_value("GEM_HOME", &gem_home);
                     envsetter.set_value("GEM_ROOT", &gem_home);
@@ -673,15 +673,14 @@ impl DynamicEnv {
                     envsetter.set_value("RUBY_ROOT", &tool_prefix);
                     envsetter.set_value("RUBY_VERSION", &version);
                     envsetter.prepend_to_list("GEM_PATH", &gem_home);
-                    envsetter
-                        .prepend_to_list("PATH", &format!("{}/{}/bin", gems_dir, version_minor));
-                    envsetter.prepend_to_list("PATH", &format!("{}/bin", tool_prefix));
+                    envsetter.prepend_to_list("PATH", &format!("{gems_dir}/{version_minor}/bin"));
+                    envsetter.prepend_to_list("PATH", &format!("{tool_prefix}/bin"));
 
                     // Handle the isolated GEM_HOME
                     if let Some(data_path) = &toolversion.data_path {
                         envsetter.set_value("GEM_HOME", data_path);
                         envsetter.prepend_to_list("GEM_PATH", data_path);
-                        envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
+                        envsetter.prepend_to_list("PATH", &format!("{data_path}/bin"));
                     }
                 }
                 "rust" => {
@@ -693,7 +692,7 @@ impl DynamicEnv {
                     // Handle the isolated CARGO_INSTALL_PATH
                     if let Some(data_path) = &toolversion.data_path {
                         envsetter.set_value("CARGO_INSTALL_ROOT", data_path);
-                        envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
+                        envsetter.prepend_to_list("PATH", &format!("{data_path}/bin"));
                     }
                 }
                 "go" => {
@@ -710,13 +709,13 @@ impl DynamicEnv {
                             },
                             None => format!("{}/go", user_home()),
                         };
-                        envsetter.set_value("GOMODCACHE", &format!("{}/pkg/mod", gopath));
+                        envsetter.set_value("GOMODCACHE", &format!("{gopath}/pkg/mod"));
                     }
 
                     envsetter.set_value("GOROOT", &tool_prefix);
                     envsetter.set_value("GOVERSION", &version);
 
-                    let gorootbin = format!("{}/bin", tool_prefix);
+                    let gorootbin = format!("{tool_prefix}/bin");
                     envsetter.set_value("GOBIN", &gorootbin);
                     envsetter.prepend_to_list("PATH", &gorootbin);
 
@@ -724,7 +723,7 @@ impl DynamicEnv {
                     if let Some(data_path) = &toolversion.data_path {
                         envsetter.prepend_to_list("GOPATH", data_path);
 
-                        let gobin = format!("{}/bin", data_path);
+                        let gobin = format!("{data_path}/bin");
                         envsetter.set_value("GOBIN", &gobin);
                         envsetter.prepend_to_list("PATH", &gobin);
                     }
@@ -739,35 +738,35 @@ impl DynamicEnv {
                     };
 
                     envsetter.unset_value("PYTHONHOME");
-                    envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+                    envsetter.prepend_to_list("PATH", &format!("{tool_prefix}{bin_path}"));
 
-                    let poetry_dir = format!("{}/poetry", tool_prefix);
-                    envsetter.set_value("POETRY_CONFIG_DIR", &format!("{}/config", poetry_dir));
-                    envsetter.set_value("POETRY_CACHE_DIR", &format!("{}/cache", poetry_dir));
+                    let poetry_dir = format!("{tool_prefix}/poetry");
+                    envsetter.set_value("POETRY_CONFIG_DIR", &format!("{poetry_dir}/config"));
+                    envsetter.set_value("POETRY_CACHE_DIR", &format!("{poetry_dir}/cache"));
                     envsetter.set_value("POETRY_DATA_DIR", &poetry_dir);
                 }
                 "node" => {
                     envsetter.set_value("NODE_VERSION", &version);
-                    envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+                    envsetter.prepend_to_list("PATH", &format!("{tool_prefix}{bin_path}"));
 
                     // Handle the isolated NPM prefix
                     if let Some(data_path) = &toolversion.data_path {
                         envsetter.set_value("npm_config_prefix", data_path);
-                        envsetter.prepend_to_list("PATH", &format!("{}/bin", data_path));
+                        envsetter.prepend_to_list("PATH", &format!("{data_path}/bin"));
                     };
                 }
                 "helm" => {
-                    envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+                    envsetter.prepend_to_list("PATH", &format!("{tool_prefix}{bin_path}"));
 
                     // Handle the isolated HELM configuration and cache
                     if let Some(data_path) = &toolversion.data_path {
-                        envsetter.set_value("HELM_CONFIG_HOME", &format!("{}/config", data_path));
-                        envsetter.set_value("HELM_CACHE_HOME", &format!("{}/cache", data_path));
-                        envsetter.set_value("HELM_DATA_HOME", &format!("{}/data", data_path));
+                        envsetter.set_value("HELM_CONFIG_HOME", &format!("{data_path}/config"));
+                        envsetter.set_value("HELM_CACHE_HOME", &format!("{data_path}/cache"));
+                        envsetter.set_value("HELM_DATA_HOME", &format!("{data_path}/data"));
                     }
                 }
                 _ => {
-                    envsetter.prepend_to_list("PATH", &format!("{}{}", tool_prefix, bin_path));
+                    envsetter.prepend_to_list("PATH", &format!("{tool_prefix}{bin_path}"));
                 }
             }
         }
@@ -1099,7 +1098,7 @@ impl DynamicEnvData {
         if cur_val.is_empty() {
             self.env_set_var(key, value);
         } else {
-            self.env_set_var(key, &format!("{}:{}", value, cur_val));
+            self.env_set_var(key, &format!("{value}:{cur_val}"));
         }
     }
 
@@ -1127,7 +1126,7 @@ impl DynamicEnvData {
         if cur_val.is_empty() {
             self.env_set_var(key, value);
         } else {
-            self.env_set_var(key, &format!("{}:{}", cur_val, value));
+            self.env_set_var(key, &format!("{cur_val}:{value}"));
         }
     }
 
@@ -1289,7 +1288,7 @@ impl DynamicEnvData {
                     );
                 }
                 None => {
-                    println!("unset {}", key);
+                    println!("unset {key}");
                 }
             }
         }
@@ -1304,7 +1303,7 @@ impl DynamicEnvData {
                             .split(':')
                             .map(|s| escape(std::borrow::Cow::Borrowed(s)))
                             .join(" ");
-                        println!("set -gx {} {}", key, path);
+                        println!("set -gx {key} {path}");
                     } else {
                         println!(
                             "set -gx {} {}",
@@ -1314,7 +1313,7 @@ impl DynamicEnvData {
                     }
                 }
                 None => {
-                    println!("set -e {}", key);
+                    println!("set -e {key}");
                 }
             }
         }
@@ -1616,7 +1615,7 @@ mod tests {
                 dynamic_env.apply_versions(&up_env, &mut envsetter, "");
 
                 let env_data = envsetter.get_env_data();
-                eprintln!("env_data: {:?}", env_data);
+                eprintln!("env_data: {env_data:?}");
 
                 assert!(env_data.values.contains_key("RUSTUP_HOME"));
                 assert!(env_data.values.contains_key("CARGO_HOME"));

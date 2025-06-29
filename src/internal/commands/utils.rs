@@ -82,10 +82,10 @@ pub fn omni_cmd(cmd: &str) -> Result<(), io::Error> {
         .append(true)
         .read(true)
         .open(cmd_file.clone())
-        .map_err(|e| io::Error::other(format!("Unable to open omni command file: {}", e)))?;
+        .map_err(|e| io::Error::other(format!("Unable to open omni command file: {e}")))?;
 
-    writeln!(file, "{}", cmd)
-        .map_err(|e| io::Error::other(format!("Unable to write to omni command file: {}", e)))?;
+    writeln!(file, "{cmd}")
+        .map_err(|e| io::Error::other(format!("Unable to write to omni command file: {e}")))?;
 
     drop(file);
 
@@ -220,7 +220,7 @@ pub fn path_auto_complete(
             }
 
             completions.insert(if is_dir {
-                format!("{}/", path_str)
+                format!("{path_str}/")
             } else {
                 path_str
             });
@@ -231,7 +231,7 @@ pub fn path_auto_complete(
     if include_repositories && !path_only {
         let add_space = if Shell::current().is_fish() { " " } else { "" };
         for match_value in ORG_LOADER.complete(value) {
-            completions.insert(format!("{}{}", match_value, add_space));
+            completions.insert(format!("{match_value}{add_space}"));
         }
     }
 
