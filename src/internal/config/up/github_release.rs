@@ -261,7 +261,7 @@ impl UpConfigGithubReleases {
                     "[{current:padding$}/{total:padding$}] {release} ",
                     current = idx + 1,
                     total = num,
-                    padding = format!("{}", num).len(),
+                    padding = format!("{num}").len(),
                     release = release.desc(),
                 )
                 .light_yellow(),
@@ -326,11 +326,11 @@ impl UpConfigGithubReleases {
         let mut numbers = vec![];
 
         if let Some(count) = count.get(&GithubReleaseHandled::Handled) {
-            numbers.push(format!("{} installed", count).green());
+            numbers.push(format!("{count} installed").green());
         }
 
         if let Some(count) = count.get(&GithubReleaseHandled::Noop) {
-            numbers.push(format!("{} already installed", count).light_black());
+            numbers.push(format!("{count} already installed").light_black());
         }
 
         if numbers.is_empty() {
@@ -359,7 +359,7 @@ impl UpConfigGithubReleases {
                     "[{current:padding$}/{total:padding$}] ",
                     current = idx + 1,
                     total = num,
-                    padding = format!("{}", num).len(),
+                    padding = format!("{num}").len(),
                 )
                 .light_yellow(),
             );
@@ -378,14 +378,14 @@ impl UpConfigGithubReleases {
 
         // Cleanup removable releases from the database
         cache.cleanup().map_err(|err| {
-            progress_handler.progress(format!("failed to cleanup github releases cache: {}", err));
-            UpError::Cache(format!("failed to cleanup github releases cache: {}", err))
+            progress_handler.progress(format!("failed to cleanup github releases cache: {err}"));
+            UpError::Cache(format!("failed to cleanup github releases cache: {err}"))
         })?;
 
         // List releases that should exist
         let expected_releases = cache.list_installed().map_err(|err| {
-            progress_handler.progress(format!("failed to list installed github releases: {}", err));
-            UpError::Cache(format!("failed to list installed github releases: {}", err))
+            progress_handler.progress(format!("failed to list installed github releases: {err}"));
+            UpError::Cache(format!("failed to list installed github releases: {err}"))
         })?;
 
         let expected_paths = expected_releases
@@ -730,7 +730,7 @@ impl UpConfigGithubRelease {
                     "".to_string()
                 });
 
-            format!("{}/{}", owner, name)
+            format!("{owner}/{name}")
         } else if let Some(repository) = repository.as_str_forced() {
             repository.to_string()
         } else {
@@ -839,7 +839,7 @@ impl UpConfigGithubRelease {
         if let Err(err) =
             GithubReleaseOperationCache::get().add_installed(&self.repository, &version)
         {
-            progress_handler.progress(format!("failed to update github release cache: {}", err));
+            progress_handler.progress(format!("failed to update github release cache: {err}"));
             return;
         }
 
@@ -905,7 +905,7 @@ impl UpConfigGithubRelease {
         };
         let msg = match installed {
             true => format!("{} installed", version.light_yellow()),
-            false => format!("{} already installed", version).light_black(),
+            false => format!("{version} already installed").light_black(),
         };
         progress_handler.success_with_message(msg);
 
@@ -938,8 +938,7 @@ impl UpConfigGithubRelease {
             &version,
         ) {
             return Err(UpError::Cache(format!(
-                "failed to update github release cache: {}",
-                err
+                "failed to update github release cache: {err}"
             )));
         }
 
@@ -977,7 +976,7 @@ impl UpConfigGithubRelease {
                     releases = Some(list_releases.clone());
                     let latest = self.latest_release_version(&list_releases)?;
                     progress_handler.progress(
-                        format!("considering installed versions matching {}", latest).light_black(),
+                        format!("considering installed versions matching {latest}").light_black(),
                     );
                     latest
                 }
@@ -1108,7 +1107,7 @@ impl UpConfigGithubRelease {
                 if options.write_cache {
                     progress_handler.progress("updating cache with release list".to_string());
                     if let Err(err) = cache.add_releases(&self.repository, &releases) {
-                        progress_handler.progress(format!("failed to update cache: {}", err));
+                        progress_handler.progress(format!("failed to update cache: {err}"));
                     }
                 }
 
@@ -1118,7 +1117,7 @@ impl UpConfigGithubRelease {
                 if let Some(cached_releases) = cached_releases {
                     progress_handler.progress(format!(
                         "{}; {}",
-                        format!("error refreshing release list: {}", err).red(),
+                        format!("error refreshing release list: {err}").red(),
                         "using cached data".light_black()
                     ));
                     Ok(cached_releases)
@@ -1134,7 +1133,7 @@ impl UpConfigGithubRelease {
             match url::Url::parse(api_url) {
                 Ok(url) => url.host_str().unwrap_or(api_url).to_string(),
                 Err(err) => {
-                    progress_handler.progress(format!("failed to parse URL: {}", err));
+                    progress_handler.progress(format!("failed to parse URL: {err}"));
 
                     api_url.clone()
                 }
@@ -1157,7 +1156,7 @@ impl UpConfigGithubRelease {
             GithubAuthConfig::Skip(false) => unreachable!("skip: false is not expected"),
             GithubAuthConfig::Token(token) => return Some(token),
             GithubAuthConfig::TokenEnvVar(env_var) => {
-                eprintln!("using {} for auth token", env_var);
+                eprintln!("using {env_var} for auth token");
                 let token = std::env::var(env_var).ok()?;
                 return Some(token);
             }
@@ -1250,12 +1249,12 @@ impl UpConfigGithubRelease {
         );
 
         if let Some(token) = self.get_auth_token(progress_handler) {
-            match reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token)) {
+            match reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")) {
                 Ok(header_value) => {
                     headers.insert(reqwest::header::AUTHORIZATION, header_value);
                 }
                 Err(err) => {
-                    progress_handler.progress(format!("failed to set auth token: {}", err));
+                    progress_handler.progress(format!("failed to set auth token: {err}"));
                 }
             }
         }
@@ -1267,7 +1266,7 @@ impl UpConfigGithubRelease {
         {
             Ok(client) => client,
             Err(err) => {
-                let errmsg = format!("failed to create client: {}", err);
+                let errmsg = format!("failed to create client: {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 return Err(UpError::Exec(errmsg));
             }
@@ -1302,12 +1301,12 @@ impl UpConfigGithubRelease {
         let mut cur_page = 1;
 
         loop {
-            progress_handler.progress(format!("fetching releases (page {})", cur_page));
+            progress_handler.progress(format!("fetching releases (page {cur_page})"));
 
-            let request_url = format!("{}&page={}", releases_url, cur_page);
+            let request_url = format!("{releases_url}&page={cur_page}");
 
             let response = client.get(&request_url).send().map_err(|err| {
-                let errmsg = format!("failed to get releases (page {}): {}", cur_page, err);
+                let errmsg = format!("failed to get releases (page {cur_page}): {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 UpError::Exec(errmsg)
             })?;
@@ -1323,7 +1322,7 @@ impl UpConfigGithubRelease {
 
             // Read the response body
             let contents = response.text().map_err(|err| {
-                let errmsg = format!("failed to read response (page {}): {}", cur_page, err);
+                let errmsg = format!("failed to read response (page {cur_page}): {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 UpError::Exec(errmsg)
             })?;
@@ -1336,14 +1335,14 @@ impl UpConfigGithubRelease {
                     Err(_) => contents.clone(),
                 };
 
-                let errmsg = format!("{}: {} ({})", releases_url, errmsg, status);
+                let errmsg = format!("{releases_url}: {errmsg} ({status})");
                 progress_handler.error_with_message(errmsg.to_string());
                 return Err(UpError::Exec(errmsg));
             }
 
             // Add the newly-fetched releases to the list
             let all_added = releases.add_json(&contents).map_err(|err| {
-                let errmsg = format!("failed to parse releases (page {}): {}", cur_page, err);
+                let errmsg = format!("failed to parse releases (page {cur_page}): {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 UpError::Exec(errmsg)
             })?;
@@ -1424,7 +1423,7 @@ impl UpConfigGithubRelease {
 
         let installed_versions: Vec<_> = std::fs::read_dir(&release_path)
             .map_err(|err| {
-                let errmsg = format!("failed to read directory: {}", err);
+                let errmsg = format!("failed to read directory: {err}");
                 UpError::Exec(errmsg)
             })?
             .filter_map(|entry| {
@@ -1444,7 +1443,7 @@ impl UpConfigGithubRelease {
         // that DO have a config hash as they won't be the same as the expected
         // version
         let installed_versions: Vec<_> = if let Some(hash) = self.release_config_hash() {
-            let ends_with = format!("~{}", hash);
+            let ends_with = format!("~{hash}");
             installed_versions
                 .into_iter()
                 .filter_map(|version| Some(version.strip_suffix(&ends_with)?.to_string()))
@@ -1559,7 +1558,7 @@ impl UpConfigGithubRelease {
 
     fn version_with_config(&self, version: &str) -> String {
         match self.release_config_hash() {
-            Some(hash) => format!("{}~{}", version, hash),
+            Some(hash) => format!("{version}~{hash}"),
             None => version.to_string(),
         }
     }
@@ -1585,7 +1584,7 @@ impl UpConfigGithubRelease {
 
         // Download the asset
         let mut response = client.get(asset_url).send().map_err(|err| {
-            let errmsg = format!("failed to download {}: {}", asset_name, err);
+            let errmsg = format!("failed to download {asset_name}: {err}");
             progress_handler.error_with_message(errmsg.clone());
             UpError::Exec(errmsg)
         })?;
@@ -1594,7 +1593,7 @@ impl UpConfigGithubRelease {
         let status = response.status();
         if !status.is_success() {
             let contents = response.text().map_err(|err| {
-                let errmsg = format!("failed to read response: {}", err);
+                let errmsg = format!("failed to read response: {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 UpError::Exec(errmsg)
             })?;
@@ -1606,7 +1605,7 @@ impl UpConfigGithubRelease {
                 Err(_) => contents.clone(),
             };
 
-            let errmsg = format!("failed to download: {} ({})", errmsg, status);
+            let errmsg = format!("failed to download: {errmsg} ({status})");
             progress_handler.error_with_message(errmsg.to_string());
             return Err(UpError::Exec(errmsg));
         }
@@ -1618,13 +1617,13 @@ impl UpConfigGithubRelease {
             .truncate(true)
             .open(asset_path)
             .map_err(|err| {
-                let errmsg = format!("failed to open {}: {}", asset_name, err);
+                let errmsg = format!("failed to open {asset_name}: {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 UpError::Exec(errmsg)
             })?;
 
         io::copy(&mut response, &mut file).map_err(|err| {
-            let errmsg = format!("failed to write {}: {}", asset_name, err);
+            let errmsg = format!("failed to write {asset_name}: {err}");
             progress_handler.error_with_message(errmsg.clone());
             UpError::Exec(errmsg)
         })?;
@@ -1665,7 +1664,7 @@ impl UpConfigGithubRelease {
             // in the file that ends with the asset name, preceeded by spaces or
             // tabs, or if not found, if the file only contains a unique hash
             let checksum_file = std::fs::File::open(&checksum_asset_path).map_err(|err| {
-                let errmsg = format!("failed to open {}: {}", checksum_asset_name, err);
+                let errmsg = format!("failed to open {checksum_asset_name}: {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 UpError::Exec(errmsg)
             })?;
@@ -1677,8 +1676,8 @@ impl UpConfigGithubRelease {
             for line in checksum_reader.lines().map_while(|line| line.ok()) {
                 file_lines += 1;
                 let trim_line = line.trim();
-                if trim_line.ends_with(format!(" {}", asset_name).as_str())
-                    || trim_line.ends_with(format!("\t{}", asset_name).as_str())
+                if trim_line.ends_with(format!(" {asset_name}").as_str())
+                    || trim_line.ends_with(format!("\t{asset_name}").as_str())
                 {
                     matching_hash = Some(trim_line.split_whitespace().next().unwrap().to_string());
                     break;
@@ -1699,10 +1698,7 @@ impl UpConfigGithubRelease {
             // the checksum for that asset, raise an error since we can't validate
             // the asset
             if checksum_value.is_none() {
-                let errmsg = format!(
-                    "checksum not found in {}: {}",
-                    checksum_asset_name, asset_name
-                );
+                let errmsg = format!("checksum not found in {checksum_asset_name}: {asset_name}");
                 progress_handler.error_with_message(errmsg.clone());
                 return Err(UpError::Exec(errmsg));
             }
@@ -1720,7 +1716,7 @@ impl UpConfigGithubRelease {
         {
             checksum_algorithm
         } else {
-            let errmsg = format!("checksum algorithm not found for {}", checksum_value);
+            let errmsg = format!("checksum algorithm not found for {checksum_value}");
             progress_handler.error_with_message(errmsg.clone());
             return Err(UpError::Exec(errmsg));
         };
@@ -1733,15 +1729,14 @@ impl UpConfigGithubRelease {
         let file_checksum = checksum_algorithm
             .compute_file_hash(&asset_path)
             .map_err(|err| {
-                let errmsg = format!("failed to compute checksum for {}: {}", asset_name, err);
+                let errmsg = format!("failed to compute checksum for {asset_name}: {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 UpError::Exec(errmsg)
             })?;
 
         if file_checksum != checksum_value {
             let errmsg = format!(
-                "checksum mismatch for {}: expected {} but got {}",
-                asset_name, checksum_value, file_checksum
+                "checksum mismatch for {asset_name}: expected {checksum_value} but got {file_checksum}"
             );
             progress_handler.error_with_message(errmsg.clone());
             return Err(UpError::Exec(errmsg));
@@ -1772,8 +1767,8 @@ impl UpConfigGithubRelease {
             .prefix("omni_download.")
             .tempdir()
             .map_err(|err| {
-                progress_handler.error_with_message(format!("failed to create temp dir: {}", err));
-                UpError::Exec(format!("failed to create temp dir: {}", err))
+                progress_handler.error_with_message(format!("failed to create temp dir: {err}"));
+                UpError::Exec(format!("failed to create temp dir: {err}"))
             })?;
 
         // Go over each of the assets that matched the current platform
@@ -1805,7 +1800,7 @@ impl UpConfigGithubRelease {
 
             // Get the parsed asset name
             let (asset_type, target_dir) = asset.file_type().ok_or_else(|| {
-                let errmsg = format!("file type not supported: {}", asset_name);
+                let errmsg = format!("file type not supported: {asset_name}");
                 progress_handler.error_with_message(errmsg.clone());
                 UpError::Exec(errmsg)
             })?;
@@ -1816,14 +1811,14 @@ impl UpConfigGithubRelease {
                 let mut perms = file
                     .metadata()
                     .map_err(|err| {
-                        let errmsg = format!("failed to get metadata for {}: {}", asset_name, err);
+                        let errmsg = format!("failed to get metadata for {asset_name}: {err}");
                         progress_handler.error_with_message(errmsg.clone());
                         UpError::Exec(errmsg)
                     })?
                     .permissions();
                 perms.set_mode(0o755);
                 file.set_permissions(perms).map_err(|err| {
-                    let errmsg = format!("failed to set permissions for {}: {}", asset_name, err);
+                    let errmsg = format!("failed to set permissions for {asset_name}: {err}");
                     progress_handler.error_with_message(errmsg.clone());
                     UpError::Exec(errmsg)
                 })?;
@@ -1832,7 +1827,7 @@ impl UpConfigGithubRelease {
                 // and version information
                 let new_path = tmp_dir.path().join(asset.clean_name(&version));
                 safe_rename(&asset_path, &new_path).map_err(|err| {
-                    let errmsg = format!("failed to rename {}: {}", asset_name, err);
+                    let errmsg = format!("failed to rename {asset_name}: {err}");
                     progress_handler.error_with_message(errmsg.clone());
                     UpError::Exec(errmsg)
                 })?;
@@ -1841,7 +1836,7 @@ impl UpConfigGithubRelease {
 
                 // Open the downloaded file
                 let archive_file = std::fs::File::open(&asset_path).map_err(|err| {
-                    let errmsg = format!("failed to open {}: {}", asset_name, err);
+                    let errmsg = format!("failed to open {asset_name}: {err}");
                     progress_handler.error_with_message(errmsg.clone());
                     UpError::Exec(errmsg)
                 })?;
@@ -1849,7 +1844,7 @@ impl UpConfigGithubRelease {
                 // Perform the extraction
                 if asset_type.is_zip() {
                     zip_extract::extract(&archive_file, &target_dir, true).map_err(|err| {
-                        let errmsg = format!("failed to extract {}: {}", asset_name, err);
+                        let errmsg = format!("failed to extract {asset_name}: {err}");
                         progress_handler.error_with_message(errmsg.clone());
                         UpError::Exec(errmsg)
                     })?;
@@ -1857,7 +1852,7 @@ impl UpConfigGithubRelease {
                     let tar = flate2::read::GzDecoder::new(archive_file);
                     let mut archive = tar::Archive::new(tar);
                     archive.unpack(&target_dir).map_err(|err| {
-                        let errmsg = format!("failed to extract {}: {}", asset_name, err);
+                        let errmsg = format!("failed to extract {asset_name}: {err}");
                         progress_handler.error_with_message(errmsg.clone());
                         UpError::Exec(errmsg)
                     })?;
@@ -1865,12 +1860,12 @@ impl UpConfigGithubRelease {
                     let tar = xz2::read::XzDecoder::new(archive_file);
                     let mut archive = tar::Archive::new(tar);
                     archive.unpack(&target_dir).map_err(|err| {
-                        let errmsg = format!("failed to extract {}: {}", asset_name, err);
+                        let errmsg = format!("failed to extract {asset_name}: {err}");
                         progress_handler.error_with_message(errmsg.clone());
                         UpError::Exec(errmsg)
                     })?;
                 } else {
-                    let errmsg = format!("file extension not supported: {}", asset_name);
+                    let errmsg = format!("file extension not supported: {asset_name}");
                     progress_handler.error_with_message(errmsg.clone());
                     return Err(UpError::Exec(errmsg));
                 }
@@ -1928,7 +1923,7 @@ impl UpConfigGithubRelease {
                         "target file not found after copy".to_string(),
                     )
                 };
-                let errmsg = format!("failed to copy {}: {}", binary_name, err);
+                let errmsg = format!("failed to copy {binary_name}: {err}");
                 progress_handler.error_with_message(errmsg.clone());
 
                 // Force delete the install path if we fail to copy
@@ -2850,7 +2845,7 @@ mod tests {
 
                 let mock_downloads = (1..=test.assets)
                     .map(|asset_id| {
-                        eprintln!("Setting up asset id {}", asset_id);
+                        eprintln!("Setting up asset id {asset_id}");
                         mock_server
                             .mock(
                                 "GET",
@@ -2862,7 +2857,7 @@ mod tests {
                                 .as_str(),
                             )
                             .with_status(200)
-                            .with_body(format!("asset{} contents", asset_id))
+                            .with_body(format!("asset{asset_id} contents"))
                             .create()
                     })
                     .collect::<Vec<_>>();
@@ -2888,7 +2883,7 @@ mod tests {
                     let expected_bin = github_releases_bin_path()
                         .join("owner/repo")
                         .join(test.expected_version.clone().unwrap())
-                        .join(format!("asset{}", asset_id));
+                        .join(format!("asset{asset_id}"));
                     if !expected_bin.exists() {
                         // Use walkdir to print all the tree under github_releases_bin_path()
                         let tree = walkdir::WalkDir::new(github_releases_bin_path())

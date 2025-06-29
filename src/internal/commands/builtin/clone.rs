@@ -212,7 +212,7 @@ impl CloneCommand {
             }
             Err(err) => {
                 // print!("\x1B[1A\x1B[2K"); // This clears the line, so there's no artifact left
-                println!("{}", format!("[✘] {:?}", err).red());
+                println!("{}", format!("[✘] {err:?}").red());
             }
         }
 
@@ -235,7 +235,7 @@ impl CloneCommand {
             } else if let Some(spinner) = &spinner {
                 spinner.println(message);
             } else {
-                eprintln!("{}", message);
+                eprintln!("{message}");
             }
         };
 
@@ -244,7 +244,7 @@ impl CloneCommand {
             } else if let Some(spinner) = &spinner {
                 spinner.set_message(message);
             } else {
-                eprintln!("{}", message);
+                eprintln!("{message}");
             }
         };
 
@@ -269,7 +269,7 @@ impl CloneCommand {
                 run_up = self.suggest_run_up();
             }
         } else {
-            log_progress(format!("Checking {}", clone_url));
+            log_progress(format!("Checking {clone_url}"));
 
             // Check using git ls-remote if the repository exists
             let mut cmd = TokioCommand::new("git");
@@ -289,7 +289,7 @@ impl CloneCommand {
             );
 
             if result.is_err() {
-                log_progress(format!("Repository {} does not exist", clone_url));
+                log_progress(format!("Repository {clone_url} does not exist"));
                 return false;
             }
 
@@ -297,7 +297,7 @@ impl CloneCommand {
                 return true;
             }
 
-            log_progress(format!("Cloning {}", clone_url));
+            log_progress(format!("Cloning {clone_url}"));
             if let Some(s) = spinner.clone() {
                 s.finish_and_clear()
             }
@@ -318,7 +318,7 @@ impl CloneCommand {
             if result.is_err() {
                 let msg = format!(
                     "failed to clone repository {}",
-                    format!("({})", clone_url).light_black()
+                    format!("({clone_url})").light_black()
                 );
 
                 omni_error!(msg);
@@ -331,7 +331,7 @@ impl CloneCommand {
         if auto_cd && omni_cmd_file().is_some() {
             let path_str = clone_path.to_string_lossy();
             let path_escaped = escape(path_str);
-            match omni_cmd(format!("cd {}", path_escaped).as_str()) {
+            match omni_cmd(format!("cd {path_escaped}").as_str()) {
                 Ok(_) => {}
                 Err(e) => {
                     omni_error!(e);
@@ -345,7 +345,7 @@ impl CloneCommand {
                 omni_error!(format!(
                     "failed to change directory {}: {}",
                     format!("({})", clone_path.to_string_lossy()).light_black(),
-                    format!("{}", err).red()
+                    format!("{err}").red()
                 ));
                 exit(1);
             }
@@ -457,7 +457,7 @@ impl BuiltinCommand for CloneCommand {
                     .template("{spinner:.green} {msg:.green}")
                     .unwrap(),
             );
-            spinner.set_message(format!("Looking for {}", repo));
+            spinner.set_message(format!("Looking for {repo}"));
             spinner.enable_steady_tick(Duration::from_millis(50));
             Some(spinner)
         } else {

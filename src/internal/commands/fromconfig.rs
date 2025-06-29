@@ -47,11 +47,11 @@ impl ConfigCommand {
                 aliases.clone_from(&command_details.aliases);
             } else {
                 for parent_alias in parent_aliases[1..].iter() {
-                    aliases.push(format!("{} {}", parent_alias, command_name));
+                    aliases.push(format!("{parent_alias} {command_name}"));
                 }
                 for command_alias in command_details.aliases.iter() {
                     for parent_alias in parent_aliases.iter() {
-                        aliases.push(format!("{} {}", parent_alias, command_alias));
+                        aliases.push(format!("{parent_alias} {command_alias}"));
                     }
                 }
             }
@@ -238,6 +238,6 @@ impl ConfigCommand {
             .args(argv)
             .exec();
 
-        panic!("Something went wrong: {:?}", err);
+        panic!("Something went wrong: {err:?}");
     }
 }

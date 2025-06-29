@@ -29,35 +29,35 @@ lazy_static! {
         compatible_release_os().join("|")
     )) {
         Ok(os_re) => os_re,
-        Err(err) => panic!("failed to create OS regex: {}", err),
+        Err(err) => panic!("failed to create OS regex: {err}"),
     };
     static ref ARCH_REGEX: Regex = match Regex::new(&format!(
         r"(?i)(\b|_)({})(\b|_)",
         compatible_release_arch().into_iter().flatten().join("|")
     )) {
         Ok(arch_re) => arch_re,
-        Err(err) => panic!("failed to create architecture regex: {}", err),
+        Err(err) => panic!("failed to create architecture regex: {err}"),
     };
     static ref ARCH_REGEX_PER_LEVEL: Vec<Regex> = compatible_release_arch()
         .into_iter()
         .map(|arch| {
             match Regex::new(&format!(r"(?i)(\b|_)({})(\b|_)", arch.join("|"))) {
                 Ok(arch_re) => arch_re,
-                Err(err) => panic!("failed to create architecture regex: {}", err),
+                Err(err) => panic!("failed to create architecture regex: {err}"),
             }
         })
         .collect();
     static ref DIST_REGEX: Regex = match Regex::new(r"(?i)(\b|_)(dist)(\b|_)") {
         Ok(dist_re) => dist_re,
-        Err(err) => panic!("failed to create dist regex: {}", err),
+        Err(err) => panic!("failed to create dist regex: {err}"),
     };
     static ref SEPARATOR_MID_REGEX: Regex = match Regex::new(r"([-_]{2,})") {
         Ok(separator_re) => separator_re,
-        Err(err) => panic!("failed to create separator regex: {}", err),
+        Err(err) => panic!("failed to create separator regex: {err}"),
     };
     static ref SEPARATOR_END_REGEX: Regex = match Regex::new(r"(^[-_]+|[-_]+$)") {
         Ok(separator_re) => separator_re,
-        Err(err) => panic!("failed to create separator regex: {}", err),
+        Err(err) => panic!("failed to create separator regex: {err}"),
     };
 }
 
@@ -499,7 +499,7 @@ impl GithubReleases {
     pub fn add_json(&mut self, json: &str) -> Result<bool, String> {
         let releases: Vec<GithubReleaseVersion> = match serde_json::from_str(json) {
             Ok(releases) => releases,
-            Err(err) => return Err(format!("failed to parse releases: {}", err)),
+            Err(err) => return Err(format!("failed to parse releases: {err}")),
         };
 
         let existing_tag_names: HashSet<String> =
@@ -864,7 +864,7 @@ mod tests {
                             |row| row.get(0),
                         )
                         .expect("Failed to query requirement");
-                    assert!(required, "Requirement for {} should exist", env_id);
+                    assert!(required, "Requirement for {env_id} should exist");
                 }
 
                 // Verify installed version still exists
@@ -1026,8 +1026,7 @@ mod tests {
                         installed
                             .iter()
                             .any(|i| i.repository == repository && i.version == version),
-                        "Version {} should be in installed list",
-                        version
+                        "Version {version} should be in installed list"
                     );
                 }
             });
@@ -1071,7 +1070,7 @@ mod tests {
                     |row| row.get(0),
                 )
                 .expect("Failed to query requirement");
-                    assert!(required, "Requirement for version {} should exist", version);
+                    assert!(required, "Requirement for version {version} should exist");
                 }
             });
         }

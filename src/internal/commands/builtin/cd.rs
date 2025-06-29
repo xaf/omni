@@ -82,12 +82,12 @@ impl CdCommand {
         let path_str = path.to_string();
 
         if args.locate {
-            println!("{}", path_str);
+            println!("{path_str}");
             exit(0);
         }
 
         let path_escaped = escape(std::borrow::Cow::Borrowed(path_str.as_str()));
-        match omni_cmd(format!("cd {}", path_escaped).as_str()) {
+        match omni_cmd(format!("cd {path_escaped}").as_str()) {
             Ok(_) => {}
             Err(e) => {
                 omni_error!(e);
@@ -100,12 +100,12 @@ impl CdCommand {
     fn cd_workdir(&self, wd: &str, args: &CdCommandArgs) {
         if let Some(path_str) = self.cd_workdir_find(wd, args) {
             if args.locate {
-                println!("{}", path_str);
+                println!("{path_str}");
                 exit(0);
             }
 
             let path_escaped = escape(std::borrow::Cow::Borrowed(path_str.as_str()));
-            match omni_cmd(format!("cd {}", path_escaped).as_str()) {
+            match omni_cmd(format!("cd {path_escaped}").as_str()) {
                 Ok(_) => {}
                 Err(e) => {
                     omni_error!(e);
@@ -289,7 +289,7 @@ impl BuiltinCommand for CdCommand {
 
                 path_auto_complete(repo, true, false)
                     .iter()
-                    .for_each(|s| println!("{}", s));
+                    .for_each(|s| println!("{s}"));
             }
         }
 

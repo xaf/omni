@@ -56,7 +56,7 @@ impl ParseArgsValue {
                 for (idx, value) in values.iter().enumerate() {
                     if let Some(value) = value {
                         if !value.is_empty() {
-                            args.insert(format!("{}_{}", value_key, idx), value.clone());
+                            args.insert(format!("{value_key}_{idx}"), value.clone());
                         }
                     }
                 }
@@ -65,7 +65,7 @@ impl ParseArgsValue {
                 args.insert(type_key, format!("int/{}", values.len()));
                 for (idx, value) in values.iter().enumerate() {
                     if let Some(value) = value {
-                        args.insert(format!("{}_{}", value_key, idx), value.to_string());
+                        args.insert(format!("{value_key}_{idx}"), value.to_string());
                     }
                 }
             }
@@ -73,7 +73,7 @@ impl ParseArgsValue {
                 args.insert(type_key, format!("float/{}", values.len()));
                 for (idx, value) in values.iter().enumerate() {
                     if let Some(value) = value {
-                        args.insert(format!("{}_{}", value_key, idx), value.to_string());
+                        args.insert(format!("{value_key}_{idx}"), value.to_string());
                     }
                 }
             }
@@ -81,7 +81,7 @@ impl ParseArgsValue {
                 args.insert(type_key, format!("bool/{}", values.len()));
                 for (idx, value) in values.iter().enumerate() {
                     if let Some(value) = value {
-                        args.insert(format!("{}_{}", value_key, idx), value.to_string());
+                        args.insert(format!("{value_key}_{idx}"), value.to_string());
                     }
                 }
             }
@@ -89,18 +89,12 @@ impl ParseArgsValue {
                 let mut max_occurrences = 0;
                 for (idx, values) in values.iter().enumerate() {
                     max_occurrences = max_occurrences.max(values.len());
-                    args.insert(
-                        format!("{}_{}", type_key, idx),
-                        format!("str/{}", values.len()),
-                    );
+                    args.insert(format!("{type_key}_{idx}"), format!("str/{}", values.len()));
 
                     for (jdx, value) in values.iter().enumerate() {
                         if let Some(value) = value {
                             if !value.is_empty() {
-                                args.insert(
-                                    format!("{}_{}_{}", value_key, idx, jdx),
-                                    value.clone(),
-                                );
+                                args.insert(format!("{value_key}_{idx}_{jdx}"), value.clone());
                             }
                         }
                     }
@@ -114,17 +108,11 @@ impl ParseArgsValue {
                 let mut max_occurrences = 0;
                 for (idx, values) in values.iter().enumerate() {
                     max_occurrences = max_occurrences.max(values.len());
-                    args.insert(
-                        format!("{}_{}", type_key, idx),
-                        format!("int/{}", values.len()),
-                    );
+                    args.insert(format!("{type_key}_{idx}"), format!("int/{}", values.len()));
 
                     for (jdx, value) in values.iter().enumerate() {
                         if let Some(value) = value {
-                            args.insert(
-                                format!("{}_{}_{}", value_key, idx, jdx),
-                                value.to_string(),
-                            );
+                            args.insert(format!("{value_key}_{idx}_{jdx}"), value.to_string());
                         }
                     }
                 }
@@ -138,16 +126,13 @@ impl ParseArgsValue {
                 for (idx, values) in values.iter().enumerate() {
                     max_occurrences = max_occurrences.max(values.len());
                     args.insert(
-                        format!("{}_{}", type_key, idx),
+                        format!("{type_key}_{idx}"),
                         format!("float/{}", values.len()),
                     );
 
                     for (jdx, value) in values.iter().enumerate() {
                         if let Some(value) = value {
-                            args.insert(
-                                format!("{}_{}_{}", value_key, idx, jdx),
-                                value.to_string(),
-                            );
+                            args.insert(format!("{value_key}_{idx}_{jdx}"), value.to_string());
                         }
                     }
                 }
@@ -161,16 +146,13 @@ impl ParseArgsValue {
                 for (idx, values) in values.iter().enumerate() {
                     max_occurrences = max_occurrences.max(values.len());
                     args.insert(
-                        format!("{}_{}", type_key, idx),
+                        format!("{type_key}_{idx}"),
                         format!("bool/{}", values.len()),
                     );
 
                     for (jdx, value) in values.iter().enumerate() {
                         if let Some(value) = value {
-                            args.insert(
-                                format!("{}_{}_{}", value_key, idx, jdx),
-                                value.to_string(),
-                            );
+                            args.insert(format!("{value_key}_{idx}_{jdx}"), value.to_string());
                         }
                     }
                 }

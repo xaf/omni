@@ -84,7 +84,7 @@ impl ConfigErrorHandler {
                 // Update the key
                 let key = key.as_ref();
                 let new_key = match context.get("key") {
-                    Some(YamlValue::String(cur)) => format!("{}.{}", cur, key),
+                    Some(YamlValue::String(cur)) => format!("{cur}.{key}"),
                     Some(_) | None => key.to_string(),
                 };
 
@@ -134,7 +134,7 @@ impl ConfigErrorHandler {
         if let Self::Active { context, errors } = self {
             match ConfigError::new_from_kind(kind, context.clone()) {
                 Ok(error) => errors.borrow_mut().push(error),
-                Err(e) => panic!("Unable to create error: {}", e),
+                Err(e) => panic!("Unable to create error: {e}"),
             }
         }
     }
@@ -436,7 +436,7 @@ impl ConfigErrorKind {
                     if expected.len() == 1 {
                         format!("a '{}'", expected[0])
                     } else {
-                        format!("any type of {:?}", expected)
+                        format!("any type of {expected:?}")
                     },
                     actual,
                 )
@@ -477,7 +477,7 @@ impl ConfigErrorKind {
                     if expected.len() == 1 {
                         format!("'{}'", expected[0])
                     } else {
-                        format!("one of {:?}", expected)
+                        format!("one of {expected:?}")
                     },
                     actual,
                 )
@@ -502,8 +502,7 @@ impl ConfigErrorKind {
                     .ok_or("Value for 'max' is not a number")?;
 
                 format!(
-                    "value for key '{}' should define a valid range, but found [{}, {}[ instead",
-                    key, min, max
+                    "value for key '{key}' should define a valid range, but found [{min}, {max}[ instead"
                 )
             }
             ConfigErrorKind::InvalidPackage => {
@@ -519,10 +518,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'package' is not a string")?;
 
-                format!(
-                    "value for key '{}' should be a valid package, but found '{}'",
-                    key, package
-                )
+                format!("value for key '{key}' should be a valid package, but found '{package}'")
             }
             ConfigErrorKind::MissingKey => {
                 let key = context
@@ -531,7 +527,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'key' is not a string")?;
 
-                format!("key '{}' is missing", key)
+                format!("key '{key}' is missing")
             }
             ConfigErrorKind::EmptyKey => {
                 let key = context
@@ -540,7 +536,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'key' is not a string")?;
 
-                format!("value for key '{}' is empty", key)
+                format!("value for key '{key}' is empty")
             }
             ConfigErrorKind::NotExactlyOneKeyInTable => {
                 let key = context
@@ -554,8 +550,7 @@ impl ConfigErrorKind {
                     .ok_or("Missing 'actual' key in context")?;
 
                 format!(
-                    "value for key '{}' should be a table with a single key-value pair but found {:?}",
-                    key, actual
+                    "value for key '{key}' should be a table with a single key-value pair but found {actual:?}"
                 )
             }
             ConfigErrorKind::UnsupportedValueInContext => {
@@ -569,10 +564,7 @@ impl ConfigErrorKind {
                     .get("actual")
                     .ok_or("Missing 'actual' key in context")?;
 
-                format!(
-                    "value {:?} for '{}' is not supported in this context",
-                    actual, key
-                )
+                format!("value {actual:?} for '{key}' is not supported in this context")
             }
             ConfigErrorKind::ParsingError => {
                 let key = context
@@ -591,10 +583,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'error' is not a string")?;
 
-                format!(
-                    "unable to parse value {:?} for key '{}': {}",
-                    actual, key, error
-                )
+                format!("unable to parse value {actual:?} for key '{key}': {error}")
             }
             ConfigErrorKind::MetadataHeaderMissingSubkey => {
                 let key = context
@@ -603,7 +592,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'key' is not a string")?;
 
-                format!("missing subkey for key '{}'", key)
+                format!("missing subkey for key '{key}'")
             }
             ConfigErrorKind::MetadataHeaderContinueWithoutKey => {
                 "found a 'continue' ('+') line, but there is no current key".to_string()
@@ -615,7 +604,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'key' is not a string")?;
 
-                format!("unknown key '{}'", key)
+                format!("unknown key '{key}'")
             }
             ConfigErrorKind::MetadataHeaderDuplicateKey => {
                 let key = context
@@ -630,7 +619,7 @@ impl ConfigErrorKind {
                     .as_u64()
                     .ok_or("Value for 'prev_lineno' is not a number")?;
 
-                format!("key '{}' previously defined at line {}", key, prev_lineno)
+                format!("key '{key}' previously defined at line {prev_lineno}")
             }
             ConfigErrorKind::MetadataHeaderMissingSyntax => {
                 "missing syntax for the command".to_string()
@@ -657,10 +646,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'expected' is not a string")?;
 
-                format!(
-                    "invalid value '{}' for key '{}', expected {}",
-                    value, key, expected,
-                )
+                format!("invalid value '{value}' for key '{key}', expected {expected}",)
             }
             ConfigErrorKind::MetadataHeaderGroupEmptyPart => {
                 let group = context
@@ -669,7 +655,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'group' is not a string")?;
 
-                format!("empty part in the definition of group '{}'", group)
+                format!("empty part in the definition of group '{group}'")
             }
             ConfigErrorKind::MetadataHeaderGroupUnknownConfigKey => {
                 let group = context
@@ -685,8 +671,7 @@ impl ConfigErrorKind {
                     .ok_or("Value for 'config_key' is not a string")?;
 
                 format!(
-                    "unknown configuration key '{}' in the definition of group '{}'",
-                    config_key, group,
+                    "unknown configuration key '{config_key}' in the definition of group '{group}'",
                 )
             }
             ConfigErrorKind::MetadataHeaderGroupMissingParameters => {
@@ -696,7 +681,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'group' is not a string")?;
 
-                format!("group '{}' does not have any parameters", group)
+                format!("group '{group}' does not have any parameters")
             }
             ConfigErrorKind::MetadataHeaderParameterEmptyPart => {
                 let parameter = context
@@ -705,7 +690,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'parameter' is not a string")?;
 
-                format!("empty part in the definition of parameter '{}'", parameter)
+                format!("empty part in the definition of parameter '{parameter}'")
             }
             ConfigErrorKind::MetadataHeaderParameterUnknownConfigKey => {
                 let parameter = context
@@ -721,8 +706,7 @@ impl ConfigErrorKind {
                     .ok_or("Value for 'config_key' is not a string")?;
 
                 format!(
-                    "unknown configuration key '{}' in the definition of parameter '{}'",
-                    config_key, parameter,
+                    "unknown configuration key '{config_key}' in the definition of parameter '{parameter}'",
                 )
             }
             ConfigErrorKind::MetadataHeaderParameterInvalidKeyValue => {
@@ -745,8 +729,7 @@ impl ConfigErrorKind {
                     .ok_or("Value for 'value' is not a string")?;
 
                 format!(
-                    "invalid value '{}' for key '{}' in the definition of parameter {}",
-                    value, key, parameter
+                    "invalid value '{value}' for key '{key}' in the definition of parameter {parameter}"
                 )
             }
             ConfigErrorKind::MetadataHeaderParameterMissingDescription => {
@@ -756,7 +739,7 @@ impl ConfigErrorKind {
                     .as_str()
                     .ok_or("Value for 'parameter' is not a string")?;
 
-                format!("missing description for parameter '{}'", parameter)
+                format!("missing description for parameter '{parameter}'")
             }
             ConfigErrorKind::OmniPathNotFound => "path not found".to_string(),
             ConfigErrorKind::OmniPathFileNotExecutable => "file is not executable".to_string(),
@@ -775,10 +758,10 @@ impl ConfigErrorKind {
                     .get("key")
                     .unwrap_or(&YamlValue::Null)
                     .as_str()
-                    .map(|s| format!(" for command '{}'", s))
+                    .map(|s| format!(" for command '{s}'"))
                     .unwrap_or_default();
 
-                format!("required tag '{}' is missing{}", tag, key,)
+                format!("required tag '{tag}' is missing{key}",)
             }
             ConfigErrorKind::UserDefinedPathCommandInvalidTagValue
             | ConfigErrorKind::UserDefinedConfigCommandInvalidTagValue => {
@@ -804,12 +787,11 @@ impl ConfigErrorKind {
                     .get("key")
                     .unwrap_or(&YamlValue::Null)
                     .as_str()
-                    .map(|s| format!(" for command '{}'", s))
+                    .map(|s| format!(" for command '{s}'"))
                     .unwrap_or_default();
 
                 format!(
-                    "invalid value '{}' for tag '{}', expected value to {}{}",
-                    actual, tag, expected, key,
+                    "invalid value '{actual}' for tag '{tag}', expected value to {expected}{key}",
                 )
             }
         };
@@ -864,9 +846,9 @@ impl PartialEq for ParseArgsErrorKind {
 impl fmt::Display for ParseArgsErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::ParserBuildError(e) => write!(f, "{}", e),
-            Self::ArgumentParsingError(e) => write!(f, "{}", e),
-            Self::InvalidValue(e) => write!(f, "{}", e),
+            Self::ParserBuildError(e) => write!(f, "{e}"),
+            Self::ArgumentParsingError(e) => write!(f, "{e}"),
+            Self::InvalidValue(e) => write!(f, "{e}"),
         }
     }
 }

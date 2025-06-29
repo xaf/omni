@@ -72,7 +72,7 @@ lazy_static! {
         let current_exe = current_exe();
         if let Some(homebrew_prefix) = homebrew_prefix() {
             // Check if the current binary is in the homebrew prefix
-            current_exe.starts_with(format!("{}/", homebrew_prefix))
+            current_exe.starts_with(format!("{homebrew_prefix}/"))
         } else {
             false
         }
@@ -268,12 +268,11 @@ impl OmniRelease {
                 match Version::parse(version) {
                     Ok(version) => Ok(version == expected_version),
                     Err(err) => Err(format!(
-                        "failed to parse binary version '{}': {:?}",
-                        version, err
+                        "failed to parse binary version '{version}': {err:?}"
                     )),
                 }
             }
-            Err(err) => Err(format!("failed to get binary version: {:?}", err)),
+            Err(err) => Err(format!("failed to get binary version: {err:?}")),
         }
     }
 
@@ -385,7 +384,7 @@ impl OmniRelease {
                     _ => unreachable!(),
                 },
                 Err(err) => {
-                    println!("{}", format!("[✘] {:?}", err).red());
+                    println!("{}", format!("[✘] {err:?}").red());
                     return;
                 }
             } {
@@ -404,7 +403,7 @@ impl OmniRelease {
         let updated = match updated {
             Ok(updated) => updated,
             Err(err) => {
-                progress_handler.error_with_message(format!("failed to update: {}", err));
+                progress_handler.error_with_message(format!("failed to update: {err}"));
                 return;
             }
         };
@@ -437,10 +436,7 @@ impl OmniRelease {
                 .env("OMNI_SKIP_SELF_UPDATE", "1")
                 .exec();
 
-            panic!(
-                "Failed to replace current process with the new binary: {:?}",
-                err
-            );
+            panic!("Failed to replace current process with the new binary: {err:?}");
         } else {
             progress_handler.success_with_message("already up-to-date".light_black());
         }
@@ -458,12 +454,12 @@ impl OmniRelease {
             } else if let Some(config_value_table) = config_value.as_table_mut() {
                 config_value_table.insert(
                     "path_repo_updates".to_string(),
-                    ConfigValue::from_str(format!("self_update: {}", insert_value).as_str())
+                    ConfigValue::from_str(format!("self_update: {insert_value}").as_str())
                         .expect("failed to create config value"),
                 );
             } else {
                 *config_value = ConfigValue::from_str(
-                    format!("path_repo_updates:\n  self_update: {}", insert_value).as_str(),
+                    format!("path_repo_updates:\n  self_update: {insert_value}").as_str(),
                 )
                 .expect("failed to create config value");
             }
@@ -550,8 +546,7 @@ impl OmniRelease {
         let response = reqwest::blocking::get(binary.url.as_str());
         if response.is_err() {
             return Err(io::Error::other(format!(
-                "failed to download: {:?}",
-                response
+                "failed to download: {response:?}"
             )));
         }
         let mut response = response.unwrap();

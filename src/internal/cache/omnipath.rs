@@ -126,7 +126,7 @@ mod tests {
         fn create_fake_log_file() -> String {
             let tempdir = env_temp_dir();
             let uuid = Uuid::new_v4();
-            let log_file = tempdir.as_path().join(format!("fake_error_{:x}.log", uuid));
+            let log_file = tempdir.as_path().join(format!("fake_error_{uuid:x}.log"));
             fs_write(&log_file, "Test error log").expect("Failed to write to log file");
             log_file.to_string_lossy().to_string()
         }

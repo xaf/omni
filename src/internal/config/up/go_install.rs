@@ -218,7 +218,7 @@ impl UpConfigGoInstalls {
                         "[{current:padding$}/{total:padding$}] {tool} ",
                         current = idx + 1,
                         total = num,
-                        padding = format!("{}", num).len(),
+                        padding = format!("{num}").len(),
                         tool = tool.desc(),
                     )
                     .light_yellow(),
@@ -284,11 +284,11 @@ impl UpConfigGoInstalls {
         let mut numbers = vec![];
 
         if let Some(count) = count.get(&GoInstallHandled::Handled) {
-            numbers.push(format!("{} installed", count).green());
+            numbers.push(format!("{count} installed").green());
         }
 
         if let Some(count) = count.get(&GoInstallHandled::Noop) {
-            numbers.push(format!("{} already installed", count).light_black());
+            numbers.push(format!("{count} already installed").light_black());
         }
 
         if numbers.is_empty() {
@@ -317,7 +317,7 @@ impl UpConfigGoInstalls {
                     "[{current:padding$}/{total:padding$}] ",
                     current = idx + 1,
                     total = num,
-                    padding = format!("{}", num).len(),
+                    padding = format!("{num}").len(),
                 )
                 .light_yellow(),
             );
@@ -336,14 +336,14 @@ impl UpConfigGoInstalls {
 
         // Cleanup removable tools from the database
         cache.cleanup().map_err(|err| {
-            let msg = format!("failed to cleanup go install cache: {}", err);
+            let msg = format!("failed to cleanup go install cache: {err}");
             progress_handler.progress(msg.clone());
             UpError::Cache(msg)
         })?;
 
         // List tools that should exist
         let expected_tools = cache.list_installed().map_err(|err| {
-            let msg = format!("failed to list go-installed tools: {}", err);
+            let msg = format!("failed to list go-installed tools: {err}");
             progress_handler.progress(msg.clone());
             UpError::Cache(msg)
         })?;
@@ -724,7 +724,7 @@ impl UpConfigGoInstall {
         progress_handler.progress("updating cache".to_string());
 
         if let Err(err) = GoInstallOperationCache::get().add_installed(&self.path, version) {
-            progress_handler.progress(format!("failed to update github release cache: {}", err));
+            progress_handler.progress(format!("failed to update github release cache: {err}"));
             return;
         }
 
@@ -801,7 +801,7 @@ impl UpConfigGoInstall {
         };
         let msg = match installed {
             true => format!("{} installed", version.light_yellow()),
-            false => format!("{} already installed", version).light_black(),
+            false => format!("{version} already installed").light_black(),
         };
         progress_handler.success_with_message(msg);
 
@@ -827,8 +827,7 @@ impl UpConfigGoInstall {
             GoInstallOperationCache::get().add_required_by(env_version_id, &self.path, version)
         {
             return Err(UpError::Cache(format!(
-                "failed to update go install cache: {}",
-                err
+                "failed to update go install cache: {err}"
             )));
         }
 
@@ -908,7 +907,7 @@ impl UpConfigGoInstall {
                     versions = Some(list_versions.clone());
                     let latest = self.latest_version(&list_versions)?;
                     progress_handler.progress(
-                        format!("considering installed versions matching {}", latest).light_black(),
+                        format!("considering installed versions matching {latest}").light_black(),
                     );
                     latest
                 }
@@ -1048,7 +1047,7 @@ impl UpConfigGoInstall {
                 if options.write_cache {
                     progress_handler.progress("updating cache with version list".to_string());
                     if let Err(err) = cache.add_versions(&self.path, &versions) {
-                        progress_handler.progress(format!("failed to update cache: {}", err));
+                        progress_handler.progress(format!("failed to update cache: {err}"));
                     }
                 }
 
@@ -1058,7 +1057,7 @@ impl UpConfigGoInstall {
                 if let Some(cached_versions) = cached_versions {
                     progress_handler.progress(format!(
                         "{}; {}",
-                        format!("error refreshing version list: {}", err).red(),
+                        format!("error refreshing version list: {err}").red(),
                         "using cached data".light_black()
                     ));
                     Ok(cached_versions)
@@ -1100,7 +1099,7 @@ impl UpConfigGoInstall {
 
             match get_command_output(&mut go_list_cmd, RunConfig::new().with_askpass()) {
                 Err(err) => {
-                    let msg = format!("go list failed: {}", err);
+                    let msg = format!("go list failed: {err}");
                     progress_handler.error_with_message(msg.clone());
                     return Err(UpError::Exec(msg));
                 }
@@ -1172,7 +1171,7 @@ impl UpConfigGoInstall {
 
         let installed_versions = std::fs::read_dir(&version_path)
             .map_err(|err| {
-                let errmsg = format!("failed to read directory: {}", err);
+                let errmsg = format!("failed to read directory: {err}");
                 UpError::Exec(errmsg)
             })?
             .filter_map(|entry| {
@@ -1210,8 +1209,8 @@ impl UpConfigGoInstall {
             .prefix(&tmpdir_cleanup_prefix("go-install"))
             .tempdir()
             .map_err(|err| {
-                progress_handler.error_with_message(format!("failed to create temp dir: {}", err));
-                UpError::Exec(format!("failed to create temp dir: {}", err))
+                progress_handler.error_with_message(format!("failed to create temp dir: {err}"));
+                UpError::Exec(format!("failed to create temp dir: {err}"))
             })?;
         let tmp_bin_path = tmp_dir.path().join("bin");
 
@@ -1248,7 +1247,7 @@ impl UpConfigGoInstall {
 
         // Check that there is at least one binary in the bin directory
         let bin_files = std::fs::read_dir(&tmp_bin_path).map_err(|err| {
-            let msg = format!("failed to read bin directory: {}", err);
+            let msg = format!("failed to read bin directory: {err}");
             progress_handler.error_with_message(msg.clone());
             UpError::Exec(msg)
         })?;
@@ -1269,7 +1268,7 @@ impl UpConfigGoInstall {
 
         // Move the installed version to the correct crate_name
         std::fs::create_dir_all(&install_path).map_err(|err| {
-            let msg = format!("failed to create install directory: {}", err);
+            let msg = format!("failed to create install directory: {err}");
             progress_handler.error_with_message(msg.clone());
             UpError::Exec(msg)
         })?;
@@ -1277,14 +1276,14 @@ impl UpConfigGoInstall {
         // Make sure the target directory does not exist
         let target_bin_dir = install_path.join("bin");
         force_remove_all(&target_bin_dir).map_err(|err| {
-            let msg = format!("failed to remove target bin directory: {}", err);
+            let msg = format!("failed to remove target bin directory: {err}");
             progress_handler.error_with_message(msg.clone());
             UpError::Exec(msg)
         })?;
 
         // Move the tmp_bin_crate_name to the install_crate_name/<bin> directory
         safe_rename(&tmp_bin_path, target_bin_dir).map_err(|err| {
-            let msg = format!("failed to move bin directory: {}", err);
+            let msg = format!("failed to move bin directory: {err}");
             progress_handler.error_with_message(msg.clone());
             UpError::Exec(msg)
         })?;
@@ -1494,8 +1493,7 @@ mod tests {
         for v in valid {
             assert!(
                 validate_go_install_version(v).is_ok(),
-                "Failed for valid version: {}",
-                v
+                "Failed for valid version: {v}"
             );
         }
 
@@ -1509,8 +1507,7 @@ mod tests {
         for v in invalid {
             assert!(
                 validate_go_install_version(v).is_err(),
-                "Failed to reject invalid version: {}",
-                v
+                "Failed to reject invalid version: {v}"
             );
         }
     }
@@ -1529,7 +1526,7 @@ mod tests {
         for (input, expected) in test_cases {
             match validate_go_install_path(input) {
                 Ok(path) => {
-                    assert_eq!(path, expected.unwrap(), "Failed for input: {}", input);
+                    assert_eq!(path, expected.unwrap(), "Failed for input: {input}");
                 }
                 Err(e) => {
                     assert_eq!(
@@ -1572,7 +1569,7 @@ mod tests {
         for (input, expected) in test_cases {
             match parse_go_install_path(input) {
                 Ok(result) => {
-                    assert_eq!(result, expected.unwrap(), "Failed for input: {}", input);
+                    assert_eq!(result, expected.unwrap(), "Failed for input: {input}");
                 }
                 Err(e) => {
                     assert_eq!(
@@ -1636,9 +1633,7 @@ mod tests {
             assert_eq!(
                 is_go_pseudo_version(version),
                 expected,
-                "Failed for version: {} (expected: {})",
-                version,
-                expected
+                "Failed for version: {version} (expected: {expected})"
             );
         }
     }

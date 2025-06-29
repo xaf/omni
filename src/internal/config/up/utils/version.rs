@@ -479,69 +479,57 @@ mod tests {
         let matcher = VersionMatcher::new(version);
         assert!(
             matcher.matches("1.2.3"),
-            "{} should match 1.2.3 with default matcher",
-            version,
+            "{version} should match 1.2.3 with default matcher",
         );
         assert!(
             !matcher.matches("1.2.3-alpha"),
-            "{} should NOT match 1.2.3-alpha with default matcher",
-            version,
+            "{version} should NOT match 1.2.3-alpha with default matcher",
         );
         assert!(
             !matcher.matches("1.2.3+build"),
-            "{} should NOT match 1.2.3+build with default matcher",
-            version,
+            "{version} should NOT match 1.2.3+build with default matcher",
         );
         assert!(
             !matcher.matches("1.2.3-alpha+build"),
-            "{} should NOT match 1.2.3-alpha+build with default matcher",
-            version,
+            "{version} should NOT match 1.2.3-alpha+build with default matcher",
         );
 
         let mut matcher = VersionMatcher::new(version);
         matcher.prerelease(true);
         assert!(
             matcher.matches("1.2.3"),
-            "{} should match 1.2.3 with matcher with prerelease enabled",
-            version,
+            "{version} should match 1.2.3 with matcher with prerelease enabled",
         );
         assert!(
             matcher.matches("1.2.3-alpha"),
-            "{} should match 1.2.3-alpha with matcher with prerelease enabled",
-            version,
+            "{version} should match 1.2.3-alpha with matcher with prerelease enabled",
         );
         assert!(
             !matcher.matches("1.2.3+build"),
-            "{} should NOT match 1.2.3+build with matcher with prerelease enabled",
-            version,
+            "{version} should NOT match 1.2.3+build with matcher with prerelease enabled",
         );
         assert!(
             !matcher.matches("1.2.3-alpha+build"),
-            "{} should NOT match 1.2.3-alpha+build with matcher with prerelease enabled",
-            version,
+            "{version} should NOT match 1.2.3-alpha+build with matcher with prerelease enabled",
         );
 
         let mut matcher = VersionMatcher::new(version);
         matcher.build(true);
         assert!(
             matcher.matches("1.2.3"),
-            "{} should match 1.2.3 with matcher with build enabled",
-            version,
+            "{version} should match 1.2.3 with matcher with build enabled",
         );
         assert!(
             !matcher.matches("1.2.3-alpha"),
-            "{} should NOT match 1.2.3-alpha with matcher with build enabled",
-            version,
+            "{version} should NOT match 1.2.3-alpha with matcher with build enabled",
         );
         assert!(
             matcher.matches("1.2.3+build"),
-            "{} should match 1.2.3+build with matcher with build enabled",
-            version,
+            "{version} should match 1.2.3+build with matcher with build enabled",
         );
         assert!(
             !matcher.matches("1.2.3-alpha+build"),
-            "{} should NOT match 1.2.3-alpha+build with matcher with build enabled",
-            version,
+            "{version} should NOT match 1.2.3-alpha+build with matcher with build enabled",
         );
 
         let mut matcher = VersionMatcher::new(version);
@@ -549,23 +537,19 @@ mod tests {
         matcher.build(true);
         assert!(
             matcher.matches("1.2.3"),
-            "{} should match 1.2.3 with matcher with prerelease+build enabled",
-            version,
+            "{version} should match 1.2.3 with matcher with prerelease+build enabled",
         );
         assert!(
             matcher.matches("1.2.3-alpha"),
-            "{} should match 1.2.3-alpha with matcher with prerelease+build enabled",
-            version,
+            "{version} should match 1.2.3-alpha with matcher with prerelease+build enabled",
         );
         assert!(
             matcher.matches("1.2.3+build"),
-            "{} should match 1.2.3+build with matcher with prerelease+build enabled",
-            version,
+            "{version} should match 1.2.3+build with matcher with prerelease+build enabled",
         );
         assert!(
             matcher.matches("1.2.3-alpha+build"),
-            "{} should match 1.2.3-alpha+build with matcher with prerelease+build enabled",
-            version,
+            "{version} should match 1.2.3-alpha+build with matcher with prerelease+build enabled",
         );
     }
 

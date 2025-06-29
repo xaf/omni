@@ -77,7 +77,7 @@ impl ScopeCommand {
                     omni_error!(format!(
                         "failed to change directory {}: {}",
                         format!("({})", repo_path.display()).light_black(),
-                        format!("{}", err).red()
+                        format!("{err}").red()
                     ));
                 }
                 return Err(());
@@ -92,7 +92,7 @@ impl ScopeCommand {
                     omni_error!(format!(
                         "failed to change directory {}: {}",
                         format!("({})", repo_path.display()).light_black(),
-                        format!("{}", err).red()
+                        format!("{err}").red()
                     ));
                 }
                 return Err(());
@@ -275,7 +275,7 @@ impl BuiltinCommand for ScopeCommand {
 
                 path_auto_complete(repo, true, false)
                     .iter()
-                    .for_each(|s| println!("{}", s));
+                    .for_each(|s| println!("{s}"));
 
                 return Ok(());
             } else if param.name == "command" {

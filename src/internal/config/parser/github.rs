@@ -284,12 +284,12 @@ impl Serialize for StringFilter {
 impl std::fmt::Display for StringFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            StringFilter::Contains(pattern) => write!(f, "contains \'{}\'", pattern),
-            StringFilter::StartsWith(pattern) => write!(f, "start with \'{}\'", pattern),
-            StringFilter::EndsWith(pattern) => write!(f, "end with \'{}\'", pattern),
-            StringFilter::Regex(pattern) => write!(f, "match regex \'{}\'", pattern),
-            StringFilter::Glob(pattern) => write!(f, "match \'{}\'", pattern),
-            StringFilter::Exact(pattern) => write!(f, "be \'{}\'", pattern),
+            StringFilter::Contains(pattern) => write!(f, "contains \'{pattern}\'"),
+            StringFilter::StartsWith(pattern) => write!(f, "start with \'{pattern}\'"),
+            StringFilter::EndsWith(pattern) => write!(f, "end with \'{pattern}\'"),
+            StringFilter::Regex(pattern) => write!(f, "match regex \'{pattern}\'"),
+            StringFilter::Glob(pattern) => write!(f, "match \'{pattern}\'"),
+            StringFilter::Exact(pattern) => write!(f, "be \'{pattern}\'"),
             StringFilter::Any => write!(f, "be any value"),
         }
     }

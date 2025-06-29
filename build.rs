@@ -17,7 +17,7 @@ fn main() {
         format!("0.0.0-nogit-{}", now.format(&format).unwrap())
     };
 
-    println!("cargo:rustc-env=CARGO_PKG_VERSION={}", version);
+    println!("cargo:rustc-env=CARGO_PKG_VERSION={version}");
 }
 
 fn get_git_version() -> Option<String> {
@@ -41,7 +41,7 @@ fn get_git_version() -> Option<String> {
     if let Ok(output) = command.output() {
         if output.status.success() {
             if let Ok(version) = String::from_utf8(output.stdout) {
-                return Some(format!("0.0.0-g{}", version));
+                return Some(format!("0.0.0-g{version}"));
             }
         }
     }

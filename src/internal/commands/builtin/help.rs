@@ -320,7 +320,7 @@ impl HelpCommandPrinter for HelpCommandPlainPrinter {
                 let wrapped_value = wrap_text(&value, max_width - taglen - 2);
                 eprintln!(
                     "{}{:<width$}{}",
-                    format!("{}:", tag).bold(),
+                    format!("{tag}:").bold(),
                     "",
                     wrapped_value[0],
                     width = taglen - tag.len() - 1,
@@ -337,7 +337,7 @@ impl HelpCommandPrinter for HelpCommandPlainPrinter {
 
         eprintln!("\n{} {}", "Usage:".underline().bold(), wrapped_usage[0]);
         wrapped_usage.iter().skip(1).for_each(|line| {
-            eprintln!("       {}", line);
+            eprintln!("       {line}");
         });
 
         if let Some(syntax) = command.syntax() {
@@ -455,7 +455,7 @@ impl HelpCommandPlainPrinter {
                     .iter()
                     .take(wrapped_name_and_len.len() - 1)
                     .for_each(|(name, _)| {
-                        buf.push_str(&format!("  {}\n", name));
+                        buf.push_str(&format!("  {name}\n"));
                     });
 
                 let first_desc_line = help_desc.first().unwrap_or(&empty_str).trim();
@@ -479,7 +479,7 @@ impl HelpCommandPlainPrinter {
                 });
             } else {
                 wrapped_name_and_len.iter().for_each(|(name, _)| {
-                    buf.push_str(&format!("  {}\n", name));
+                    buf.push_str(&format!("  {name}\n"));
                 });
 
                 help_desc.iter().for_each(|line| {
@@ -488,7 +488,7 @@ impl HelpCommandPlainPrinter {
             }
 
             // Print the help message for this argument
-            eprint!("{}", buf);
+            eprint!("{buf}");
         }
 
         Ok(())
@@ -557,7 +557,7 @@ impl HelpCommandPlainPrinter {
                     "Uncategorized".bold()
                 };
                 let line = new_category.to_string();
-                eprintln!("\n{}", line);
+                eprintln!("\n{line}");
             }
 
             let all_names = command
@@ -590,7 +590,7 @@ impl HelpCommandPlainPrinter {
                     let namelen = strip_ansi_codes(name).len();
                     let name = if idx == all_names_vec.len() - 1 {
                         match name.strip_suffix("--") {
-                            Some(name) => format!("{}{}", name, num_folded),
+                            Some(name) => format!("{name}{num_folded}"),
                             None => name.to_string(),
                         }
                     } else {
@@ -611,7 +611,7 @@ impl HelpCommandPlainPrinter {
                     .iter()
                     .take(all_names_and_len.len() - 1)
                     .for_each(|(name, _)| {
-                        buf.push_str(&format!("  {}\n", name));
+                        buf.push_str(&format!("  {name}\n"));
                     });
 
                 let first_desc_line = help_vec.first().unwrap_or(&empty_str);
@@ -628,7 +628,7 @@ impl HelpCommandPlainPrinter {
                 });
             } else {
                 all_names_and_len.iter().for_each(|(name, _)| {
-                    buf.push_str(&format!("  {}\n", name));
+                    buf.push_str(&format!("  {name}\n"));
                 });
 
                 help_vec.iter().for_each(|line| {
@@ -636,7 +636,7 @@ impl HelpCommandPlainPrinter {
                 });
             }
 
-            eprint!("{}", buf);
+            eprint!("{buf}");
         }
 
         true
@@ -722,7 +722,7 @@ impl HelpCommandPrinter for HelpCommandJsonPrinter {
 
         let json =
             serde_json::to_string_pretty(&command_help).expect("failed to serialize help to JSON");
-        println!("{}", json);
+        println!("{json}");
     }
 
     fn print_command_help(&self, command: &Command, called_as: Vec<String>, unfold: bool) {
@@ -771,7 +771,7 @@ impl HelpCommandPrinter for HelpCommandJsonPrinter {
         // Serialize the command help to JSON
         let json =
             serde_json::to_string_pretty(&command_help).expect("failed to serialize help to JSON");
-        println!("{}", json);
+        println!("{json}");
     }
 
     fn print_error(&self, error_type: &str, error_msg: &str) {

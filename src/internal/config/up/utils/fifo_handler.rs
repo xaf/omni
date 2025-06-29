@@ -49,8 +49,7 @@ impl TempFifo {
             Err(err) => {
                 // Convert nix error to io::Error
                 Err(std::io::Error::other(format!(
-                    "Failed to create FIFO: {}",
-                    err
+                    "Failed to create FIFO: {err}"
                 )))
             }
         }
@@ -190,7 +189,7 @@ impl FifoReader {
                 }
                 Ok(_) => {
                     if let Err(e) = sender.send(buffer.to_string()) {
-                        return Err(std::io::Error::other(format!("Failed to send data: {}", e)));
+                        return Err(std::io::Error::other(format!("Failed to send data: {e}")));
                     }
 
                     // Reset the retry flag if we successfully sent data

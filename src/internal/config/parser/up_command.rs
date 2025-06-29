@@ -198,7 +198,7 @@ impl UpCommandOperationConfig {
     }
 
     pub fn is_github_repository_allowed(&self, repository: &str) -> bool {
-        let url_from_repository = format!("https://github.com/{}", repository);
+        let url_from_repository = format!("https://github.com/{repository}");
         check_url_allowed(&url_from_repository, &self.sources)
             && check_allowed(repository, &self.github_release.repositories)
     }
@@ -432,7 +432,7 @@ impl UrlPattern {
     fn parse(url_str: &str) -> Result<Self, url::ParseError> {
         match url::Url::parse(url_str) {
             Ok(url) if url.host_str().is_none() || url.cannot_be_a_base() => {
-                let prefixed_url = format!("https://{}", url_str);
+                let prefixed_url = format!("https://{url_str}");
                 match Self::parse(&prefixed_url) {
                     Ok(mut url) => {
                         url.scheme = None;
@@ -443,7 +443,7 @@ impl UrlPattern {
             }
             Ok(url) => Ok(url.into()),
             Err(url::ParseError::RelativeUrlWithoutBase) => {
-                let prefixed_url = format!("https://{}", url_str);
+                let prefixed_url = format!("https://{url_str}");
                 match Self::parse(&prefixed_url) {
                     Ok(mut url) => {
                         url.scheme = None;

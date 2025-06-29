@@ -266,7 +266,7 @@ impl UpConfigNix {
         let profile = match NixProfile::from_file(&profile_path) {
             Ok(profile) => profile,
             Err(e) => {
-                return Err(UpError::Exec(format!("failed to load nix profile: {}", e)));
+                return Err(UpError::Exec(format!("failed to load nix profile: {e}")));
             }
         };
 
@@ -380,7 +380,7 @@ impl NixHandler {
         let tmp_dir = match tempfile::Builder::new().prefix("omni_up_nix.").tempdir() {
             Ok(tmp_dir) => tmp_dir,
             Err(e) => {
-                let msg = format!("failed to create temporary directory: {}", e);
+                let msg = format!("failed to create temporary directory: {e}");
                 progress_handler.error_with_message(msg.clone());
                 return Err(UpError::Exec(msg));
             }
@@ -549,7 +549,7 @@ impl NixSource {
             }
         };
         let profile_hash = config_hasher.finalize().to_hex()[..16].to_string();
-        let profile_id = format!("profile-{}-{}", profile_suffix, profile_hash);
+        let profile_id = format!("profile-{profile_suffix}-{profile_hash}");
 
         Ok(profile_id)
     }
@@ -632,7 +632,7 @@ impl NixSource {
                 let expr = match tera::Tera::one_off(tmpl, &context, false) {
                     Ok(expr) => expr,
                     Err(e) => {
-                        let msg = format!("failed to render nix expression: {}", e);
+                        let msg = format!("failed to render nix expression: {e}");
                         progress_handler.error_with_message(msg.clone());
                         return Err(UpError::Exec(msg));
                     }
@@ -658,7 +658,7 @@ impl NixSource {
         );
 
         if let Err(e) = result {
-            let msg = format!("failed to install nix packages: {}", e);
+            let msg = format!("failed to install nix packages: {e}");
             progress_handler.error_with_message(msg.clone());
             return Err(UpError::Exec(msg));
         }
@@ -694,7 +694,7 @@ impl NixSource {
 
         let result = run_progress(&mut nix_build, Some(progress_handler), RunConfig::default());
         if let Err(e) = result {
-            let msg = format!("failed to build nix profile: {}", e);
+            let msg = format!("failed to build nix profile: {e}");
             progress_handler.error_with_message(msg.clone());
             return Err(UpError::Exec(msg));
         }
@@ -713,7 +713,7 @@ impl NixSource {
 
             let result = run_progress(&mut nix_build, Some(progress_handler), RunConfig::default());
             if let Err(e) = result {
-                let msg = format!("failed to build flake archive: {}", e);
+                let msg = format!("failed to build flake archive: {e}");
                 progress_handler.error_with_message(msg.clone());
                 return Err(UpError::Exec(msg));
             }
@@ -771,7 +771,7 @@ impl NixSource {
                 let output = match get_command_output(&mut nix_flake, RunConfig::default()) {
                     Ok(output) => output,
                     Err(e) => {
-                        let msg = format!("failed to archive nix flake: {}", e);
+                        let msg = format!("failed to archive nix flake: {e}");
                         progress_handler.error_with_message(msg.clone());
                         return Err(UpError::Exec(msg));
                     }
@@ -815,14 +815,14 @@ impl NixProfile {
         let file = match std::fs::File::open(profile_path) {
             Ok(file) => file,
             Err(e) => {
-                return Err(UpError::Exec(format!("failed to open nix profile: {}", e)));
+                return Err(UpError::Exec(format!("failed to open nix profile: {e}")));
             }
         };
 
         let profile: NixProfile = match serde_json::from_reader(file) {
             Ok(profile) => profile,
             Err(e) => {
-                return Err(UpError::Exec(format!("failed to parse nix profile: {}", e)));
+                return Err(UpError::Exec(format!("failed to parse nix profile: {e}")));
             }
         };
 

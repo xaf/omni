@@ -336,8 +336,7 @@ where
                         path.to_string_lossy().underline(),
                     ))),
                     Err(err) => Err(UpError::Exec(format!(
-                        "process exited with status {}; failed to keep log file: {}",
-                        exit_code, err,
+                        "process exited with status {exit_code}; failed to keep log file: {err}",
                     ))),
                 }
             }

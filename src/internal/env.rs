@@ -83,7 +83,7 @@ lazy_static! {
         // Keep only the first section
         let short_uuid = uuid.to_string()[..8].to_string();
 
-        format!("omnitmp-{}", short_uuid)
+        format!("omnitmp-{short_uuid}")
     };
 
     #[derive(Debug)]
@@ -120,7 +120,7 @@ pub fn tmpdir_cleanup() {
     let tmp_dir_prefix = (*TMPDIR_CLEANUP_PREFIX).to_string();
     let tmp_dir = std::env::temp_dir().join(tmp_dir_prefix);
     let tmp_dir_str = tmp_dir.to_string_lossy().to_string();
-    let glob_pattern = format!("{}*", tmp_dir_str);
+    let glob_pattern = format!("{tmp_dir_str}*");
 
     if let Ok(entries) = glob::glob(&glob_pattern) {
         for entry in entries.into_iter().flatten() {
@@ -243,7 +243,7 @@ pub fn workdir_or_init<T: AsRef<str>>(path: T) -> Result<WorkDirEnv, String> {
     let wd = workdir_env.get(&path).clone();
 
     if !wd.in_workdir() {
-        return Err(format!("failed to create workdir for '{}'", path));
+        return Err(format!("failed to create workdir for '{path}'"));
     }
 
     Ok(wd)
@@ -427,7 +427,7 @@ fn compute_omni_tmpdir() -> String {
             };
             let user = whoami::username();
 
-            format!("{}/omni.{}", tmpdir, user)
+            format!("{tmpdir}/omni.{user}")
         }
     }
 }
@@ -988,7 +988,7 @@ impl WorkDirEnv {
     pub fn id(&self) -> Option<String> {
         self.trust_id().map(|id| {
             if self.is_package() {
-                format!("package#{}", id)
+                format!("package#{id}")
             } else {
                 id
             }
@@ -998,9 +998,9 @@ impl WorkDirEnv {
     pub fn typed_id(&self) -> Option<String> {
         self.trust_id().map(|id| {
             if self.is_package() {
-                format!("package#{}", id)
+                format!("package#{id}")
             } else {
-                format!("worktree#{}", id)
+                format!("worktree#{id}")
             }
         })
     }

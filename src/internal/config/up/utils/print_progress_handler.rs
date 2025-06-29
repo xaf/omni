@@ -13,20 +13,15 @@ pub struct PrintProgressHandler {
 impl PrintProgressHandler {
     pub fn new(desc: String, progress: Option<(usize, usize)>) -> Self {
         let prefix = if let Some((current, total)) = progress {
-            let padding = format!("{}", total).len();
-            format!(
-                "[{:padding$}/{:padding$}] ",
-                current,
-                total,
-                padding = padding
-            )
-            .bold()
-            .light_black()
+            let padding = format!("{total}").len();
+            format!("[{current:padding$}/{total:padding$}] ")
+                .bold()
+                .light_black()
         } else {
             "".to_string()
         };
 
-        let template = format!("{}{{}} {} {{}}", prefix, desc);
+        let template = format!("{prefix}{{}} {desc} {{}}");
 
         PrintProgressHandler {
             template,
@@ -47,7 +42,7 @@ impl PrintProgressHandler {
 
 impl ProgressHandler for PrintProgressHandler {
     fn println(&self, message: String) {
-        eprintln!("{}", message);
+        eprintln!("{message}");
     }
 
     fn progress(&self, message: String) {

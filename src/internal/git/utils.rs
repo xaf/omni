@@ -64,7 +64,7 @@ pub fn id_from_git_url(url: &GitUrl) -> Option<String> {
     let url = url.clone();
     if let (Some(host), Some(owner), name) = (url.host, url.owner, url.name) {
         if !name.is_empty() {
-            return Some(format!("{}:{}/{}", host, owner, name));
+            return Some(format!("{host}:{owner}/{name}"));
         }
     }
     None

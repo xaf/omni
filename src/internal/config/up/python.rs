@@ -339,8 +339,7 @@ fn setup_python_venv_per_version(
         Ok(version) => {
             if version < MIN_VERSION_VENV {
                 progress_handler.progress(format!(
-                    "skipping venv setup for python {} < {}",
-                    version, MIN_VERSION_VENV
+                    "skipping venv setup for python {version} < {MIN_VERSION_VENV}"
                 ));
                 return Ok(());
             }
@@ -399,7 +398,7 @@ fn setup_python_venv_per_dir(
     // Check if we need to install, or if the virtual env is already there
     let already_setup = if venv_path.exists() {
         if venv_path.join("pyvenv.cfg").exists() {
-            progress_handler.progress(format!("venv already exists for python {}", version));
+            progress_handler.progress(format!("venv already exists for python {version}"));
             true
         } else {
             // Remove the directory since it exists but is not a venv,
@@ -587,8 +586,7 @@ impl IsolatedPythonTool {
 
         if !bin_path.exists() {
             return Err(UpError::Exec(format!(
-                "failed to install {}: binary not found after installation",
-                tool_name
+                "failed to install {tool_name}: binary not found after installation"
             )));
         }
 
@@ -602,7 +600,7 @@ impl IsolatedPythonTool {
         if current.is_empty() {
             python_path
         } else {
-            format!("{}:{}", python_path, current)
+            format!("{python_path}:{current}")
         }
     }
 
@@ -616,13 +614,10 @@ impl IsolatedPythonTool {
 /// Create a temporary file for exporting requirements
 fn create_temp_requirements_file(prefix: &str) -> Result<tempfile::NamedTempFile, UpError> {
     tempfile::Builder::new()
-        .prefix(&tmpdir_cleanup_prefix(&format!(
-            "omni_up_python_{}",
-            prefix
-        )))
+        .prefix(&tmpdir_cleanup_prefix(&format!("omni_up_python_{prefix}")))
         .suffix(".txt")
         .tempfile()
-        .map_err(|e| UpError::Exec(format!("failed to create temporary file: {}", e)))
+        .map_err(|e| UpError::Exec(format!("failed to create temporary file: {e}")))
 }
 
 fn setup_python_requirements_file(
@@ -666,8 +661,7 @@ fn setup_python_requirements_file(
         }
         f if f.ends_with(".lock") => {
             return Err(UpError::Exec(format!(
-                "unsupported lock file format: {}",
-                relative_path,
+                "unsupported lock file format: {relative_path}",
             )))
         }
         _ => (requirements_file.clone(), None),
@@ -761,7 +755,7 @@ fn extract_pipfile_requirements(
     })?;
 
     // Run pipenv requirements to generate requirements file
-    progress_handler.progress(format!("exporting {} to requirements file", file_name));
+    progress_handler.progress(format!("exporting {file_name} to requirements file"));
 
     let mut pipenv_export = pipenv.get_tokio_command();
     // Set working directory to where the Pipfile/Pipfile.lock is located
@@ -771,7 +765,7 @@ fn extract_pipfile_requirements(
 
     // Open the file for writing - create a new file or truncate existing file
     let stdout_file = std::fs::File::create(tmp_path)
-        .map_err(|e| UpError::Exec(format!("failed to create output file: {}", e)))?;
+        .map_err(|e| UpError::Exec(format!("failed to create output file: {e}")))?;
 
     pipenv_export.stdout(stdout_file);
     pipenv_export.stderr(std::process::Stdio::piped());

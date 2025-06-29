@@ -194,7 +194,7 @@ impl PathCommand {
             // Process the files
             for filepath in files_to_process {
                 let mut partitions = filepath
-                    .strip_prefix(format!("{}/", path))
+                    .strip_prefix(format!("{path}/"))
                     .unwrap()
                     .to_str()
                     .unwrap()
@@ -324,7 +324,7 @@ impl PathCommand {
         // Execute the command
         let err = ProcessCommand::new(source).args(argv).exec();
 
-        panic!("Something went wrong: {:?}", err);
+        panic!("Something went wrong: {err:?}");
     }
 
     pub fn autocompletion(&self) -> CommandAutocompletion {
@@ -1074,7 +1074,7 @@ impl PathCommandFileDetails {
                 | ("opt", Some(subkey), value)
                 | ("arggroup", Some(subkey), value) => {
                     key_tracker.handle_seen_key(
-                        &format!("{}:{}", key, subkey),
+                        &format!("{key}:{subkey}"),
                         lineno,
                         true,
                         error_handler,
@@ -1086,7 +1086,7 @@ impl PathCommandFileDetails {
                                 && cur_subkey.to_lowercase() == subkey.to_lowercase() =>
                         {
                             current_obj =
-                                Some((cur_key, cur_subkey, format!("{}\n{}", cur_value, value)));
+                                Some((cur_key, cur_subkey, format!("{cur_value}\n{value}")));
                         }
                         Some((cur_key, cur_subkey, cur_value)) => {
                             match cur_key.as_str() {
@@ -1107,7 +1107,7 @@ impl PathCommandFileDetails {
                 }
                 ("tag", Some(subkey), value) => {
                     key_tracker.handle_seen_key(
-                        &format!("{}:{}", key, subkey),
+                        &format!("{key}:{subkey}"),
                         lineno,
                         false,
                         error_handler,
@@ -2833,8 +2833,7 @@ mod tests {
                             && err.context_str("value") == "not_a_bool"
                             && err.context_str("expected") == "boolean"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -2852,8 +2851,7 @@ mod tests {
                         err.kind(),
                         ConfigErrorKind::MetadataHeaderMissingHelp
                     )),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -2871,8 +2869,7 @@ mod tests {
                         err.kind(),
                         ConfigErrorKind::MetadataHeaderMissingSyntax
                     )),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -2893,8 +2890,7 @@ mod tests {
                             && err.context_str("key") == "autocompletion"
                             && err.context_usize("prev_lineno") == 1
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -2914,8 +2910,7 @@ mod tests {
                             && err.lineno() == 2
                             && err.context_str("key") == "unknown_key"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -2933,8 +2928,7 @@ mod tests {
                         matches!(err.kind(), ConfigErrorKind::MetadataHeaderGroupEmptyPart)
                             && err.context_str("group") == "test_group"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -2956,8 +2950,7 @@ mod tests {
                         ) && err.context_str("group") == "test_group"
                             && err.context_str("config_key") == "unknown_key"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -2977,8 +2970,7 @@ mod tests {
                             ConfigErrorKind::MetadataHeaderGroupMissingParameters
                         ) && err.context_str("group") == "test_group"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -2998,8 +2990,7 @@ mod tests {
                             ConfigErrorKind::MetadataHeaderParameterEmptyPart
                         ) && err.context_str("parameter") == "test_param"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -3022,8 +3013,7 @@ mod tests {
                             && err.context_str("key") == "delimiter"
                             && err.context_str("value") == "invalid"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -3044,8 +3034,7 @@ mod tests {
                         ) && err.context_str("parameter") == "test_param"
                             && err.context_str("config_key") == "unknown_key"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -3064,8 +3053,7 @@ mod tests {
                             ConfigErrorKind::MetadataHeaderParameterMissingDescription
                         ) && err.context_str("parameter") == "test_param"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -3084,8 +3072,7 @@ mod tests {
                             ConfigErrorKind::MetadataHeaderContinueWithoutKey
                         ) && err.lineno() == 1
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
 
@@ -3103,8 +3090,7 @@ mod tests {
                             && err.lineno() == 1
                             && err.context_str("key") == "arg"
                     }),
-                    "Did not find expected error, found: {:?}",
-                    errors
+                    "Did not find expected error, found: {errors:?}"
                 );
             }
         }

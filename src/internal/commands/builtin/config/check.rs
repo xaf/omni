@@ -362,7 +362,7 @@ impl ConfigCheckCommand {
                     commands_to_process.extend(
                         subcommands
                             .into_iter()
-                            .map(|(n, c)| (format!("{} {}", name, n), c)),
+                            .map(|(n, c)| (format!("{name} {n}"), c)),
                     );
                 }
             }
@@ -574,11 +574,11 @@ impl ConfigCheckCommand {
         match args.output {
             ConfigCheckCommandOutput::Plain => {
                 for error in errors.iter() {
-                    println!("{}", error);
+                    println!("{error}");
                 }
             }
             ConfigCheckCommandOutput::Json => match serde_json::to_string_pretty(&errors) {
-                Ok(json) => println!("{}", json),
+                Ok(json) => println!("{json}"),
                 Err(e) => {
                     omni_error!(format!("Error while serializing the errors to JSON: {}", e));
                 }

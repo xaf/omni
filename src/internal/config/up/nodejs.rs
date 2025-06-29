@@ -327,21 +327,17 @@ fn setup_individual_npm_prefix(
             let package_json_str = match std::fs::read_to_string(&package_json_path) {
                 Ok(package_json_str) => package_json_str,
                 Err(err) => {
-                    progress_handler.progress(format!("failed to read package.json: {}", err));
-                    return Err(UpError::Exec(format!(
-                        "failed to read package.json: {}",
-                        err
-                    )));
+                    progress_handler.progress(format!("failed to read package.json: {err}"));
+                    return Err(UpError::Exec(format!("failed to read package.json: {err}")));
                 }
             };
 
             let pkgfile: PackageJson = match serde_json::from_str(&package_json_str) {
                 Ok(pkgfile) => pkgfile,
                 Err(err) => {
-                    progress_handler.progress(format!("failed to parse package.json: {}", err));
+                    progress_handler.progress(format!("failed to parse package.json: {err}"));
                     return Err(UpError::Exec(format!(
-                        "failed to parse package.json: {}",
-                        err
+                        "failed to parse package.json: {err}"
                     )));
                 }
             };
@@ -357,13 +353,13 @@ fn setup_individual_npm_prefix(
                     }
 
                     progress_handler
-                        .progress(format!("installing {} version {}", engine, version_range));
+                        .progress(format!("installing {engine} version {version_range}"));
 
                     // Install the engine using directly the provided version range
                     let mut npm_install = TokioCommand::new("npm");
                     npm_install.arg("install");
                     npm_install.arg("-g");
-                    npm_install.arg(format!("{}@{}", engine, version_range));
+                    npm_install.arg(format!("{engine}@{version_range}"));
                     npm_install.stdout(std::process::Stdio::piped());
                     npm_install.stderr(std::process::Stdio::piped());
 
@@ -375,8 +371,7 @@ fn setup_individual_npm_prefix(
 
                     if let Err(e) = result {
                         let msg = format!(
-                            "failed to install engine {} version {}: {}",
-                            engine, version_range, e
+                            "failed to install engine {engine} version {version_range}: {e}"
                         );
                         progress_handler.error_with_message(msg.clone());
                         return Err(UpError::Exec(msg));
@@ -413,7 +408,7 @@ fn setup_individual_npm_prefix(
                 );
 
                 if let Err(e) = result {
-                    let msg = format!("failed to install packages: {}", e);
+                    let msg = format!("failed to install packages: {e}");
                     progress_handler.error_with_message(msg.clone());
                     return Err(UpError::Exec(msg));
                 }

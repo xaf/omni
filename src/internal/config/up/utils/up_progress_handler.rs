@@ -180,7 +180,7 @@ impl<'a> UpProgressHandler<'a> {
             });
 
             if let Err(err) = update.dump_to_file(sync_file) {
-                panic!("failed to write progress update to file: {}", err);
+                panic!("failed to write progress update to file: {err}");
             }
         } else if let Some(parent) = self.parent {
             parent.update_sync_file(action);
@@ -482,7 +482,7 @@ fn suggest_and_kill(pid: u32) -> bool {
         .message(format!(
             "{} attached process {} seems to be hanging; do you want to kill it?",
             "omni:".light_cyan(),
-            format!("{}", pid).underline(),
+            format!("{pid}").underline(),
         ))
         .default(true)
         .build();
@@ -493,7 +493,7 @@ fn suggest_and_kill(pid: u32) -> bool {
             _ => false,
         },
         Err(err) => {
-            println!("{}", format!("[✘] {:?}", err).red());
+            println!("{}", format!("[✘] {err:?}").red());
             false
         }
     };
@@ -537,7 +537,7 @@ impl SyncUpdateOperation {
         let update_json = serde_json::to_string(self)?;
 
         // Add a line return at the end of the JSON
-        let update_json = format!("{}\n", update_json);
+        let update_json = format!("{update_json}\n");
 
         // Write the JSON to the file
         file.write_all(update_json.as_bytes())?;
@@ -641,21 +641,21 @@ impl Display for SyncUpdateInit {
                 options,
                 ..
             } => {
-                write!(f, "up (options: {:?})", options)
+                write!(f, "up (options: {options:?})")
             }
             SyncUpdateInit::Up {
                 commit: Some(commit),
                 options,
                 ..
             } if options.is_empty() => {
-                write!(f, "up (commit: {})", commit)
+                write!(f, "up (commit: {commit})")
             }
             SyncUpdateInit::Up {
                 commit: Some(commit),
                 options,
                 ..
             } => {
-                write!(f, "up (commit: {}, options: {:?})", commit, options)
+                write!(f, "up (commit: {commit}, options: {options:?})")
             }
             SyncUpdateInit::Down { .. } => write!(f, "down"),
         }

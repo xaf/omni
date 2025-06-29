@@ -80,7 +80,7 @@ impl UpConfigHomebrew {
                     "[{current:padding$}/{total:padding$}] ",
                     current = idx + 1,
                     total = num_taps,
-                    padding = format!("{}", num_taps).len(),
+                    padding = format!("{num_taps}").len(),
                 )
                 .light_yellow(),
             );
@@ -94,7 +94,7 @@ impl UpConfigHomebrew {
                     "[{current:padding$}/{total:padding$}] ",
                     current = idx + 1,
                     total = num_installs,
-                    padding = format!("{}", num_installs).len(),
+                    padding = format!("{num_installs}").len(),
                 )
                 .light_yellow(),
             );
@@ -182,15 +182,15 @@ impl UpConfigHomebrew {
             let mut numbers = vec![];
 
             if let Some(count) = count.get(&HomebrewHandled::Handled) {
-                numbers.push(format!("+{}", count).green());
+                numbers.push(format!("+{count}").green());
             }
 
             if let Some(count) = count.get(&HomebrewHandled::Updated) {
-                numbers.push(format!("^{}", count).yellow());
+                numbers.push(format!("^{count}").yellow());
             }
 
             if let Some(count) = count.get(&HomebrewHandled::Noop) {
-                numbers.push(format!("{}", count));
+                numbers.push(format!("{count}"));
             }
 
             if numbers.is_empty() {
@@ -235,7 +235,7 @@ impl UpConfigHomebrew {
                             "[{current:padding$}/{total:padding$}] ",
                             current = idx + 1,
                             total = total,
-                            padding = format!("{}", total).len(),
+                            padding = format!("{total}").len(),
                         )
                         .light_yellow(),
                     );
@@ -259,7 +259,7 @@ impl UpConfigHomebrew {
                             "[{current:padding$}/{total:padding$}] ",
                             current = idx + 1,
                             total = total,
-                            padding = format!("{}", total).len(),
+                            padding = format!("{total}").len(),
                         )
                         .light_yellow(),
                     );
@@ -295,7 +295,7 @@ impl UpConfigHomebrew {
             if handled_taps_count > 0 {
                 messages.push(format!(
                     "{} tap{} {}",
-                    format!("-{}", handled_taps_count).red(),
+                    format!("-{handled_taps_count}").red(),
                     if handled_taps_count > 1 { "s" } else { "" },
                     format!(
                         "({})",
@@ -318,7 +318,7 @@ impl UpConfigHomebrew {
             if handled_installs_count > 0 {
                 messages.push(format!(
                     "{} formula{} {}",
-                    format!("-{}", handled_installs_count).red(),
+                    format!("-{handled_installs_count}").red(),
                     if handled_installs_count > 1 { "s" } else { "" },
                     format!(
                         "({})",
@@ -537,7 +537,7 @@ impl HomebrewTap {
         progress_handler.progress("updating cache".to_string());
 
         if let Err(err) = HomebrewOperationCache::get().add_tap(&self.name, self.was_handled()) {
-            progress_handler.progress(format!("failed to update cache: {}", err));
+            progress_handler.progress(format!("failed to update cache: {err}"));
         } else {
             progress_handler.progress("updated cache".to_string());
         }
@@ -660,7 +660,7 @@ impl HomebrewTap {
         let output = get_command_output(&mut brew_repo, RunConfig::default());
         let brew_repo_path = match output {
             Err(err) => {
-                let msg = format!("failed to get tap repository path: {}", err);
+                let msg = format!("failed to get tap repository path: {err}");
                 progress_handler.error_with_message(msg.clone());
                 return Err(UpError::Exec(msg));
             }
@@ -691,7 +691,7 @@ impl HomebrewTap {
         let output = get_command_output(&mut brew_repo, RunConfig::new().with_askpass());
         match output {
             Err(err) => {
-                let msg = format!("git pull failed: {}", err);
+                let msg = format!("git pull failed: {err}");
                 Err(UpError::Exec(msg))
             }
             Ok(output) if !output.status.success() => {
@@ -753,7 +753,7 @@ impl HomebrewTap {
                 result
             }
             Err(err) if !options.fail_on_upgrade => {
-                progress_handler.progress(format!("failed to update: {}", err).red());
+                progress_handler.progress(format!("failed to update: {err}").red());
                 Ok(false)
             }
             _ => result,
@@ -986,7 +986,7 @@ impl HomebrewInstall {
             self.is_cask(),
             self.was_handled(),
         ) {
-            progress_handler.progress(format!("failed to update cache: {}", err));
+            progress_handler.progress(format!("failed to update cache: {err}"));
             return;
         }
 
@@ -1030,7 +1030,7 @@ impl HomebrewInstall {
                 "install {}{}: ",
                 self.name,
                 match &self.version {
-                    Some(version) => format!(" ({})", version),
+                    Some(version) => format!(" ({version})"),
                     None => "".to_string(),
                 }
             )
@@ -1074,7 +1074,7 @@ impl HomebrewInstall {
                 "uninstall {}{}: ",
                 self.name,
                 match &self.version {
-                    Some(version) => format!(" ({})", version),
+                    Some(version) => format!(" ({version})"),
                     None => "".to_string(),
                 }
             )
@@ -1095,10 +1095,8 @@ impl HomebrewInstall {
         if self.is_in_local_tap() {
             let tapped_file = self.tapped_file().unwrap();
             if let Err(err) = std::fs::remove_file(tapped_file) {
-                progress_handler.error_with_message(format!(
-                    "failed to remove formula from local tap: {}",
-                    err
-                ));
+                progress_handler
+                    .error_with_message(format!("failed to remove formula from local tap: {err}"));
                 return Err(UpError::Exec(
                     "failed to remove formula from local tap".to_string(),
                 ));
@@ -1135,7 +1133,7 @@ impl HomebrewInstall {
             "{}{}",
             self.name,
             if let Some(version) = &self.version {
-                format!("@{}", version)
+                format!("@{version}")
             } else {
                 "".to_string()
             }
@@ -1497,7 +1495,7 @@ impl HomebrewInstall {
                     Err(err)
                 } else {
                     if let Some(progress_handler) = progress_handler {
-                        progress_handler.progress(format!("failed to upgrade: {}", err).red())
+                        progress_handler.progress(format!("failed to upgrade: {err}").red())
                     }
 
                     Ok(false)

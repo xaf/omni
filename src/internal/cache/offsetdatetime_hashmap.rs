@@ -18,8 +18,7 @@ where
         let string = v.format(&Rfc3339);
         if let Err(err) = string {
             return Err(S::Error::custom(format!(
-                "Failed to format OffsetDateTime: {}",
-                err
+                "Failed to format OffsetDateTime: {err}"
             )));
         }
         result.insert(k.clone(), string.unwrap());
@@ -37,8 +36,7 @@ where
         let odt = OffsetDateTime::parse(v, &Rfc3339);
         if let Err(err) = odt {
             return Err(D::Error::custom(format!(
-                "Failed to parse OffsetDateTime: {}",
-                err
+                "Failed to parse OffsetDateTime: {err}"
             )));
         }
         result.insert(k.clone(), odt.unwrap());

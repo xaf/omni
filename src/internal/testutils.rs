@@ -58,7 +58,7 @@ cfg_if::cfg_if! {
                 ),
                 (
                     "TEST_POOL_ID".into(),
-                    Some(format!("test-pool-{}", test_id)),
+                    Some(format!("test-pool-{test_id}")),
                 ),
             ]
             .into_iter()

@@ -168,7 +168,7 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
         command.arg("--version");
         let output = command
             .output()
-            .map_err(|err| UpError::Exec(format!("failed to check mise version: {}", err)))?;
+            .map_err(|err| UpError::Exec(format!("failed to check mise version: {err}")))?;
 
         // Get the current version of mise, which is the first word in stdout
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -188,8 +188,7 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
         } else {
             if let Err(err) = cache.updated_mise() {
                 progress_handler.progress(format!(
-                    "failed to update cache for last mise update check: {}",
-                    err
+                    "failed to update cache for last mise update check: {err}"
                 ));
             }
 
@@ -234,11 +233,10 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
             .parent()
             .expect("failed to get parent of mise binary"),
     ) {
-        let errmsg = format!("failed to create mise binary directory: {}", err);
+        let errmsg = format!("failed to create mise binary directory: {err}");
         if fail_on_error {
             return Err(UpError::Exec(format!(
-                "failed to create mise binary directory: {}",
-                err
+                "failed to create mise binary directory: {err}"
             )));
         } else {
             progress_handler.progress(errmsg);
@@ -248,7 +246,7 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
 
     // Now copy the mise binary to the correct location
     if let Err(err) = std::fs::copy(&install_bin, mise_bin_dest) {
-        let errmsg = format!("failed to copy mise binary: {}", err);
+        let errmsg = format!("failed to copy mise binary: {err}");
         if fail_on_error {
             return Err(UpError::Exec(errmsg));
         } else {
@@ -259,14 +257,13 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
 
     if let Err(err) = cache.updated_mise() {
         progress_handler.progress(format!(
-            "failed to update cache for last mise update: {}",
-            err
+            "failed to update cache for last mise update: {err}"
         ));
     }
 
     if migrate_from_asdf {
         if let Err(err) = migrate_asdf_to_mise() {
-            progress_handler.progress(format!("failed to migrate from asdf to mise: {}", err));
+            progress_handler.progress(format!("failed to migrate from asdf to mise: {err}"));
         }
     }
 
@@ -293,15 +290,14 @@ fn migrate_asdf_to_mise() -> Result<(), UpError> {
     let mise_installs = mise_path.join("installs");
     if let Err(err) = safe_rename(&asdf_installs, &mise_installs) {
         return Err(UpError::Exec(format!(
-            "failed to move asdf installs to mise: {}",
-            err
+            "failed to move asdf installs to mise: {err}"
         )));
     }
 
     // Create a symlink to from the asdf installs to the mise installs; use a relative path
     // for the symlink to make sure it works when the data directory is moved
     if let Err(err) = symlink(PathBuf::from("../mise/installs"), &asdf_installs) {
-        return Err(UpError::Exec(format!("failed to create symlink: {}", err)));
+        return Err(UpError::Exec(format!("failed to create symlink: {err}")));
     }
 
     // Move the go installs to the correct location
@@ -309,8 +305,7 @@ fn migrate_asdf_to_mise() -> Result<(), UpError> {
     let go_mise_path = mise_installs.join("go");
     if let Err(err) = safe_rename(&go_asdf_path, &go_mise_path) {
         return Err(UpError::Exec(format!(
-            "failed to rename 'golang' to 'go': {}",
-            err
+            "failed to rename 'golang' to 'go': {err}"
         )));
     }
 
@@ -324,30 +319,27 @@ fn migrate_asdf_to_mise() -> Result<(), UpError> {
             // Move the inner 'go' directory
             if let Err(err) = safe_rename(&inner_go, &tmpdir) {
                 return Err(UpError::Exec(format!(
-                    "failed to move 'go' directory: {}",
-                    err
+                    "failed to move 'go' directory: {err}"
                 )));
             }
 
             // Remove the outer directory
             if let Err(err) = force_remove_dir_all(&entry) {
                 return Err(UpError::Exec(format!(
-                    "failed to remove outer directory: {}",
-                    err
+                    "failed to remove outer directory: {err}"
                 )));
             }
 
             // Move the inner 'go' directory back, but as the outer directory
             if let Err(err) = safe_rename(&tmpdir, &entry) {
                 return Err(UpError::Exec(format!(
-                    "failed to move 'go' directory back: {}",
-                    err
+                    "failed to move 'go' directory back: {err}"
                 )));
             }
 
             // Now create an inner 'go' symlink to the outer directory
             if let Err(err) = symlink("./", &inner_go) {
-                return Err(UpError::Exec(format!("failed to create symlink: {}", err)));
+                return Err(UpError::Exec(format!("failed to create symlink: {err}")));
             }
         }
     }
@@ -357,8 +349,7 @@ fn migrate_asdf_to_mise() -> Result<(), UpError> {
     let node_mise_path = mise_installs.join("node");
     if let Err(err) = safe_rename(&node_asdf_path, &node_mise_path) {
         return Err(UpError::Exec(format!(
-            "failed to rename 'nodejs' to 'node': {}",
-            err
+            "failed to rename 'nodejs' to 'node': {err}"
         )));
     }
 
@@ -370,8 +361,7 @@ fn migrate_asdf_to_mise() -> Result<(), UpError> {
     if !mise_shims.exists() {
         if let Err(err) = std::fs::create_dir_all(&mise_shims) {
             return Err(UpError::Exec(format!(
-                "failed to create mise shims directory: {}",
-                err
+                "failed to create mise shims directory: {err}"
             )));
         }
     }
@@ -389,7 +379,7 @@ fn migrate_asdf_to_mise() -> Result<(), UpError> {
             }
 
             if let Err(err) = symlink(mise_bin, &shim) {
-                return Err(UpError::Exec(format!("failed to create symlink: {}", err)));
+                return Err(UpError::Exec(format!("failed to create symlink: {err}")));
             }
         }
     }
@@ -409,7 +399,7 @@ fn list_mise_tool_versions(
     } else if list_type == "current" {
         mise_list.arg("--current");
     } else {
-        return Err(UpError::Exec(format!("unknown list type: {}", list_type)));
+        return Err(UpError::Exec(format!("unknown list type: {list_type}")));
     }
     mise_list.arg("--offline");
     mise_list.arg("--json");
@@ -429,8 +419,7 @@ fn list_mise_tool_versions(
 
     let output = mise_list.output().map_err(|err| {
         UpError::Exec(format!(
-            "failed to list installed versions for {}: {}",
-            tool, err
+            "failed to list installed versions for {tool}: {err}"
         ))
     })?;
 
@@ -447,8 +436,7 @@ fn list_mise_tool_versions(
         Ok(stdout) => stdout,
         Err(err) => {
             return Err(UpError::Exec(format!(
-                "failed to read mise ls output: {}",
-                err
+                "failed to read mise ls output: {err}"
             )));
         }
     };
@@ -457,8 +445,7 @@ fn list_mise_tool_versions(
         Ok(versions) => versions,
         Err(err) => {
             return Err(UpError::Exec(format!(
-                "failed to parse mise ls output: {}",
-                err
+                "failed to parse mise ls output: {err}"
             )));
         }
     };
@@ -573,12 +560,11 @@ pub fn mise_env(tool: &str, version: &str) -> Result<(String, String), UpError> 
     command.env("PATH", "");
     command.arg("env");
     command.arg("--json");
-    command.arg(format!("{}@{}", tool, version));
+    command.arg(format!("{tool}@{version}"));
 
     let output = command.output().map_err(|err| {
         UpError::Exec(format!(
-            "failed to run mise env for {} {}: {}",
-            tool, version, err
+            "failed to run mise env for {tool} {version}: {err}"
         ))
     })?;
 
@@ -593,16 +579,14 @@ pub fn mise_env(tool: &str, version: &str) -> Result<(String, String), UpError> 
 
     let stdout = String::from_utf8(output.stdout).map_err(|err| {
         UpError::Exec(format!(
-            "failed to read mise env output for {} {}: {}",
-            tool, version, err
+            "failed to read mise env output for {tool} {version}: {err}"
         ))
     })?;
     let env: MiseEnvOutput = match serde_json::from_str(&stdout) {
         Ok(env) => env,
         Err(err) => {
             return Err(UpError::Exec(format!(
-                "failed to parse mise ls output: {}",
-                err
+                "failed to parse mise ls output: {err}"
             )));
         }
     };
@@ -610,8 +594,7 @@ pub fn mise_env(tool: &str, version: &str) -> Result<(String, String), UpError> 
     let env_path = env.path();
     if env_path.is_empty() {
         return Err(UpError::Exec(format!(
-            "mise env for {} {} returned empty path",
-            tool, version
+            "mise env for {tool} {version} returned empty path"
         )));
     }
 
@@ -624,8 +607,7 @@ pub fn mise_env(tool: &str, version: &str) -> Result<(String, String), UpError> 
     let installs_prefix = PathBuf::from(mise_path()).join("installs");
     let location = location.strip_prefix(installs_prefix).map_err(|_| {
         UpError::Exec(format!(
-            "mise env for {} {} returned invalid location: {}",
-            tool, version, location_str,
+            "mise env for {tool} {version} returned invalid location: {location_str}",
         ))
     })?;
 
@@ -633,8 +615,7 @@ pub fn mise_env(tool: &str, version: &str) -> Result<(String, String), UpError> 
     let mut components = location.components();
     let tool_name = components.next().ok_or_else(|| {
         UpError::Exec(format!(
-            "mise env for {} {} does not contain tool name: {}",
-            tool, version, location_str,
+            "mise env for {tool} {version} does not contain tool name: {location_str}",
         ))
     })?;
 
@@ -642,14 +623,12 @@ pub fn mise_env(tool: &str, version: &str) -> Result<(String, String), UpError> 
     // version matches the expected version
     let tool_version = components.next().ok_or_else(|| {
         UpError::Exec(format!(
-            "mise env for {} {} does not contain tool version: {}",
-            tool, version, location_str,
+            "mise env for {tool} {version} does not contain tool version: {location_str}",
         ))
     })?;
     if tool_version.as_os_str() != version {
         return Err(UpError::Exec(format!(
-            "mise env for {} {} returned invalid version: {}",
-            tool, version, location_str,
+            "mise env for {tool} {version} returned invalid version: {location_str}",
         )));
     }
 
@@ -694,10 +673,7 @@ impl MiseRegistry {
         let output = match command.output() {
             Ok(output) => output,
             Err(err) => {
-                return Err(UpError::Exec(format!(
-                    "failed to run mise registry: {}",
-                    err
-                )));
+                return Err(UpError::Exec(format!("failed to run mise registry: {err}")));
             }
         };
 
@@ -708,9 +684,8 @@ impl MiseRegistry {
             )));
         }
 
-        let stdout = String::from_utf8(output.stdout).map_err(|err| {
-            UpError::Exec(format!("failed to read mise registry output: {}", err))
-        })?;
+        let stdout = String::from_utf8(output.stdout)
+            .map_err(|err| UpError::Exec(format!("failed to read mise registry output: {err}")))?;
         Self::parse_output(&stdout)
     }
 
@@ -729,10 +704,7 @@ impl MiseRegistry {
 
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() < 2 {
-            return Err(UpError::Exec(format!(
-                "invalid mise registry line: {}",
-                line
-            )));
+            return Err(UpError::Exec(format!("invalid mise registry line: {line}")));
         }
 
         // The short name is the first part, then we go over the
@@ -769,8 +741,7 @@ impl MiseRegistry {
         let parts: Vec<&str> = full_name.splitn(2, ':').collect();
         if parts.len() != 2 {
             return Err(UpError::Exec(format!(
-                "invalid mise registry full name: {}",
-                full_name
+                "invalid mise registry full name: {full_name}"
             )));
         }
 
@@ -787,8 +758,7 @@ impl MiseRegistry {
             }
             (Some(_), None) | (None, Some(_)) => {
                 return Err(UpError::Exec(format!(
-                    "invalid mise registry full name: {}",
-                    full_name
+                    "invalid mise registry full name: {full_name}"
                 )));
             }
             (None, None) => (rest.to_string(), None),
@@ -801,17 +771,17 @@ impl MiseRegistry {
                 // http://-url-path for a custom repository
                 match url::Url::parse(&name) {
                     Ok(_url) => Some(name.clone()),
-                    Err(_err) => Some(format!("https://github.com/{}", name)),
+                    Err(_err) => Some(format!("https://github.com/{name}")),
                 }
             }
             "go" => {
                 // full address used to `go install` the tool, without `https://`
                 // which is automatically added by go
-                Some(format!("https://{}", name))
+                Some(format!("https://{name}"))
             }
             "ubi" | "vfox" => {
                 // Name is `owner/repo` for a github repository
-                Some(format!("https://github.com/{}", name))
+                Some(format!("https://github.com/{name}"))
             }
             _ => None,
         };
@@ -913,8 +883,7 @@ impl FullyQualifiedToolName {
             // Error out if a backend was specified
             if backend.is_some() {
                 return Err(UpError::Exec(format!(
-                    "cannot specify a backend when using a custom URL for tool {}",
-                    tool
+                    "cannot specify a backend when using a custom URL for tool {tool}"
                 )));
             }
 
@@ -935,7 +904,7 @@ impl FullyQualifiedToolName {
                 .chars()
                 .any(|c| !c.is_alphanumeric() && c != '-' && c != '_')
             {
-                return Err(UpError::Exec(format!("invalid tool name: {}", tool)));
+                return Err(UpError::Exec(format!("invalid tool name: {tool}")));
             }
 
             // Error out if the URL is not an allowed source
@@ -945,8 +914,7 @@ impl FullyQualifiedToolName {
                 .is_mise_source_allowed(&url)
             {
                 return Err(UpError::Exec(format!(
-                    "cannot use URL {} as a source for tool installations",
-                    url
+                    "cannot use URL {url} as a source for tool installations"
                 )));
             }
 
@@ -958,7 +926,7 @@ impl FullyQualifiedToolName {
                 let short_hash = &hash[0..8];
 
                 // The plugin name will be the tool name with the hash appended
-                format!("{}-{}", tool, short_hash)
+                format!("{tool}-{short_hash}")
             } else {
                 tool.to_string()
             };
@@ -985,7 +953,7 @@ impl FullyQualifiedToolName {
         // If we get here, we want to resolve the actual plugin name
         let registry_entry = MISE_REGISTRY
             .find_entry(tool, backend.as_deref())
-            .ok_or_else(|| UpError::Exec(format!("unable to resolve tool: {}", tool)))?;
+            .ok_or_else(|| UpError::Exec(format!("unable to resolve tool: {tool}")))?;
 
         match registry_entry.backend.as_str() {
             "asdf" | "vfox" => {
@@ -1377,7 +1345,7 @@ impl UpConfigMise {
         let fqtn = match self.fully_qualified_tool_name() {
             Ok(fqtn) => fqtn,
             Err(err) => {
-                progress_handler.progress(format!("failed to resolve tool name: {}", err,));
+                progress_handler.progress(format!("failed to resolve tool name: {err}",));
                 return;
             }
         };
@@ -1414,7 +1382,7 @@ impl UpConfigMise {
             &version,
             &bin_path,
         ) {
-            progress_handler.progress(format!("failed to update tool cache: {}", err));
+            progress_handler.progress(format!("failed to update tool cache: {err}"));
             return;
         }
 
@@ -1465,7 +1433,7 @@ impl UpConfigMise {
         let versions = if let Some(version) = self.actual_version.get() {
             vec![version]
         } else if let Some(versions) = self.actual_versions.get() {
-            versions.iter().map(|(version, _)| version).collect()
+            versions.keys().collect()
         } else {
             return Err(UpError::Exec("failed to get version".to_string()));
         };
@@ -1537,7 +1505,7 @@ impl UpConfigMise {
                 Ok(())
             }
             Err(err) => {
-                progress_handler.error_with_message(format!("error: {}", err));
+                progress_handler.error_with_message(format!("error: {err}"));
                 Err(err)
             }
         }
@@ -1632,7 +1600,7 @@ impl UpConfigMise {
                             if dir.is_empty() {
                                 "at root".to_string()
                             } else {
-                                format!("in {}", dir)
+                                format!("in {dir}")
                             }
                         ));
 
@@ -1667,7 +1635,7 @@ impl UpConfigMise {
             let installed = match mise.resolve_and_install_version(options, progress_handler) {
                 Ok(installed) => installed,
                 Err(err) => {
-                    progress_handler.error_with_message(format!("error: {}", err));
+                    progress_handler.error_with_message(format!("error: {err}"));
                     return Err(err);
                 }
             };
@@ -1778,7 +1746,7 @@ impl UpConfigMise {
             progress_handler,
             &post_install_func_args,
         ) {
-            progress_handler.error_with_message(format!("error: {}", err));
+            progress_handler.error_with_message(format!("error: {err}"));
             return Err(err);
         }
 
@@ -1789,7 +1757,7 @@ impl UpConfigMise {
                 progress_handler,
                 &post_install_func_args,
             ) {
-                progress_handler.error_with_message(format!("error: {}", err));
+                progress_handler.error_with_message(format!("error: {err}"));
                 return Err(err);
             }
         }
@@ -1879,7 +1847,7 @@ impl UpConfigMise {
                         &self.fully_qualified_plugin_name()?,
                         versions.clone(),
                     ) {
-                        progress_handler.progress(format!("failed to update cache: {}", err));
+                        progress_handler.progress(format!("failed to update cache: {err}"));
                     }
                 }
 
@@ -1889,7 +1857,7 @@ impl UpConfigMise {
                 if let Some(cached_versions) = cached_versions {
                     progress_handler.progress(format!(
                         "{}; {}",
-                        format!("error refreshing version list: {}", err).red(),
+                        format!("error refreshing version list: {err}").red(),
                         "using cached data".light_black()
                     ));
                     Ok(cached_versions)
@@ -1908,15 +1876,15 @@ impl UpConfigMise {
 
         let tool = self.tool()?;
 
-        progress_handler.progress(format!("listing available versions for {}", tool));
+        progress_handler.progress(format!("listing available versions for {tool}"));
 
         let mut mise_list_all = mise_sync_command();
         mise_list_all.arg("ls-remote");
         mise_list_all.arg(&self.fully_qualified_tool_name()?.list_name);
 
-        let output = mise_list_all.output().map_err(|err| {
-            UpError::Exec(format!("failed to list versions for {}: {}", tool, err))
-        })?;
+        let output = mise_list_all
+            .output()
+            .map_err(|err| UpError::Exec(format!("failed to list versions for {tool}: {err}")))?;
 
         if !output.status.success() {
             return Err(UpError::Exec(format!(
@@ -1927,9 +1895,8 @@ impl UpConfigMise {
             )));
         }
 
-        let stdout = String::from_utf8(output.stdout).map_err(|err| {
-            UpError::Exec(format!("failed to list versions for {}: {}", tool, err))
-        })?;
+        let stdout = String::from_utf8(output.stdout)
+            .map_err(|err| UpError::Exec(format!("failed to list versions for {tool}: {err}")))?;
         let versions = stdout
             .lines()
             .map(|line| line.trim().to_string())
@@ -1968,10 +1935,7 @@ impl UpConfigMise {
         let tool = self.tool()?;
 
         let version = versions.get(&matcher).ok_or_else(|| {
-            UpError::Exec(format!(
-                "no {} version found matching {}",
-                tool, match_version,
-            ))
+            UpError::Exec(format!("no {tool} version found matching {match_version}",))
         })?;
 
         Ok(version)
@@ -2108,7 +2072,7 @@ impl UpConfigMise {
                         versions = Some(list_versions.clone());
                         let latest = self.latest_version(&list_versions)?;
                         progress_handler.progress(
-                            format!("considering installed versions matching {}", latest)
+                            format!("considering installed versions matching {latest}")
                                 .light_black(),
                         );
                         latest
@@ -2276,25 +2240,23 @@ impl UpConfigMise {
         cache
             .cleanup(|tool, version| {
                 if is_mise_tool_version_installed(tool, version) {
-                    progress_handler.progress(format!("uninstalling {} {}", tool, version));
+                    progress_handler.progress(format!("uninstalling {tool} {version}"));
 
                     let mut mise_uninstall = mise_async_command();
                     mise_uninstall.arg("uninstall");
-                    mise_uninstall.arg(format!("{}@{}", tool, version));
+                    mise_uninstall.arg(format!("{tool}@{version}"));
 
                     if let Err(err) = run_progress(
                         &mut mise_uninstall,
                         Some(progress_handler),
                         RunConfig::default(),
                     ) {
-                        progress_handler.error_with_message(format!(
-                            "failed to uninstall {} {}",
-                            tool, version,
-                        ));
+                        progress_handler
+                            .error_with_message(format!("failed to uninstall {tool} {version}",));
                         return Err(CacheManagerError::Other(err.to_string()));
                     }
 
-                    uninstalled.push(format!("{}:{}", tool, version));
+                    uninstalled.push(format!("{tool}:{version}"));
                 }
 
                 Ok(())
@@ -2506,7 +2468,7 @@ fn detect_version_from_tool_version_file(tool_name: String, path: PathBuf) -> Op
     let version_file_prefixes = PerToolConfig::version_file_prefixes(&tool_name);
 
     for version_file_prefix in version_file_prefixes {
-        let version_file_path = path.join(format!(".{}-version", version_file_prefix));
+        let version_file_path = path.join(format!(".{version_file_prefix}-version"));
         if !version_file_path.exists() || version_file_path.is_dir() {
             continue;
         }
@@ -2611,7 +2573,7 @@ fn post_install_ruby(
 
         if rubygems_plugin.exists() {
             if let Err(err) = std::fs::remove_file(&rubygems_plugin) {
-                progress_handler.progress(format!("failed to remove rubygems_plugin.rb: {}", err));
+                progress_handler.progress(format!("failed to remove rubygems_plugin.rb: {err}"));
             }
         }
     }

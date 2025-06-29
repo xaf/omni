@@ -61,16 +61,11 @@ impl SpinnerProgressHandler {
         spinner.enable_steady_tick(Duration::from_millis(50));
 
         if let Some((current, total)) = progress {
-            let padding = format!("{}", total).len();
+            let padding = format!("{total}").len();
             spinner.set_prefix(
-                format!(
-                    "[{:padding$}/{:padding$}] ",
-                    current,
-                    total,
-                    padding = padding
-                )
-                .bold()
-                .light_black(),
+                format!("[{current:padding$}/{total:padding$}] ")
+                    .bold()
+                    .light_black(),
             );
             // Increase the base length to account for the prefix, which is the padding
             // length times two (current and total) + the 2 brackets + the slash + the space

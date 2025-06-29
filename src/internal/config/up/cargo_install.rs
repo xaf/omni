@@ -212,7 +212,7 @@ impl UpConfigCargoInstalls {
                         "[{current:padding$}/{total:padding$}] {tool} ",
                         current = idx + 1,
                         total = num,
-                        padding = format!("{}", num).len(),
+                        padding = format!("{num}").len(),
                         tool = tool.desc(),
                     )
                     .light_yellow(),
@@ -278,11 +278,11 @@ impl UpConfigCargoInstalls {
         let mut numbers = vec![];
 
         if let Some(count) = count.get(&CargoInstallHandled::Handled) {
-            numbers.push(format!("{} installed", count).green());
+            numbers.push(format!("{count} installed").green());
         }
 
         if let Some(count) = count.get(&CargoInstallHandled::Noop) {
-            numbers.push(format!("{} already installed", count).light_black());
+            numbers.push(format!("{count} already installed").light_black());
         }
 
         if numbers.is_empty() {
@@ -311,7 +311,7 @@ impl UpConfigCargoInstalls {
                     "[{current:padding$}/{total:padding$}] ",
                     current = idx + 1,
                     total = num,
-                    padding = format!("{}", num).len(),
+                    padding = format!("{num}").len(),
                 )
                 .light_yellow(),
             );
@@ -330,14 +330,14 @@ impl UpConfigCargoInstalls {
 
         // Cleanup removable crates from the database
         cache.cleanup().map_err(|err| {
-            let msg = format!("failed to cleanup cargo install cache: {}", err);
+            let msg = format!("failed to cleanup cargo install cache: {err}");
             progress_handler.progress(msg.clone());
             UpError::Cache(msg)
         })?;
 
         // List crates that should exist
         let expected_crates = cache.list_installed().map_err(|err| {
-            let msg = format!("failed to list cargo-installed crates: {}", err);
+            let msg = format!("failed to list cargo-installed crates: {err}");
             progress_handler.progress(msg.clone());
             UpError::Cache(msg)
         })?;
@@ -721,7 +721,7 @@ impl UpConfigCargoInstall {
 
         if let Err(err) = CargoInstallOperationCache::get().add_installed(&self.crate_name, version)
         {
-            progress_handler.progress(format!("failed to update github release cache: {}", err));
+            progress_handler.progress(format!("failed to update github release cache: {err}"));
             return;
         }
 
@@ -807,7 +807,7 @@ impl UpConfigCargoInstall {
         };
         let msg = match installed {
             true => format!("{} installed", version.light_yellow()),
-            false => format!("{} already installed", version).light_black(),
+            false => format!("{version} already installed").light_black(),
         };
         progress_handler.success_with_message(msg);
 
@@ -835,8 +835,7 @@ impl UpConfigCargoInstall {
             version,
         ) {
             return Err(UpError::Cache(format!(
-                "failed to update go install cache: {}",
-                err
+                "failed to update go install cache: {err}"
             )));
         }
 
@@ -906,7 +905,7 @@ impl UpConfigCargoInstall {
                     versions = Some(list_versions.clone());
                     let latest = self.latest_version(&list_versions)?;
                     progress_handler.progress(
-                        format!("considering installed versions matching {}", latest).light_black(),
+                        format!("considering installed versions matching {latest}").light_black(),
                     );
                     latest
                 }
@@ -1044,7 +1043,7 @@ impl UpConfigCargoInstall {
                 if options.write_cache {
                     progress_handler.progress("updating cache with version list".to_string());
                     if let Err(err) = cache.add_versions(&self.crate_name, &versions) {
-                        progress_handler.progress(format!("failed to update cache: {}", err));
+                        progress_handler.progress(format!("failed to update cache: {err}"));
                     }
                 }
 
@@ -1054,7 +1053,7 @@ impl UpConfigCargoInstall {
                 if let Some(cached_versions) = cached_versions {
                     progress_handler.progress(format!(
                         "{}; {}",
-                        format!("error refreshing version list: {}", err).red(),
+                        format!("error refreshing version list: {err}").red(),
                         "using cached data".light_black()
                     ));
                     Ok(cached_versions)
@@ -1098,21 +1097,21 @@ impl UpConfigCargoInstall {
         {
             Ok(client) => client,
             Err(err) => {
-                let errmsg = format!("failed to create client: {}", err);
+                let errmsg = format!("failed to create client: {err}");
                 progress_handler.error_with_message(errmsg.clone());
                 return Err(UpError::Exec(errmsg));
             }
         };
 
         let response = client.get(&versions_url).send().map_err(|err| {
-            let errmsg = format!("failed to get versions: {}", err);
+            let errmsg = format!("failed to get versions: {err}");
             progress_handler.error_with_message(errmsg.clone());
             UpError::Exec(errmsg)
         })?;
 
         let status = response.status();
         let contents = response.text().map_err(|err| {
-            let errmsg = format!("failed to read response: {}", err);
+            let errmsg = format!("failed to read response: {err}");
             progress_handler.error_with_message(errmsg.clone());
             UpError::Exec(errmsg)
         })?;
@@ -1125,13 +1124,13 @@ impl UpConfigCargoInstall {
                 Err(_) => contents.clone(),
             };
 
-            let errmsg = format!("{}: {} ({})", versions_url, errmsg, status);
+            let errmsg = format!("{versions_url}: {errmsg} ({status})");
             progress_handler.error_with_message(errmsg.to_string());
             return Err(UpError::Exec(errmsg));
         }
 
         let versions = CratesApiVersions::from_json(&contents).map_err(|err| {
-            let errmsg = format!("failed to parse versions: {}", err);
+            let errmsg = format!("failed to parse versions: {err}");
             progress_handler.error_with_message(errmsg.clone());
             UpError::Exec(errmsg)
         })?;
@@ -1190,7 +1189,7 @@ impl UpConfigCargoInstall {
 
         let installed_versions = std::fs::read_dir(&version_crate_name)
             .map_err(|err| {
-                let errmsg = format!("failed to read directory: {}", err);
+                let errmsg = format!("failed to read directory: {err}");
                 UpError::Exec(errmsg)
             })?
             .filter_map(|entry| {
@@ -1229,8 +1228,8 @@ impl UpConfigCargoInstall {
             .prefix(&tmpdir_cleanup_prefix("cargo-install"))
             .tempdir()
             .map_err(|err| {
-                progress_handler.error_with_message(format!("failed to create temp dir: {}", err));
-                UpError::Exec(format!("failed to create temp dir: {}", err))
+                progress_handler.error_with_message(format!("failed to create temp dir: {err}"));
+                UpError::Exec(format!("failed to create temp dir: {err}"))
             })?;
         let tmp_bin_path = tmp_dir.path().join("bin");
 
@@ -1267,7 +1266,7 @@ impl UpConfigCargoInstall {
 
         // Check that there is at least one binary in the bin directory
         let bin_files = std::fs::read_dir(&tmp_bin_path).map_err(|err| {
-            let msg = format!("failed to read bin directory: {}", err);
+            let msg = format!("failed to read bin directory: {err}");
             progress_handler.error_with_message(msg.clone());
             UpError::Exec(msg)
         })?;
@@ -1288,7 +1287,7 @@ impl UpConfigCargoInstall {
 
         // Move the installed version to the correct crate_name
         std::fs::create_dir_all(&install_path).map_err(|err| {
-            let msg = format!("failed to create install directory: {}", err);
+            let msg = format!("failed to create install directory: {err}");
             progress_handler.error_with_message(msg.clone());
             UpError::Exec(msg)
         })?;
@@ -1296,14 +1295,14 @@ impl UpConfigCargoInstall {
         // Make sure the target directory does not exist
         let target_bin_dir = install_path.join("bin");
         force_remove_all(&target_bin_dir).map_err(|err| {
-            let msg = format!("failed to remove target bin directory: {}", err);
+            let msg = format!("failed to remove target bin directory: {err}");
             progress_handler.error_with_message(msg.clone());
             UpError::Exec(msg)
         })?;
 
         // Move the tmp_bin_crate_name to the install_crate_name/<bin> directory
         safe_rename(&tmp_bin_path, target_bin_dir).map_err(|err| {
-            let msg = format!("failed to move bin directory: {}", err);
+            let msg = format!("failed to move bin directory: {err}");
             progress_handler.error_with_message(msg.clone());
             UpError::Exec(msg)
         })?;
@@ -1659,7 +1658,7 @@ mod tests {
 
                 let result = config.up(&options, &mut environment, &progress_handler, &cargo_bin);
 
-                assert!(result.is_ok(), "result should be ok, got {:?}", result);
+                assert!(result.is_ok(), "result should be ok, got {result:?}");
                 if test.list_versions {
                     mock_versions.assert();
                 } else {
