@@ -214,8 +214,15 @@ pub struct VersionMatcher {
 
 impl VersionMatcher {
     pub fn new(expected_version: &str) -> Self {
+        // To convert different formats of versions to support matching, we need to:
+        // - Replace commas and semicolons by spaces
+        // - Replace quotes by nothing
+        let expected_version = expected_version
+            .replace([',', ';'], " ")
+            .replace(['"', '\''], "");
+
         Self {
-            expected_version: expected_version.to_string(),
+            expected_version,
             ..Self::default()
         }
     }
@@ -580,5 +587,32 @@ mod tests {
         actual.sort_by(|a, b| VersionParser::compare(a, b));
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn version_matcher_new_handles_pyproject_toml_formats() {
+        // Test quoted version ranges like ">='1.2'"
+        let matcher = VersionMatcher::new("'>='1.2'");
+        assert_eq!(matcher.expected_version, ">=1.2");
+
+        // Test comma-separated ranges like ">=3.4.5,<4.0.0"
+        let matcher = VersionMatcher::new(">=3.4.5,<4.0.0");
+        assert_eq!(matcher.expected_version, ">=3.4.5 <4.0.0");
+
+        // Test quoted comma-separated ranges
+        let matcher = VersionMatcher::new("'>=1.0.0,<2.0.0'");
+        assert_eq!(matcher.expected_version, ">=1.0.0 <2.0.0");
+
+        // Test double-quoted ranges
+        let matcher = VersionMatcher::new("\">=2.7,!=3.0.*,!=3.1.*,!=3.2.*\"");
+        assert_eq!(matcher.expected_version, ">=2.7 !=3.0.* !=3.1.* !=3.2.*");
+
+        // Test semicolon-separated ranges (alternative format)
+        let matcher = VersionMatcher::new(">=1.0.0;<=2.0.0");
+        assert_eq!(matcher.expected_version, ">=1.0.0 <=2.0.0");
+
+        // Test mixed quotes and separators
+        let matcher = VersionMatcher::new(">='1.2.3', !='1.3.0', <'2.0.0'");
+        assert_eq!(matcher.expected_version, ">=1.2.3  !=1.3.0  <2.0.0");
     }
 }
