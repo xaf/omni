@@ -368,7 +368,56 @@ EOF
 }
 
 # bats test_tags=config:commands,config:commands:argparser
-@test "[config_commands=11] omni config commands argparser with multiple values" {
+@test "[config_commands=11] omni config commands argparser with enum list syntax" {
+  cat > .omni.yaml <<EOF
+commands:
+  customcommand:
+    argparser: true
+    syntax:
+      parameters:
+      - name: --level
+        desc: The log level
+        type: [debug, info, warn, error]
+        default: info
+    desc: This is a custom command with list-as-enum syntax
+    run: |
+      echo "Log level is: \${OMNI_ARG_LEVEL_VALUE:-default}!"
+EOF
+
+  run omni customcommand --help 3>&-
+  echo "1. STATUS: $status"
+  echo "1. OUTPUT: $output"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Usage: omni customcommand"
+  echo "$output" | grep -q -- "--level <LEVEL>\s*The log level \[default: info\] \[possible values: debug, info, warn, error\]"
+
+  run omni customcommand 3>&-
+  echo "2. STATUS: $status"
+  echo "2. OUTPUT: $output"
+  [ "$status" -eq 0 ]
+  [ "$output" = "Log level is: info!" ]
+
+  run omni customcommand --level debug 3>&-
+  echo "3. STATUS: $status"
+  echo "3. OUTPUT: $output"
+  [ "$status" -eq 0 ]
+  [ "$output" = "Log level is: debug!" ]
+
+  run omni customcommand --level warn 3>&-
+  echo "4. STATUS: $status"
+  echo "4. OUTPUT: $output"
+  [ "$status" -eq 0 ]
+  [ "$output" = "Log level is: warn!" ]
+
+  run omni customcommand --level invalid 3>&-
+  echo "5. STATUS: $status"
+  echo "5. OUTPUT: $output"
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "invalid value 'invalid'"
+}
+
+# bats test_tags=config:commands,config:commands:argparser
+@test "[config_commands=12] omni config commands argparser with multiple values" {
   cat > .omni.yaml <<EOF
 commands:
   customcommand:
@@ -426,7 +475,7 @@ EOF
 }
 
 # bats test_tags=config:commands,config:commands:argparser
-@test "[config_commands=12] omni config commands argparser with default values" {
+@test "[config_commands=13] omni config commands argparser with default values" {
   cat > .omni.yaml <<EOF
 commands:
   customcommand:

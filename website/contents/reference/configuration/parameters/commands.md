@@ -43,7 +43,7 @@ Each `parameter` object can take the following parameters:
 | `desc` | string | the description/help for the parameter |
 | `required` | bool | whether or not this parameter is required |
 | `placeholders` | string (list) | the placeholders to show in the help for that parameter; if multiple placeholders are provided, they will be used one after the other depending on the `num_values` configuration |
-| `type` | string | the type of the parameter, can be one of `str`, `int`, `float`, `bool`, `flag`, `counter`, `enum(vals, ...)` or `array/<type>` for any of those except `flag` and `counter`. See below for more details on the types. |
+| `type` | string or list | the type of the parameter, can be one of `str`, `int`, `float`, `bool`, `flag`, `counter`, `enum(vals, ...)` or `array/<type>` for any of those except `flag` and `counter`. If a list is provided, it will be treated as `enum` with those values as the allowed options. See below for more details on the types. |
 | `values` | string (list) | for `enum` type parameters, the list of allowed values. Alternative to inline syntax `enum(vals, ...)`. |
 | `default` | string | the default value for the parameter |
 | `num_values` | string | the number of values that the parameter can take. This can take ranges in the format `..max` (open), `..=max` (closed), `min..`, `min..max` (half-open), `min..=max` (closed) |
@@ -127,9 +127,17 @@ commands:
         desc: Deployment mode
         type: enum(fast, safe, rollback)
         default: safe
+      - name: --level
+        desc: Log level
+        type:
+          - debug
+          - info
+          - warn
+          - error
+        default: info
     desc: "Deploy the application to specified environment"
     run: |
-      echo "Deploying to $1 with mode $2"
+      echo "Deploying to $1 with mode $2 and log level $3"
 
   # A command with alternative ways to be called
   # Can be called as `omni main`, `omni alt1` or `omni alt2`

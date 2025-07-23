@@ -2322,10 +2322,19 @@ impl SyntaxOptArgType {
     ) -> Option<Self> {
         let config_value_type = config_value_type?;
 
+        // Check if type is an array (list) - if so, treat as enum with those values
+        if let Some(array) = config_value_type.as_array() {
+            let values = array
+                .iter()
+                .filter_map(|value| value.as_str_forced())
+                .collect::<Vec<String>>();
+            return Some(Self::Enum(values));
+        }
+
         let obj = Self::from_str(
             &config_value_type.as_str_forced().or_else(|| {
                 error_handler
-                    .with_expected("string")
+                    .with_expected("string or array")
                     .with_actual(config_value_type)
                     .error(ConfigErrorKind::InvalidValueType);
                 None
@@ -5407,6 +5416,148 @@ mod tests {
             assert_eq!(arg_type, SyntaxOptArgType::String);
             assert_eq!(placeholders, vec!["FILENAME"]);
             assert!(!leftovers);
+        }
+    }
+
+    mod syntax_opt_arg_type {
+        use super::*;
+        use crate::internal::config::ConfigValue;
+
+        #[test]
+        fn test_from_config_value_list_as_enum() {
+            let error_handler = ConfigErrorHandler::default();
+
+            // Test with array of strings as type
+            let type_value = ConfigValue::from_str("[debug, info, warn, error]").unwrap();
+            let result =
+                SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+
+            assert_eq!(
+                result,
+                Some(SyntaxOptArgType::Enum(vec![
+                    "debug".to_string(),
+                    "info".to_string(),
+                    "warn".to_string(),
+                    "error".to_string(),
+                ]))
+            );
+        }
+
+        #[test]
+        fn test_from_config_value_traditional_enum() {
+            let error_handler = ConfigErrorHandler::default();
+
+            // Test traditional enum syntax with separate values
+            let type_value = ConfigValue::from_str("enum").unwrap();
+            let values_value = ConfigValue::from_str("[one, two, three]").unwrap();
+            let result = SyntaxOptArgType::from_config_value(
+                Some(&type_value),
+                Some(&values_value),
+                None,
+                &error_handler,
+            );
+
+            assert_eq!(
+                result,
+                Some(SyntaxOptArgType::Enum(vec![
+                    "one".to_string(),
+                    "two".to_string(),
+                    "three".to_string(),
+                ]))
+            );
+        }
+
+        #[test]
+        fn test_from_config_value_inline_enum() {
+            let error_handler = ConfigErrorHandler::default();
+
+            // Test inline enum syntax
+            let type_value = ConfigValue::from_str("enum(fast, safe, rollback)").unwrap();
+            let result =
+                SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+
+            assert_eq!(
+                result,
+                Some(SyntaxOptArgType::Enum(vec![
+                    "fast".to_string(),
+                    "safe".to_string(),
+                    "rollback".to_string(),
+                ]))
+            );
+        }
+
+        #[test]
+        fn test_from_config_value_basic_types() {
+            let error_handler = ConfigErrorHandler::default();
+
+            // Test basic string type
+            let type_value = ConfigValue::from_str("str").unwrap();
+            let result =
+                SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+            assert_eq!(result, Some(SyntaxOptArgType::String));
+
+            // Test integer type
+            let type_value = ConfigValue::from_str("int").unwrap();
+            let result =
+                SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+            assert_eq!(result, Some(SyntaxOptArgType::Integer));
+
+            // Test boolean type
+            let type_value = ConfigValue::from_str("bool").unwrap();
+            let result =
+                SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+            assert_eq!(result, Some(SyntaxOptArgType::Boolean));
+        }
+
+        #[test]
+        fn test_from_config_value_empty_list() {
+            let error_handler = ConfigErrorHandler::default();
+
+            // Test with empty array
+            let type_value = ConfigValue::from_str("[]").unwrap();
+            let result =
+                SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+
+            assert_eq!(result, Some(SyntaxOptArgType::Enum(vec![])));
+        }
+
+        #[test]
+        fn test_from_config_value_single_item_list() {
+            let error_handler = ConfigErrorHandler::default();
+
+            // Test with single item array
+            let type_value = ConfigValue::from_str("[debug]").unwrap();
+            let result =
+                SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+
+            assert_eq!(
+                result,
+                Some(SyntaxOptArgType::Enum(vec!["debug".to_string()]))
+            );
+        }
+
+        #[test]
+        fn test_from_config_value_precedence() {
+            let error_handler = ConfigErrorHandler::default();
+
+            // Test that list syntax takes precedence over values field
+            let type_value = ConfigValue::from_str("[debug, info]").unwrap();
+            let values_value = ConfigValue::from_str("[ignored, values]").unwrap();
+            let result = SyntaxOptArgType::from_config_value(
+                Some(&type_value),
+                Some(&values_value),
+                None,
+                &error_handler,
+            );
+
+            // Should use the list from type, not values
+            assert_eq!(
+                result,
+                Some(SyntaxOptArgType::Enum(vec![
+                    "debug".to_string(),
+                    "info".to_string(),
+                ]))
+            );
         }
     }
 }
