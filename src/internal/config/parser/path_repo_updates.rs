@@ -4,6 +4,7 @@ use serde::Serialize;
 use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::StringFilter;
+use crate::internal::config::up::utils::version::VersionMatcher;
 use crate::internal::config::utils::parse_duration_or_default;
 use crate::internal::config::ConfigValue;
 use crate::internal::env::shell_is_interactive;
@@ -12,6 +13,8 @@ use crate::internal::env::shell_is_interactive;
 pub struct PathRepoUpdatesConfig {
     pub enabled: bool,
     pub self_update: PathRepoUpdatesSelfUpdateEnum,
+    #[serde(default, skip_serializing_if = "PathRepoUpdatesSelfUpdateFilters::is_default")]
+    pub self_update_filters: PathRepoUpdatesSelfUpdateFilters,
     pub on_command_not_found: PathRepoUpdatesOnCommandNotFoundEnum,
     pub pre_auth: bool,
     pub pre_auth_timeout: u64,
@@ -30,6 +33,7 @@ impl Default for PathRepoUpdatesConfig {
         Self {
             enabled: Self::DEFAULT_ENABLED,
             self_update: PathRepoUpdatesSelfUpdateEnum::default(),
+            self_update_filters: PathRepoUpdatesSelfUpdateFilters::default(),
             on_command_not_found: PathRepoUpdatesOnCommandNotFoundEnum::default(),
             pre_auth: Self::DEFAULT_PRE_AUTH,
             pre_auth_timeout: Self::DEFAULT_PRE_AUTH_TIMEOUT,
@@ -170,6 +174,11 @@ impl PathRepoUpdatesConfig {
             &error_handler.with_key("ref_match"),
         );
 
+        let self_update_filters = PathRepoUpdatesSelfUpdateFilters::from_config_value(
+            config_value.get("self_update_filters").as_ref(),
+            &error_handler.with_key("self_update_filters"),
+        );
+
         Self {
             enabled: config_value.get_as_bool_or_default(
                 "enabled",
@@ -177,6 +186,7 @@ impl PathRepoUpdatesConfig {
                 &error_handler.with_key("enabled"),
             ),
             self_update,
+            self_update_filters,
             on_command_not_found,
             pre_auth: config_value.get_as_bool_or_default(
                 "pre_auth",
@@ -371,4 +381,70 @@ impl PathRepoUpdatesPerRepoConfig {
             ref_match,
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PathRepoUpdatesSelfUpdateFilters {
+    /// Minimum age required for a release before it's considered eligible for update
+    /// Specified in seconds. Defaults to 0 (no minimum age requirement)
+    #[serde(default)]
+    pub minimum_age: u64,
+    /// Version filter using node semver patterns
+    /// Supports patterns like: "^2025.1.0", ">=2024.12.0 <2026.0.0", "2025.*", etc.
+    /// If None, all versions are allowed
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+impl Default for PathRepoUpdatesSelfUpdateFilters {
+    fn default() -> Self {
+        Self {
+            minimum_age: 0,
+            version: None,
+        }
+    }
+}
+
+impl PathRepoUpdatesSelfUpdateFilters {
+    pub fn is_default(&self) -> bool {
+        self.minimum_age == 0 && self.version.is_none()
+    }
+
+    /// Check if a version passes the version filter
+    pub fn version_allowed(&self, version: &str) -> bool {
+        match &self.version {
+            None => true, // If no version filter, allow all versions
+            Some(pattern) => {
+                let matcher = VersionMatcher::new(pattern);
+                matcher.matches(version)
+            }
+        }
+    }
+
+    pub(super) fn from_config_value(
+        config_value: Option<&ConfigValue>,
+        error_handler: &ConfigErrorHandler,
+    ) -> Self {
+        let config_value = match config_value {
+            Some(config_value) => config_value,
+            None => return Self::default(),
+        };
+
+        let minimum_age = parse_duration_or_default(
+            config_value.get("minimum_age").as_ref(),
+            0,
+            &error_handler.with_key("minimum_age"),
+        );
+
+        let version = config_value.get_as_str_or_none(
+            "version",
+            &error_handler.with_key("version"),
+        );
+
+        Self {
+            minimum_age,
+            version,
+        }
+    }
+
 }

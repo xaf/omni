@@ -1,6 +1,5 @@
 use std::fs::OpenOptions;
 use std::io;
-use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::os::unix::process::CommandExt;
@@ -9,17 +8,21 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::process::Command as ProcessCommand;
 
+use crate::internal::env::cache_home;
+use crate::internal::utils::download_and_cache_file;
+
 use lazy_static::lazy_static;
 use semver::Prerelease;
 use semver::Version;
 use serde::Deserialize;
 use sha2::Digest;
 use sha2::Sha256;
+use time::OffsetDateTime;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::build::current_arch;
 use crate::internal::build::current_os;
-use crate::internal::config::config;
+use crate::internal::config::global_config;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::PrintProgressHandler;
 use crate::internal::config::up::utils::ProgressHandler;
@@ -123,7 +126,7 @@ pub fn self_update(force: bool) {
             }
         }
 
-        let config = config(".");
+        let config = global_config();
         if config.path_repo_updates.self_update.do_not_check() {
             return;
         }
@@ -144,24 +147,110 @@ pub fn self_update(force: bool) {
         return;
     }
 
-    if let Some(omni_release) = OmniRelease::latest() {
-        omni_release.check_and_update();
+    if let Some(omni_releases) = OmniReleases::all() {
+        if let Some(omni_release) = omni_releases.latest_acceptable() {
+            omni_release.check_and_update();
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct OmniReleases {
+    /// The list of releases
+    releases: Vec<OmniRelease>,
+}
+
+impl OmniReleases {
+    fn all() -> Option<Self> {
+        // Use the homebrew repo to get the releases
+        let json_url =
+            "https://raw.githubusercontent.com/xaf/homebrew-omni/main/Formula/resources/omni_releases.json";
+
+        // Prepare a file to cache the releases
+        let cached_file = Path::new(&cache_home()).join("releases.json");
+
+        // Try and download or refresh the file
+        if download_and_cache_file(json_url, &cached_file).is_err() {
+            return None;
+        }
+
+        // Now load the JSON from the file
+        let json: Result<OmniReleases, _> =
+            serde_json::from_reader(std::fs::File::open(cached_file.as_path()).ok()?);
+
+        match json {
+            Ok(json) => Some(json),
+            Err(err) => {
+                dbg!("Failed to parse releases: {:?}", err);
+                None
+            }
+        }
+    }
+
+    /// Return the latest release, which should be the first in the array
+    fn latest(&self) -> Option<&OmniRelease> {
+        self.releases.first()
+    }
+
+    /// Return the latest acceptable release, which is the first in the array
+    /// which matches other configuration criteria, such as, for instance,
+    /// having been published at least N days ago
+    fn latest_acceptable(&self) -> Option<&OmniRelease> {
+        let config = global_config();
+        let filters = &config.path_repo_updates.self_update_filters;
+
+        // If no filters are configured, return the latest release
+        if filters.is_default() {
+            return self.latest();
+        }
+
+        let now = OffsetDateTime::now_utc();
+
+        // Find the first release that meets all criteria
+        self.releases.iter().find(|release| {
+            // Check minimum age requirement
+            if filters.minimum_age > 0 {
+                if let Some(published_at) = release.published_at {
+                    let age_seconds = (now - published_at).whole_seconds();
+                    if age_seconds < 0 || (age_seconds as u64) < filters.minimum_age {
+                        return false;
+                    }
+                } else {
+                    // If no publish date is available, skip this release
+                    return false;
+                }
+            }
+
+            // Check version filters
+            if !filters.version_allowed(&release.version) {
+                return false;
+            }
+
+            true
+        })
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct OmniRelease {
+    /// The version of the release, e.g. "2025.7.0"
     version: String,
+    /// Published date of the release
+    published_at: Option<OffsetDateTime>,
+    /// The artefacts of the release
     binaries: Vec<OmniReleaseBinary>,
+    /// The release notes of the release
+    notes: Option<OmniReleaseNotes>,
 }
 
 impl OmniRelease {
     fn latest() -> Option<Self> {
+        // Use the homebrew repo to get the latest release
         let json_url =
-            "https://raw.githubusercontent.com/XaF/homebrew-omni/main/Formula/resources/omni.json";
+            "https://raw.githubusercontent.com/xaf/homebrew-omni/main/Formula/resources/omni.json";
 
         // Prepare a file to cache the latest release
-        let cached_file = Path::new(cache_home()).join("latest_release.json");
+        let cached_file = Path::new(&cache_home()).join("latest_release.json");
 
         // Try and download or refresh the file
         if download_and_cache_file(json_url, &cached_file).is_err() {
@@ -258,7 +347,7 @@ impl OmniRelease {
     }
 
     fn check_and_update(&self) {
-        let config = config(".");
+        let config = global_config();
 
         let desc = format!("{} update:", "omni".light_cyan()).light_blue();
         let progress_handler: Box<dyn ProgressHandler> = if shell_is_interactive() {
@@ -536,4 +625,36 @@ struct OmniReleaseBinary {
     arch: String,
     url: String,
     sha256: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OmniReleaseNotes {
+    /// Breaking changes
+    breaking: Vec<OmniReleaseNotesSection>,
+    /// New features
+    features: Vec<OmniReleaseNotesSection>,
+    /// Bug fixes
+    fixes: Vec<OmniReleaseNotesSection>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OmniReleaseNotesSection {
+    /// Summary of the commit
+    summary: String,
+    /// Commit SHA
+    commit: Option<String>,
+    /// Commit URL
+    link: Option<String>,
+    /// Scope of the commit
+    scope: Option<String>,
+    /// Author of the commit
+    author: Option<String>,
+    /// Emoji associated with the commit
+    emoji: Option<String>,
+    /// Pull request number if applicable
+    pull_request: Option<u32>,
+    /// List of issues associated with the commit
+    issues: Vec<u32>,
+    /// Cause of the breaking change, if this is a breaking change note
+    cause: Option<String>,
 }
