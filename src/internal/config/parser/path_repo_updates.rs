@@ -198,7 +198,7 @@ impl PathRepoUpdatesConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum PathRepoUpdatesSelfUpdateEnum {
     #[serde(rename = "true")]
     True,
@@ -206,9 +206,18 @@ pub enum PathRepoUpdatesSelfUpdateEnum {
     False,
     #[serde(rename = "nocheck")]
     NoCheck,
-    #[default]
     #[serde(other, rename = "ask")]
     Ask,
+}
+
+impl Default for PathRepoUpdatesSelfUpdateEnum {
+    fn default() -> Self {
+        if cfg!(feature = "self-update-check") {
+            Self::Ask
+        } else {
+            Self::NoCheck
+        }
+    }
 }
 
 impl PathRepoUpdatesSelfUpdateEnum {
@@ -242,6 +251,7 @@ impl PathRepoUpdatesSelfUpdateEnum {
         matches!(self, PathRepoUpdatesSelfUpdateEnum::NoCheck)
     }
 
+    #[cfg(feature = "self-update")]
     pub fn is_false(&self) -> bool {
         match self {
             Self::False => true,
@@ -250,6 +260,7 @@ impl PathRepoUpdatesSelfUpdateEnum {
         }
     }
 
+    #[cfg(feature = "self-update")]
     pub fn is_ask(&self) -> bool {
         match self {
             Self::Ask => shell_is_interactive(),

@@ -18,6 +18,11 @@ exclude = [
 name = "omni"
 path = "src/main.rs"
 
+[features]
+default = ["self-update-check"]
+self-update = []
+self-update-check = ["self-update"]
+
 [build-dependencies]
 time = { version = "0.3.41", features = ["serde-well-known"] }
 

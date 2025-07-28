@@ -21,6 +21,8 @@ use sha2::Sha256;
 use sha2::Sha384;
 use sha2::Sha512;
 
+use crate::internal::build::current_arch;
+use crate::internal::build::current_os;
 use crate::internal::cache::github_release::GithubReleaseAsset;
 use crate::internal::cache::github_release::GithubReleasesSelector;
 use crate::internal::cache::up_environments::UpEnvironment;
@@ -46,8 +48,6 @@ use crate::internal::config::utils::check_allowed;
 use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::data_home;
-use crate::internal::self_updater::current_arch;
-use crate::internal::self_updater::current_os;
 use crate::internal::user_interface::StringColor;
 
 const GITHUB_API_URL: &str = "https://api.github.com";
@@ -2543,8 +2543,8 @@ mod tests {
     mod up {
         use super::*;
 
-        use crate::internal::self_updater::compatible_release_arch;
-        use crate::internal::self_updater::compatible_release_os;
+        use crate::internal::build::compatible_release_arch;
+        use crate::internal::build::compatible_release_os;
         use crate::internal::testutils::run_with_env;
 
         #[test]

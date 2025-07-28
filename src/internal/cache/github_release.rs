@@ -20,8 +20,8 @@ use crate::internal::config::up::github_release::AssetNameMatcher;
 use crate::internal::config::up::utils::VersionMatcher;
 use crate::internal::config::up::utils::VersionParser;
 use crate::internal::env::now as omni_now;
-use crate::internal::self_updater::compatible_release_arch;
-use crate::internal::self_updater::compatible_release_os;
+use crate::internal::build::compatible_release_arch;
+use crate::internal::build::compatible_release_os;
 
 lazy_static! {
     static ref OS_REGEX: Regex = match Regex::new(&format!(
