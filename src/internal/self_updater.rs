@@ -175,16 +175,18 @@ impl OmniReleases {
         }
 
         // Now load the JSON from the file
-        let json: Result<OmniReleases, _> =
+        let json: Result<Vec<OmniRelease>, _> =
             serde_json::from_reader(std::fs::File::open(cached_file.as_path()).ok()?);
 
-        match json {
-            Ok(json) => Some(json),
+        let releases = match json {
+            Ok(json) => json,
             Err(err) => {
-                dbg!("Failed to parse releases: {:?}", err);
-                None
+                dbg!("Failed to parse releases", err);
+                return None;
             }
-        }
+        };
+
+        Some(Self { releases })
     }
 
     /// Return the latest release, which should be the first in the array
@@ -236,40 +238,16 @@ struct OmniRelease {
     /// The version of the release, e.g. "2025.7.0"
     version: String,
     /// Published date of the release
+    #[serde(default, with = "time::serde::iso8601::option")]
     published_at: Option<OffsetDateTime>,
     /// The artefacts of the release
     binaries: Vec<OmniReleaseBinary>,
-    /// The release notes of the release
-    notes: Option<OmniReleaseNotes>,
+    // /// The release notes of the release
+    // #[serde(default)]
+    // notes: Option<OmniReleaseNotes>,
 }
 
 impl OmniRelease {
-    fn latest() -> Option<Self> {
-        // Use the homebrew repo to get the latest release
-        let json_url =
-            "https://raw.githubusercontent.com/xaf/homebrew-omni/main/Formula/resources/omni.json";
-
-        // Prepare a file to cache the latest release
-        let cached_file = Path::new(&cache_home()).join("latest_release.json");
-
-        // Try and download or refresh the file
-        if download_and_cache_file(json_url, &cached_file).is_err() {
-            return None;
-        }
-
-        // Now load the JSON from the file
-        let json: Result<OmniRelease, _> =
-            serde_json::from_reader(std::fs::File::open(cached_file.as_path()).ok()?);
-
-        match json {
-            Ok(json) => Some(json),
-            Err(err) => {
-                dbg!("Failed to parse latest release: {:?}", err);
-                None
-            }
-        }
-    }
-
     fn is_newer(&self) -> bool {
         match Version::parse(self.version.as_str()) {
             Ok(version) => version > *CURRENT_VERSION,
@@ -627,34 +605,38 @@ struct OmniReleaseBinary {
     sha256: String,
 }
 
-#[derive(Debug, Deserialize, Default)]
-struct OmniReleaseNotes {
-    /// Breaking changes
-    breaking: Vec<OmniReleaseNotesSection>,
-    /// New features
-    features: Vec<OmniReleaseNotesSection>,
-    /// Bug fixes
-    fixes: Vec<OmniReleaseNotesSection>,
-}
+// #[derive(Debug, Deserialize, Default)]
+// struct OmniReleaseNotes {
+// /// Breaking changes
+// #[serde(default)]
+// breaking: Vec<OmniReleaseNotesSection>,
+// /// New features
+// #[serde(default)]
+// features: Vec<OmniReleaseNotesSection>,
+// /// Bug fixes
+// #[serde(default)]
+// fixes: Vec<OmniReleaseNotesSection>,
+// }
 
-#[derive(Debug, Deserialize, Default)]
-struct OmniReleaseNotesSection {
-    /// Summary of the commit
-    summary: String,
-    /// Commit SHA
-    commit: Option<String>,
-    /// Commit URL
-    link: Option<String>,
-    /// Scope of the commit
-    scope: Option<String>,
-    /// Author of the commit
-    author: Option<String>,
-    /// Emoji associated with the commit
-    emoji: Option<String>,
-    /// Pull request number if applicable
-    pull_request: Option<u32>,
-    /// List of issues associated with the commit
-    issues: Vec<u32>,
-    /// Cause of the breaking change, if this is a breaking change note
-    cause: Option<String>,
-}
+// #[derive(Debug, Deserialize, Default)]
+// struct OmniReleaseNotesSection {
+// /// Summary of the commit
+// summary: String,
+// /// Commit SHA
+// commit: Option<String>,
+// /// Commit URL
+// link: Option<String>,
+// /// Scope of the commit
+// scope: Option<String>,
+// /// Author of the commit
+// author: Option<String>,
+// /// Emoji associated with the commit
+// emoji: Option<String>,
+// /// Pull request number if applicable
+// pull_request: Option<u32>,
+// /// List of issues associated with the commit
+// #[serde(default)]
+// issues: Vec<u32>,
+// /// Cause of the breaking change, if this is a breaking change note
+// cause: Option<String>,
+// }
