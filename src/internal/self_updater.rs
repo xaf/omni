@@ -160,25 +160,25 @@ impl OmniRelease {
         let json_url =
             "https://raw.githubusercontent.com/XaF/homebrew-omni/main/Formula/resources/omni.json";
 
-        let response = reqwest::blocking::get(json_url);
-        if let Err(_err) = response {
+        // Prepare a file to cache the latest release
+        let cached_file = Path::new(cache_home()).join("latest_release.json");
+
+        // Try and download or refresh the file
+        if download_and_cache_file(json_url, &cached_file).is_err() {
             return None;
         }
-        let mut response = response.unwrap();
 
-        let mut content = String::new();
-        response
-            .read_to_string(&mut content)
-            .expect("Failed to read response");
+        // Now load the JSON from the file
+        let json: Result<OmniRelease, _> =
+            serde_json::from_reader(std::fs::File::open(cached_file.as_path()).ok()?);
 
-        let json: Result<OmniRelease, _> = serde_json::from_str(content.as_str());
-        if let Err(err) = json {
-            dbg!("Failed to parse latest release: {:?}", err);
-            return None;
+        match json {
+            Ok(json) => Some(json),
+            Err(err) => {
+                dbg!("Failed to parse latest release: {:?}", err);
+                None
+            }
         }
-        let json = json.unwrap();
-
-        Some(json)
     }
 
     fn is_newer(&self) -> bool {
