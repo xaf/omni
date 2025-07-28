@@ -3,9 +3,10 @@ use std::io;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
+use std::path::PathBuf;
+use std::process::exit;
 use std::process::Command as ProcessCommand;
 
 use lazy_static::lazy_static;
@@ -16,6 +17,8 @@ use sha2::Digest;
 use sha2::Sha256;
 use tokio::process::Command as TokioCommand;
 
+use crate::internal::build::current_arch;
+use crate::internal::build::current_os;
 use crate::internal::config::config;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::PrintProgressHandler;
@@ -30,25 +33,9 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::internal::ConfigLoader;
 use crate::internal::ConfigValue;
 use crate::omni_error;
+use crate::omni_info;
 
 lazy_static! {
-    static ref RELEASE_ARCH: String = {
-        let arch = match std::env::consts::ARCH {
-            "aarch64" => "arm64",
-            _ => std::env::consts::ARCH,
-        };
-        arch.to_string()
-    };
-
-    static ref RELEASE_OS: String = {
-        let os = match std::env::consts::OS {
-            "macos" => "darwin",
-            _ => std::env::consts::OS,
-        };
-        os.to_string()
-    };
-
-    static ref ROSETTA_AVAILABLE: bool = compute_check_rosetta_available();
 
     static ref CURRENT_VERSION: Version = {
         let mut version = Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
@@ -67,127 +54,64 @@ lazy_static! {
         version
     };
 
-    static ref INSTALLED_WITH_BREW: bool = {
-        // Get the path of the current binary
+    static ref INSTALLED_WITH_BREW: bool = BREW_INSTALL_DETAILS.0;
+
+    static ref UPDATABLE_WITH_BREW: bool = BREW_INSTALL_DETAILS.1;
+
+    static ref BREW_INSTALL_DETAILS: (bool, bool) = {
         let current_exe = current_exe();
-        if let Some(homebrew_prefix) = homebrew_prefix() {
-            // Check if the current binary is in the homebrew prefix
-            current_exe.starts_with(format!("{homebrew_prefix}/"))
-        } else {
-            false
-        }
-    };
-}
 
-pub fn current_os() -> String {
-    (*RELEASE_OS).clone()
-}
-
-pub fn current_arch() -> String {
-    (*RELEASE_ARCH).clone()
-}
-
-const RELEASE_ARCH_X86_64: &[&str] = &["x86_64", "amd64", "x64"];
-const RELEASE_ARCH_ARM64: &[&str] = &["arm64", "aarch64", "aarch_64"];
-const RELEASE_ARCH_DARWIN_UNIVERSAL: &[&str] = &["universal", "all", "any"];
-
-/// This function returns the compatible release architectures for the current
-/// system, based on the current architecture. It returns a vector of vectors
-/// as there are different layers of compatibility that should be followed for
-/// preference, e.g. for Darwin, we will find direct-compatibility, universal
-/// compatibility, and finally Rosetta compatibility.
-pub fn compatible_release_arch() -> Vec<Vec<String>> {
-    let mut archs = vec![];
-
-    // First add the direct compatibility
-    archs.push(if *RELEASE_ARCH == "x86_64" {
-        RELEASE_ARCH_X86_64.iter().map(|s| s.to_string()).collect()
-    } else if *RELEASE_ARCH == "arm64" {
-        RELEASE_ARCH_ARM64.iter().map(|s| s.to_string()).collect()
-    } else {
-        vec![(*RELEASE_ARCH).to_string()]
-    });
-
-    // Then, if we're on Darwin, add the universal compatibility
-    if *RELEASE_OS == "darwin" {
-        archs.push(
-            RELEASE_ARCH_DARWIN_UNIVERSAL
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-        );
-
-        // Finally, if Rosetta is available, add the Rosetta compatibility
-        if check_rosetta_available() {
-            archs.push(RELEASE_ARCH_X86_64.iter().map(|s| s.to_string()).collect());
-        }
-    }
-
-    archs
-}
-
-fn compute_check_rosetta_available() -> bool {
-    if *RELEASE_OS != "darwin" || *RELEASE_ARCH == "x86_64" {
-        return false;
-    }
-
-    // Verify that /usr/bin/pgrep, /usr/bin/arch and /usr/bin/uname
-    // exist and are executable
-    for binary in &["/usr/bin/pgrep", "/usr/bin/arch", "/usr/bin/uname"] {
-        if !Path::new(binary).exists() || !Path::new(binary).is_file() {
-            return false;
-        }
-
-        // Get the metadata
-        let metadata = match std::fs::metadata(binary) {
-            Ok(metadata) => metadata,
-            Err(_) => return false,
+        // Exit early if not possible to find the brew prefix
+        let homebrew_prefix = match homebrew_prefix() {
+            Some(prefix) => PathBuf::from(prefix),
+            None => return (false, false),
         };
 
-        // Check if it's executable
-        if !metadata.permissions().mode() & 0o111 != 0 {
-            return false;
+        // Exit early if not installed with brew
+        if !current_exe.starts_with(&homebrew_prefix) {
+            return (false, false);
         }
-    }
 
-    // Verify that the `oahd` process is running; if not,
-    // it means Rosetta is not available
-    if !ProcessCommand::new("/usr/bin/pgrep")
-        .arg("oahd")
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-    {
-        return false;
-    }
+        // Try and resolve the real path, considering homebrew
+        // uses symlinks for its executables in bin/
+        let mut real_current_exe = current_exe.clone();
+        if let Ok(real_path) = std::fs::canonicalize(&current_exe) {
+            real_current_exe = real_path;
+        }
 
-    // Run `uname -m` through `arch` and check if the answer is `x86_64`, we also
-    // redirect the error output to `/dev/null` as we don't care about it
-    let output = ProcessCommand::new("/usr/bin/arch")
-        .arg("-x86_64")
-        .arg("/usr/bin/uname")
-        .arg("-m")
-        .stderr(std::process::Stdio::null())
-        .output();
+        // Remove the <prefix>/Cellar piece, the next piece
+        // is the formula name, which is what we want to extract;
+        // if we can't find that piece, let's return false
+        let parts = match real_current_exe
+            .strip_prefix(&homebrew_prefix)
+            .ok()
+            .and_then(|p| p.to_str())
+            .map(|s| s.split('/').collect::<Vec<&str>>())
+        {
+            Some(parts) => parts,
+            None => return (false, false),
+        };
 
-    // Validate that the output is `x86_64`
-    output
-        .map(|output| {
-            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "x86_64"
-        })
-        .unwrap_or(false)
-}
+        // The first part should be Cellar, otherwise we can't
+        // find the formula name
+        if parts.is_empty() || parts[0] != "Cellar" {
+            return (false, false);
+        }
 
-fn check_rosetta_available() -> bool {
-    *ROSETTA_AVAILABLE
-}
+        // The next part is the part we want
+        let formula_name = if parts.len() > 1 {
+            parts[1].to_string()
+        } else {
+            return (false, false);
+        };
 
-pub fn compatible_release_os() -> Vec<String> {
-    if *RELEASE_OS == "darwin" {
-        vec!["darwin".to_string(), "macos".to_string(), "osx".to_string()]
-    } else {
-        vec![(*RELEASE_OS).to_string()]
-    }
+        // To be updatable, we need to not have a version
+        // in the formula name, i.e. `omni@1.0.0` is not
+        // updatable
+        let is_updatable = !formula_name.contains('@');
+
+        (true, is_updatable)
+    };
 }
 
 pub fn self_update(force: bool) {
@@ -203,6 +127,21 @@ pub fn self_update(force: bool) {
         if config.path_repo_updates.self_update.do_not_check() {
             return;
         }
+    }
+
+    if *INSTALLED_WITH_BREW && !(*UPDATABLE_WITH_BREW) {
+        // If installed with brew, but not updatable, we can
+        // just return, as there are no cases where we would
+        // want to update
+        if force {
+            omni_info!("omni is installed using a versioned formula");
+            omni_info!(format!(
+                "please use {} to install a more recent version",
+                "brew".light_yellow()
+            ));
+            exit(1);
+        }
+        return;
     }
 
     if let Some(omni_release) = OmniRelease::latest() {
@@ -279,7 +218,7 @@ impl OmniRelease {
     fn compatible_binary(&self) -> Option<&OmniReleaseBinary> {
         self.binaries
             .iter()
-            .find(|&binary| binary.os == *RELEASE_OS && binary.arch == *RELEASE_ARCH)
+            .find(|&binary| binary.os == current_os() && binary.arch == current_arch())
     }
 
     /// Check if we have write permissions for the current exe and for the directory
@@ -336,12 +275,13 @@ impl OmniRelease {
         }
 
         let can_update = self.check_write_permissions() || *INSTALLED_WITH_BREW;
-        if config.path_repo_updates.self_update.is_false() || !can_update {
+        let disabled_self_update = config.path_repo_updates.self_update.is_false();
+        if disabled_self_update || !can_update {
             let msg = format!(
                 "{} version {} is available{}",
                 "omni:".light_cyan(),
                 self.version.light_blue(),
-                if config.path_repo_updates.self_update.is_false() {
+                if disabled_self_update {
                     "".to_string()
                 } else {
                     format!("; use {} to update", "sudo omni --update".light_yellow())
@@ -524,7 +464,8 @@ impl OmniRelease {
         if binary.is_none() {
             return Err(io::Error::other(format!(
                 "no compatible binary found for {} {}",
-                *RELEASE_OS, *RELEASE_ARCH,
+                current_os(),
+                current_arch(),
             )));
         }
         let binary = binary.unwrap();

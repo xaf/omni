@@ -30,7 +30,15 @@ pub(crate) mod utils;
 
 pub(crate) mod dynenv;
 
+pub(crate) mod build;
+
+#[cfg(feature = "self-update")]
 pub(crate) mod self_updater;
+
+#[cfg(not(feature = "self-update"))]
+#[path = "disabled_self_updater.rs"]
+pub(crate) mod self_updater;
+
 pub(crate) use self_updater::self_update;
 
 #[cfg(test)]

@@ -46,8 +46,8 @@ use crate::internal::config::utils::check_allowed;
 use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::data_home;
-use crate::internal::self_updater::current_arch;
-use crate::internal::self_updater::current_os;
+use crate::internal::build::current_arch;
+use crate::internal::build::current_os;
 use crate::internal::user_interface::StringColor;
 
 const GITHUB_API_URL: &str = "https://api.github.com";

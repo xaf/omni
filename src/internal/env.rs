@@ -677,6 +677,7 @@ fn resolve_homebrew_repository() -> Option<String> {
 }
 
 /// Returns the homebrew repository, if available.
+#[cfg(feature = "self-update")]
 pub fn homebrew_repository() -> Option<String> {
     (*HOMEBREW_REPOSITORY).clone()
 }
