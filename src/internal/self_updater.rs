@@ -23,6 +23,7 @@ use tokio::process::Command as TokioCommand;
 use crate::internal::build::current_arch;
 use crate::internal::build::current_os;
 use crate::internal::config::global_config;
+use crate::internal::config::up::utils::get_command_output;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::PrintProgressHandler;
 use crate::internal::config::up::utils::ProgressHandler;
@@ -170,7 +171,8 @@ impl OmniReleases {
         let cached_file = Path::new(&cache_home()).join("releases.json");
 
         // Try and download or refresh the file
-        if download_and_cache_file(json_url, &cached_file).is_err() {
+        if let Err(err) = download_and_cache_file(json_url, &cached_file) {
+            dbg!("Failed to download or refresh releases file", err);
             return None;
         }
 
@@ -242,9 +244,6 @@ struct OmniRelease {
     published_at: Option<OffsetDateTime>,
     /// The artefacts of the release
     binaries: Vec<OmniReleaseBinary>,
-    // /// The release notes of the release
-    // #[serde(default)]
-    // notes: Option<OmniReleaseNotes>,
 }
 
 impl OmniRelease {
@@ -506,6 +505,8 @@ impl OmniRelease {
             return Err(io::Error::other(err.to_string()));
         }
 
+        self.validate_brew_formula_version(progress_handler)?;
+
         let mut brew_upgrade = TokioCommand::new("brew");
         brew_upgrade.arg("upgrade");
         brew_upgrade.arg("xaf/omni/omni");
@@ -524,6 +525,78 @@ impl OmniRelease {
         }
 
         Ok(true)
+    }
+
+    fn validate_brew_formula_version(
+        &self,
+        progress_handler: &dyn ProgressHandler,
+    ) -> io::Result<bool> {
+        // If there are no filters, we can exit early
+        let config = global_config();
+        let filters = &config.path_repo_updates.self_update_filters;
+        if filters.is_default() {
+            return Ok(true);
+        }
+
+        // Get the "current_version" of the formula, i.e. the
+        // version that will be installed after the upgrade
+        let mut brew_outdated = TokioCommand::new("brew");
+        brew_outdated.arg("outdated");
+        brew_outdated.arg("xaf/omni/omni");
+        brew_outdated.arg("--json");
+        brew_outdated.env("HOMEBREW_NO_AUTO_UPDATE", "1");
+        brew_outdated.env("HOMEBREW_NO_INSTALL_UPGRADE", "1");
+        brew_outdated.stdout(std::process::Stdio::piped());
+        brew_outdated.stderr(std::process::Stdio::piped());
+
+        let output = get_command_output(&mut brew_outdated, RunConfig::default());
+
+        let outdated = match output {
+            Err(err) => {
+                let msg = format!("failed to get formula version: {err}");
+                return Err(io::Error::other(msg));
+            }
+            Ok(output) if !output.status.success() => {
+                let msg = format!(
+                    "failed to get formula version: {}",
+                    String::from_utf8(output.stderr)
+                        .unwrap()
+                        .replace('\n', " ")
+                        .trim()
+                );
+                return Err(io::Error::other(msg));
+            }
+            Ok(output) => {
+                let output = String::from_utf8(output.stdout).unwrap().trim().to_string();
+                let outdated: Result<BrewOutdated, _> = serde_json::from_str(&output);
+                match outdated {
+                    Ok(outdated) => outdated,
+                    Err(err) => {
+                        let msg = format!("failed to parse output to JSON: {err}");
+                        return Err(io::Error::other(msg));
+                    }
+                }
+            }
+        };
+
+        match outdated.find_version("omni") {
+            Some(current_version) => {
+                progress_handler
+                    .progress(format!("formula will install version {}", current_version));
+
+                // Check if this is the version of the current release
+                if current_version != self.version.as_str() {
+                    let msg = format!(
+                        "version {} would be installed, but {} is wanted.",
+                        current_version, self.version
+                    );
+                    return Err(io::Error::other(msg));
+                }
+
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     fn download(&self, progress_handler: &dyn ProgressHandler) -> io::Result<bool> {
@@ -605,38 +678,25 @@ struct OmniReleaseBinary {
     sha256: String,
 }
 
-// #[derive(Debug, Deserialize, Default)]
-// struct OmniReleaseNotes {
-// /// Breaking changes
-// #[serde(default)]
-// breaking: Vec<OmniReleaseNotesSection>,
-// /// New features
-// #[serde(default)]
-// features: Vec<OmniReleaseNotesSection>,
-// /// Bug fixes
-// #[serde(default)]
-// fixes: Vec<OmniReleaseNotesSection>,
-// }
+#[derive(Debug, Deserialize)]
+struct BrewOutdated {
+    formulae: Vec<BrewOutdatedInfo>,
+}
 
-// #[derive(Debug, Deserialize, Default)]
-// struct OmniReleaseNotesSection {
-// /// Summary of the commit
-// summary: String,
-// /// Commit SHA
-// commit: Option<String>,
-// /// Commit URL
-// link: Option<String>,
-// /// Scope of the commit
-// scope: Option<String>,
-// /// Author of the commit
-// author: Option<String>,
-// /// Emoji associated with the commit
-// emoji: Option<String>,
-// /// Pull request number if applicable
-// pull_request: Option<u32>,
-// /// List of issues associated with the commit
-// #[serde(default)]
-// issues: Vec<u32>,
-// /// Cause of the breaking change, if this is a breaking change note
-// cause: Option<String>,
-// }
+impl BrewOutdated {
+    fn find_version(&self, name: &str) -> Option<&str> {
+        self.formulae
+            .iter()
+            .find(|info| info.name == name)
+            .map(|info| info.current_version.as_str())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct BrewOutdatedInfo {
+    name: String,
+    // installed_versions: Vec<String>,
+    current_version: String,
+    // pinned: bool,
+    // pinned_version: Option<String>,
+}
