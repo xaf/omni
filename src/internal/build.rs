@@ -10,7 +10,6 @@ lazy_static! {
         };
         arch.to_string()
     };
-
     static ref RELEASE_OS: String = {
         let os = match std::env::consts::OS {
             "macos" => "darwin",
@@ -18,7 +17,6 @@ lazy_static! {
         };
         os.to_string()
     };
-
     static ref ROSETTA_AVAILABLE: bool = compute_check_rosetta_available();
 }
 
