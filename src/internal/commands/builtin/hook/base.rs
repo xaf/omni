@@ -29,7 +29,7 @@ impl BuiltinCommand for HookCommand {
     }
 
     fn help(&self) -> Option<String> {
-        Some(concat!("Call one of omni's hooks for the shell\n",).to_string())
+        Some("Call one of omni's hooks for the shell\n".to_string())
     }
 
     fn syntax(&self) -> Option<CommandSyntax> {
