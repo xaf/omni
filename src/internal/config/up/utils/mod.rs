@@ -50,6 +50,7 @@ pub(crate) use version::VersionMatcher;
 pub(crate) use version::VersionParser;
 pub(crate) use version::VersionParserOptions;
 
+#[cfg(test)]
 pub(crate) mod void_progress_handler;
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use void_progress_handler::VoidProgressHandler;
