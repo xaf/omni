@@ -471,13 +471,15 @@ impl ConfigCheckCommand {
             }
 
             let path_error_handler = error_handler.with_file(&entry);
-            for command in PathCommand::aggregate_with_errors(&[entry.clone()], &path_error_handler)
-                .into_iter()
-                .filter_map(|command| match command {
-                    Command::FromPath(path_command) => Some(path_command),
-                    _ => None,
-                })
-            {
+            for command in PathCommand::aggregate_with_errors(
+                std::slice::from_ref(&entry),
+                &path_error_handler,
+            )
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::FromPath(path_command) => Some(path_command),
+                _ => None,
+            }) {
                 command.check_errors(&path_error_handler);
 
                 // Load the check configuration for the location of the file
