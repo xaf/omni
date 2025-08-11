@@ -5,44 +5,47 @@ use regex::Regex;
 
 use crate::internal::env::shell_is_interactive;
 
-pub const BLACK: &str = "30";
-pub const RED: &str = "31";
-pub const GREEN: &str = "32";
-pub const YELLOW: &str = "33";
-pub const BLUE: &str = "34";
-pub const MAGENTA: &str = "35";
-pub const CYAN: &str = "36";
-pub const WHITE: &str = "37";
-pub const LIGHT_BLACK: &str = "90";
-pub const LIGHT_RED: &str = "91";
-pub const LIGHT_GREEN: &str = "92";
-pub const LIGHT_YELLOW: &str = "93";
-pub const LIGHT_BLUE: &str = "94";
-pub const LIGHT_MAGENTA: &str = "95";
-pub const LIGHT_CYAN: &str = "96";
-pub const LIGHT_WHITE: &str = "97";
+#[allow(dead_code)]
+mod color_codes {
+    pub const BLACK: &str = "30";
+    pub const RED: &str = "31";
+    pub const GREEN: &str = "32";
+    pub const YELLOW: &str = "33";
+    pub const BLUE: &str = "34";
+    pub const MAGENTA: &str = "35";
+    pub const CYAN: &str = "36";
+    pub const WHITE: &str = "37";
+    pub const LIGHT_BLACK: &str = "90";
+    pub const LIGHT_RED: &str = "91";
+    pub const LIGHT_GREEN: &str = "92";
+    pub const LIGHT_YELLOW: &str = "93";
+    pub const LIGHT_BLUE: &str = "94";
+    pub const LIGHT_MAGENTA: &str = "95";
+    pub const LIGHT_CYAN: &str = "96";
+    pub const LIGHT_WHITE: &str = "97";
 
-pub const BOLD: &str = "1";
-pub const RESET_BOLD: &str = "22";
-pub const DIM: &str = "2";
-pub const RESET_DIM: &str = "22";
-pub const ITALIC: &str = "3";
-pub const RESET_ITALIC: &str = "23";
-pub const UNDERLINED: &str = "4";
-pub const RESET_UNDERLINED: &str = "24";
-pub const BLINK: &str = "5";
-pub const RESET_BLINK: &str = "25";
-pub const RAPID_BLINK: &str = "6";
-pub const RESET_RAPID_BLINK: &str = "26";
-pub const REVERSE: &str = "7";
-pub const RESET_REVERSE: &str = "27";
-pub const HIDDEN: &str = "8";
-pub const RESET_HIDDEN: &str = "28";
-pub const STRIKETHROUGH: &str = "9";
-pub const RESET_STRIKETHROUGH: &str = "29";
+    pub const BOLD: &str = "1";
+    pub const RESET_BOLD: &str = "22";
+    pub const DIM: &str = "2";
+    pub const RESET_DIM: &str = "22";
+    pub const ITALIC: &str = "3";
+    pub const RESET_ITALIC: &str = "23";
+    pub const UNDERLINED: &str = "4";
+    pub const RESET_UNDERLINED: &str = "24";
+    pub const BLINK: &str = "5";
+    pub const RESET_BLINK: &str = "25";
+    pub const RAPID_BLINK: &str = "6";
+    pub const RESET_RAPID_BLINK: &str = "26";
+    pub const REVERSE: &str = "7";
+    pub const RESET_REVERSE: &str = "27";
+    pub const HIDDEN: &str = "8";
+    pub const RESET_HIDDEN: &str = "28";
+    pub const STRIKETHROUGH: &str = "9";
+    pub const RESET_STRIKETHROUGH: &str = "29";
 
-// pub const DEFAULT: &str = "39";
-pub const RESET: &str = "0";
+    // pub const DEFAULT: &str = "39";
+    pub const RESET: &str = "0";
+}
 
 lazy_static! {
     static ref COLORS_ENABLED: bool = enable_colors();
@@ -176,214 +179,214 @@ impl<T: ToString> StringColor for T {
     }
 
     fn black(&self) -> String {
-        self.colorize(BLACK)
+        self.colorize(color_codes::BLACK)
     }
 
     fn force_black(&self) -> String {
-        self.force_colorize(BLACK)
+        self.force_colorize(color_codes::BLACK)
     }
 
     fn red(&self) -> String {
-        self.colorize(RED)
+        self.colorize(color_codes::RED)
     }
 
     fn force_red(&self) -> String {
-        self.force_colorize(RED)
+        self.force_colorize(color_codes::RED)
     }
 
     fn green(&self) -> String {
-        self.colorize(GREEN)
+        self.colorize(color_codes::GREEN)
     }
 
     fn force_green(&self) -> String {
-        self.force_colorize(GREEN)
+        self.force_colorize(color_codes::GREEN)
     }
 
     fn yellow(&self) -> String {
-        self.colorize(YELLOW)
+        self.colorize(color_codes::YELLOW)
     }
 
     fn force_yellow(&self) -> String {
-        self.force_colorize(YELLOW)
+        self.force_colorize(color_codes::YELLOW)
     }
 
     fn blue(&self) -> String {
-        self.colorize(BLUE)
+        self.colorize(color_codes::BLUE)
     }
 
     fn force_blue(&self) -> String {
-        self.force_colorize(BLUE)
+        self.force_colorize(color_codes::BLUE)
     }
 
     fn magenta(&self) -> String {
-        self.colorize(MAGENTA)
+        self.colorize(color_codes::MAGENTA)
     }
 
     fn force_magenta(&self) -> String {
-        self.force_colorize(MAGENTA)
+        self.force_colorize(color_codes::MAGENTA)
     }
 
     fn cyan(&self) -> String {
-        self.colorize(CYAN)
+        self.colorize(color_codes::CYAN)
     }
 
     fn force_cyan(&self) -> String {
-        self.force_colorize(CYAN)
+        self.force_colorize(color_codes::CYAN)
     }
 
     fn white(&self) -> String {
-        self.colorize(WHITE)
+        self.colorize(color_codes::WHITE)
     }
 
     fn force_white(&self) -> String {
-        self.force_colorize(WHITE)
+        self.force_colorize(color_codes::WHITE)
     }
 
     fn light_black(&self) -> String {
-        self.colorize(LIGHT_BLACK)
+        self.colorize(color_codes::LIGHT_BLACK)
     }
 
     fn force_light_black(&self) -> String {
-        self.force_colorize(LIGHT_BLACK)
+        self.force_colorize(color_codes::LIGHT_BLACK)
     }
 
     fn light_red(&self) -> String {
-        self.colorize(LIGHT_RED)
+        self.colorize(color_codes::LIGHT_RED)
     }
 
     fn force_light_red(&self) -> String {
-        self.force_colorize(LIGHT_RED)
+        self.force_colorize(color_codes::LIGHT_RED)
     }
 
     fn light_green(&self) -> String {
-        self.colorize(LIGHT_GREEN)
+        self.colorize(color_codes::LIGHT_GREEN)
     }
 
     fn force_light_green(&self) -> String {
-        self.force_colorize(LIGHT_GREEN)
+        self.force_colorize(color_codes::LIGHT_GREEN)
     }
 
     fn light_yellow(&self) -> String {
-        self.colorize(LIGHT_YELLOW)
+        self.colorize(color_codes::LIGHT_YELLOW)
     }
 
     fn force_light_yellow(&self) -> String {
-        self.force_colorize(LIGHT_YELLOW)
+        self.force_colorize(color_codes::LIGHT_YELLOW)
     }
 
     fn light_blue(&self) -> String {
-        self.colorize(LIGHT_BLUE)
+        self.colorize(color_codes::LIGHT_BLUE)
     }
 
     fn force_light_blue(&self) -> String {
-        self.force_colorize(LIGHT_BLUE)
+        self.force_colorize(color_codes::LIGHT_BLUE)
     }
 
     fn light_magenta(&self) -> String {
-        self.colorize(LIGHT_MAGENTA)
+        self.colorize(color_codes::LIGHT_MAGENTA)
     }
 
     fn force_light_magenta(&self) -> String {
-        self.force_colorize(LIGHT_MAGENTA)
+        self.force_colorize(color_codes::LIGHT_MAGENTA)
     }
 
     fn light_cyan(&self) -> String {
-        self.colorize(LIGHT_CYAN)
+        self.colorize(color_codes::LIGHT_CYAN)
     }
 
     fn force_light_cyan(&self) -> String {
-        self.force_colorize(LIGHT_CYAN)
+        self.force_colorize(color_codes::LIGHT_CYAN)
     }
 
     fn light_white(&self) -> String {
-        self.colorize(LIGHT_WHITE)
+        self.colorize(color_codes::LIGHT_WHITE)
     }
 
     fn force_light_white(&self) -> String {
-        self.force_colorize(LIGHT_WHITE)
+        self.force_colorize(color_codes::LIGHT_WHITE)
     }
 
     fn bold(&self) -> String {
-        self.noncolormodifier(BOLD, RESET_BOLD)
+        self.noncolormodifier(color_codes::BOLD, color_codes::RESET_BOLD)
     }
 
     fn force_bold(&self) -> String {
-        self.force_noncolormodifier(BOLD, RESET_BOLD)
+        self.force_noncolormodifier(color_codes::BOLD, color_codes::RESET_BOLD)
     }
 
     fn dim(&self) -> String {
-        self.noncolormodifier(DIM, RESET_DIM)
+        self.noncolormodifier(color_codes::DIM, color_codes::RESET_DIM)
     }
 
     fn force_dim(&self) -> String {
-        self.force_noncolormodifier(DIM, RESET_DIM)
+        self.force_noncolormodifier(color_codes::DIM, color_codes::RESET_DIM)
     }
 
     fn italic(&self) -> String {
-        self.noncolormodifier(ITALIC, RESET_ITALIC)
+        self.noncolormodifier(color_codes::ITALIC, color_codes::RESET_ITALIC)
     }
 
     fn force_italic(&self) -> String {
-        self.force_noncolormodifier(ITALIC, RESET_ITALIC)
+        self.force_noncolormodifier(color_codes::ITALIC, color_codes::RESET_ITALIC)
     }
 
     fn underline(&self) -> String {
-        self.noncolormodifier(UNDERLINED, RESET_UNDERLINED)
+        self.noncolormodifier(color_codes::UNDERLINED, color_codes::RESET_UNDERLINED)
     }
 
     fn force_underline(&self) -> String {
-        self.force_noncolormodifier(UNDERLINED, RESET_UNDERLINED)
+        self.force_noncolormodifier(color_codes::UNDERLINED, color_codes::RESET_UNDERLINED)
     }
 
     fn blink(&self) -> String {
-        self.noncolormodifier(BLINK, RESET_BLINK)
+        self.noncolormodifier(color_codes::BLINK, color_codes::RESET_BLINK)
     }
 
     fn force_blink(&self) -> String {
-        self.force_noncolormodifier(BLINK, RESET_BLINK)
+        self.force_noncolormodifier(color_codes::BLINK, color_codes::RESET_BLINK)
     }
 
     fn rapid_blink(&self) -> String {
-        self.noncolormodifier(RAPID_BLINK, RESET_RAPID_BLINK)
+        self.noncolormodifier(color_codes::RAPID_BLINK, color_codes::RESET_RAPID_BLINK)
     }
 
     fn force_rapid_blink(&self) -> String {
-        self.force_noncolormodifier(RAPID_BLINK, RESET_RAPID_BLINK)
+        self.force_noncolormodifier(color_codes::RAPID_BLINK, color_codes::RESET_RAPID_BLINK)
     }
 
     fn reverse(&self) -> String {
-        self.noncolormodifier(REVERSE, RESET_REVERSE)
+        self.noncolormodifier(color_codes::REVERSE, color_codes::RESET_REVERSE)
     }
 
     fn force_reverse(&self) -> String {
-        self.force_noncolormodifier(REVERSE, RESET_REVERSE)
+        self.force_noncolormodifier(color_codes::REVERSE, color_codes::RESET_REVERSE)
     }
 
     fn hidden(&self) -> String {
-        self.noncolormodifier(HIDDEN, RESET_HIDDEN)
+        self.noncolormodifier(color_codes::HIDDEN, color_codes::RESET_HIDDEN)
     }
 
     fn force_hidden(&self) -> String {
-        self.force_noncolormodifier(HIDDEN, RESET_HIDDEN)
+        self.force_noncolormodifier(color_codes::HIDDEN, color_codes::RESET_HIDDEN)
     }
 
     fn strikethrough(&self) -> String {
-        self.noncolormodifier(STRIKETHROUGH, RESET_STRIKETHROUGH)
+        self.noncolormodifier(color_codes::STRIKETHROUGH, color_codes::RESET_STRIKETHROUGH)
     }
 
     fn force_strikethrough(&self) -> String {
-        self.force_noncolormodifier(STRIKETHROUGH, RESET_STRIKETHROUGH)
+        self.force_noncolormodifier(color_codes::STRIKETHROUGH, color_codes::RESET_STRIKETHROUGH)
     }
 
     fn normal(&self) -> String {
         if shell_is_interactive() {
-            format!("\x1B[{}m{}", RESET, self.to_string())
+            format!("\x1B[{}m{}", color_codes::RESET, self.to_string())
         } else {
             self.to_string()
         }
     }
 
     fn force_normal(&self) -> String {
-        format!("\x1B[{}m{}", RESET, self.to_string())
+        format!("\x1B[{}m{}", color_codes::RESET, self.to_string())
     }
 }
