@@ -36,7 +36,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Get release version
         run: |
@@ -76,7 +76,7 @@ jobs:
 
     steps:
       - name: Checkout current commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -146,7 +146,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
