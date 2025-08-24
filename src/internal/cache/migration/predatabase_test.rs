@@ -245,7 +245,9 @@ mod migrate_repositories {
 
             // Verify fingerprints
             let fingerprints: Vec<(String, String, String)> = conn
-                .prepare("SELECT workdir_id, fingerprint_type, fingerprint FROM workdir_fingerprints")
+                .prepare(
+                    "SELECT workdir_id, fingerprint_type, fingerprint FROM workdir_fingerprints",
+                )
                 .unwrap()
                 .query_map(params![], |row| {
                     Ok((
