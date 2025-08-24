@@ -55,8 +55,7 @@ mod from_source_file_header {
 
     #[test]
     fn help_multiline_using_repeat() {
-        let mut reader =
-            BufReader::new("# help: test help\n# help: continued help\n".as_bytes());
+        let mut reader = BufReader::new("# help: test help\n# help: continued help\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -812,8 +811,7 @@ mod from_source_file_header {
 
     #[test]
     fn arg_with_conflits_with_multiple() {
-        let mut reader =
-            BufReader::new("# arg: -a: conflicts_with=b c: test desc\n".as_bytes());
+        let mut reader = BufReader::new("# arg: -a: conflicts_with=b c: test desc\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -842,9 +840,8 @@ mod from_source_file_header {
 
     #[test]
     fn arg_with_conflits_with_multiple_repeat() {
-        let mut reader = BufReader::new(
-            "# arg: -a: conflicts_with=b: conflicts_with=c: test desc\n".as_bytes(),
-        );
+        let mut reader =
+            BufReader::new("# arg: -a: conflicts_with=b: conflicts_with=c: test desc\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -873,8 +870,7 @@ mod from_source_file_header {
 
     #[test]
     fn arg_with_required_without() {
-        let mut reader =
-            BufReader::new("# arg: -a: required_without=b: test desc\n".as_bytes());
+        let mut reader = BufReader::new("# arg: -a: required_without=b: test desc\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -903,8 +899,7 @@ mod from_source_file_header {
 
     #[test]
     fn arg_with_required_without_multiple() {
-        let mut reader =
-            BufReader::new("# arg: -a: required_without=b c: test desc\n".as_bytes());
+        let mut reader = BufReader::new("# arg: -a: required_without=b c: test desc\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -994,8 +989,7 @@ mod from_source_file_header {
 
     #[test]
     fn arg_with_required_if_eq() {
-        let mut reader =
-            BufReader::new("# arg: -a: required_if_eq=b c=5: test desc\n".as_bytes());
+        let mut reader = BufReader::new("# arg: -a: required_if_eq=b c=5: test desc\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -1122,9 +1116,8 @@ mod from_source_file_header {
 
     #[test]
     fn arg_multiline_between_options_using_plus() {
-        let mut reader = BufReader::new(
-            "# arg: -a: type=int\n# +: delimiter=,\n# +: test desc\n".as_bytes(),
-        );
+        let mut reader =
+            BufReader::new("# arg: -a: type=int\n# +: delimiter=,\n# +: test desc\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -1183,8 +1176,7 @@ mod from_source_file_header {
 
     #[test]
     fn arg_multiline_description_using_plus() {
-        let mut reader =
-            BufReader::new("# arg: -a: test desc\n# +: continued desc\n".as_bytes());
+        let mut reader = BufReader::new("# arg: -a: test desc\n# +: continued desc\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -1267,8 +1259,7 @@ mod from_source_file_header {
 
     #[test]
     fn arggroup_multiple() {
-        let mut reader =
-            BufReader::new("# arggroup: a_group: multiple=true: a b c\n".as_bytes());
+        let mut reader = BufReader::new("# arggroup: a_group: multiple=true: a b c\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -1296,8 +1287,7 @@ mod from_source_file_header {
 
     #[test]
     fn arggroup_required() {
-        let mut reader =
-            BufReader::new("# arggroup: a_group: required=true: a b c\n".as_bytes());
+        let mut reader = BufReader::new("# arggroup: a_group: required=true: a b c\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -1383,9 +1373,8 @@ mod from_source_file_header {
 
     #[test]
     fn arggroup_repeat() {
-        let mut reader = BufReader::new(
-            "# arggroup: a_group: a b c\n# arggroup: a_group: d e f\n".as_bytes(),
-        );
+        let mut reader =
+            BufReader::new("# arggroup: a_group: a b c\n# arggroup: a_group: d e f\n".as_bytes());
         let details = PathCommandFileDetails::from_source_file_header(
             &mut reader,
             &ConfigErrorHandler::noop(),
@@ -1561,8 +1550,7 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# autocompletion: not_a_bool\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
@@ -1582,15 +1570,13 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# category: test\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
-                errors.iter().any(|err| matches!(
-                    err.kind(),
-                    ConfigErrorKind::MetadataHeaderMissingHelp
-                )),
+                errors
+                    .iter()
+                    .any(|err| matches!(err.kind(), ConfigErrorKind::MetadataHeaderMissingHelp)),
                 "Did not find expected error, found: {errors:?}"
             );
         }
@@ -1600,15 +1586,13 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# help: test help\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
-                errors.iter().any(|err| matches!(
-                    err.kind(),
-                    ConfigErrorKind::MetadataHeaderMissingSyntax
-                )),
+                errors
+                    .iter()
+                    .any(|err| matches!(err.kind(), ConfigErrorKind::MetadataHeaderMissingSyntax)),
                 "Did not find expected error, found: {errors:?}"
             );
         }
@@ -1619,8 +1603,7 @@ mod from_source_file_header {
                 BufReader::new("# autocompletion: true\n# autocompletion: false\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
@@ -1636,12 +1619,10 @@ mod from_source_file_header {
 
         #[test]
         fn test_metadata_header_unknown_key() {
-            let mut reader =
-                BufReader::new("# category: test\n# unknown_key: value\n".as_bytes());
+            let mut reader = BufReader::new("# category: test\n# unknown_key: value\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
@@ -1659,8 +1640,7 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# arggroup: test_group: :\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
@@ -1678,8 +1658,7 @@ mod from_source_file_header {
                 BufReader::new("# arggroup: test_group: unknown_key=value\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
@@ -1699,8 +1678,7 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# arggroup: test_group:\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
@@ -1719,8 +1697,7 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# arg: test_param: :\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
@@ -1736,12 +1713,10 @@ mod from_source_file_header {
 
         #[test]
         fn test_metadata_header_parameter_invalid_key_value() {
-            let mut reader =
-                BufReader::new("# arg: test_param: delimiter=invalid\n".as_bytes());
+            let mut reader = BufReader::new("# arg: test_param: delimiter=invalid\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
 
             assert!(
@@ -1759,12 +1734,10 @@ mod from_source_file_header {
 
         #[test]
         fn test_metadata_header_parameter_unknown_config_key() {
-            let mut reader =
-                BufReader::new("# arg: test_param: unknown_key=value\n".as_bytes());
+            let mut reader = BufReader::new("# arg: test_param: unknown_key=value\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
             assert!(
                 errors.iter().any(|err| {
@@ -1783,8 +1756,7 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# arg: test_param:\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
             assert!(
                 errors.iter().any(|err| {
@@ -1802,8 +1774,7 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# +: continued value\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
             assert!(
                 errors.iter().any(|err| {
@@ -1821,8 +1792,7 @@ mod from_source_file_header {
             let mut reader = BufReader::new("# arg:\n".as_bytes());
 
             let error_handler = ConfigErrorHandler::new().with_file("myfile.txt");
-            let _ =
-                PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
+            let _ = PathCommandFileDetails::from_source_file_header(&mut reader, &error_handler);
             let errors = error_handler.errors();
             assert!(
                 errors.iter().any(|err| {

@@ -96,11 +96,7 @@ mod homebrew_operation_cache {
             for is_cask in &[false, true] {
                 for version in &[Some("1.0.0".to_string()), None] {
                     // Initially should update
-                    assert!(cache.should_update_install(
-                        install_name,
-                        version.clone(),
-                        *is_cask
-                    ));
+                    assert!(cache.should_update_install(install_name, version.clone(), *is_cask));
 
                     // Update install
                     assert!(cache
@@ -108,11 +104,7 @@ mod homebrew_operation_cache {
                         .expect("Failed to update install timestamp"));
 
                     // Should not update immediately after
-                    assert!(!cache.should_update_install(
-                        install_name,
-                        version.clone(),
-                        *is_cask
-                    ));
+                    assert!(!cache.should_update_install(install_name, version.clone(), *is_cask));
                 }
             }
         });
@@ -127,11 +119,7 @@ mod homebrew_operation_cache {
             for is_cask in &[false, true] {
                 for version in &[Some("1.0.0".to_string()), None] {
                     // Initially should check
-                    assert!(cache.should_check_install(
-                        install_name,
-                        version.clone(),
-                        *is_cask
-                    ));
+                    assert!(cache.should_check_install(install_name, version.clone(), *is_cask));
 
                     // Check install
                     assert!(cache
@@ -139,11 +127,7 @@ mod homebrew_operation_cache {
                         .expect("Failed to check install"));
 
                     // Should not check immediately after
-                    assert!(!cache.should_check_install(
-                        install_name,
-                        version.clone(),
-                        *is_cask
-                    ));
+                    assert!(!cache.should_check_install(install_name, version.clone(), *is_cask));
                 }
             }
         });
@@ -275,11 +259,7 @@ mod homebrew_operation_cache {
 
                     // Verify bin paths
                     assert_eq!(
-                        cache.homebrew_install_bin_paths(
-                            install_name,
-                            version.clone(),
-                            *is_cask
-                        ),
+                        cache.homebrew_install_bin_paths(install_name, version.clone(), *is_cask),
                         Some(bin_paths.clone())
                     );
                 }
@@ -453,11 +433,7 @@ mod homebrew_operation_cache {
                         .add_install(install_name, version.clone(), *is_cask, true)
                         .expect("Failed to add install");
 
-                    expected_delete.insert((
-                        install_name.to_string(),
-                        version.clone(),
-                        *is_cask,
-                    ));
+                    expected_delete.insert((install_name.to_string(), version.clone(), *is_cask));
                 }
             }
 

@@ -247,8 +247,7 @@ mod up_environments_cache {
             if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
                 // Write to cache.environment.max_total, using a yaml string
                 *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    max_total: {expected_max_total}")
-                        .as_str(),
+                    format!("cache:\n  environment:\n    max_total: {expected_max_total}").as_str(),
                 )
                 .expect("Failed to create config value");
 
@@ -291,8 +290,7 @@ mod up_environments_cache {
             if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
                 // Write to cache.environment.max_total, using a yaml string
                 *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    max_total: {expected_max_total}")
-                        .as_str(),
+                    format!("cache:\n  environment:\n    max_total: {expected_max_total}").as_str(),
                 )
                 .expect("Failed to create config value");
 
