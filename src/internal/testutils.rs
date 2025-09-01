@@ -29,7 +29,7 @@ cfg_if::cfg_if! {
             let tmp_dir = tempdir.path().join("tmp");
             std::fs::create_dir(&tmp_dir).expect("failed to create tmp dir");
 
-            // CPrepare a unique test ID that can be used to identify test resources
+            // Prepare a unique test ID that can be used to identify test resources
             let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst).to_string();
 
             let run_env: Vec<(String, Option<String>)> = vec![

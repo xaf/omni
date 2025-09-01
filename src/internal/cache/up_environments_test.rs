@@ -465,21 +465,23 @@ mod up_environment {
 
     #[test]
     fn test_paths() {
-        let mut env = UpEnvironment::new();
-        let data_home_path = PathBuf::from(data_home()).join("test");
-        let regular_path = PathBuf::from("/usr/local/bin");
+        run_with_env(&[], || {
+            let mut env = UpEnvironment::new();
+            let data_home_path = PathBuf::from(data_home()).join("test");
+            let regular_path = PathBuf::from("/usr/local/bin");
 
-        // Test adding single path
-        assert!(env.add_path(regular_path.clone()));
-        assert_eq!(env.paths.len(), 1);
+            // Test adding single path
+            assert!(env.add_path(regular_path.clone()));
+            assert_eq!(env.paths.len(), 1);
 
-        // Test data_home path gets prepended
-        assert!(env.add_path(data_home_path.clone()));
-        assert_eq!(env.paths[0], data_home_path);
+            // Test data_home path gets prepended
+            assert!(env.add_path(data_home_path.clone()));
+            assert_eq!(env.paths[0], data_home_path);
 
-        // Test adding multiple paths
-        assert!(env.add_paths(vec![PathBuf::from("/path1"), PathBuf::from("/path2")]));
-        assert_eq!(env.paths.len(), 4);
+            // Test adding multiple paths
+            assert!(env.add_paths(vec![PathBuf::from("/path1"), PathBuf::from("/path2")]));
+            assert_eq!(env.paths.len(), 4);
+        });
     }
 
     #[test]

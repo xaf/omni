@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+use crate::internal::testutils::run_with_env;
+
 mod package_root_path_tests {
     use super::*;
 
@@ -323,95 +325,109 @@ mod is_path_gitignored_tests {
 
     #[test]
     fn test_is_path_gitignored_ignored_file() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored(repo_path.join("debug.log"));
-        if let Err(e) = &result {
-            println!("Error: {:?}", e);
-        }
-        assert!(result.is_ok());
-        assert!(result.unwrap(), "debug.log should be ignored");
+            let result = is_path_gitignored(repo_path.join("debug.log"));
+            if let Err(e) = &result {
+                println!("Error: {:?}", e);
+            }
+            assert!(result.is_ok());
+            assert!(result.unwrap(), "debug.log should be ignored");
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_non_ignored_file() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored(repo_path.join("README.md"));
-        assert!(result.is_ok());
-        assert!(!result.unwrap(), "README.md should not be ignored");
+            let result = is_path_gitignored(repo_path.join("README.md"));
+            assert!(result.is_ok());
+            assert!(!result.unwrap(), "README.md should not be ignored");
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_ignored_directory() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored(repo_path.join("temp"));
-        assert!(result.is_ok());
-        assert!(result.unwrap(), "temp/ directory should be ignored");
+            let result = is_path_gitignored(repo_path.join("temp"));
+            assert!(result.is_ok());
+            assert!(result.unwrap(), "temp/ directory should be ignored");
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_non_ignored_directory() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored(repo_path.join("src"));
-        assert!(result.is_ok());
-        assert!(!result.unwrap(), "src/ directory should not be ignored");
+            let result = is_path_gitignored(repo_path.join("src"));
+            assert!(result.is_ok());
+            assert!(!result.unwrap(), "src/ directory should not be ignored");
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_nonexistent_file() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored(repo_path.join("nonexistent.log"));
-        assert!(result.is_ok());
-        assert!(
-            result.unwrap(),
-            "nonexistent.log should be ignored based on pattern"
-        );
+            let result = is_path_gitignored(repo_path.join("nonexistent.log"));
+            assert!(result.is_ok());
+            assert!(
+                result.unwrap(),
+                "nonexistent.log should be ignored based on pattern"
+            );
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_file_in_subdirectory() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored(repo_path.join("src").join("main.rs"));
-        assert!(result.is_ok());
-        assert!(!result.unwrap(), "src/main.rs should not be ignored");
+            let result = is_path_gitignored(repo_path.join("src").join("main.rs"));
+            assert!(result.is_ok());
+            assert!(!result.unwrap(), "src/main.rs should not be ignored");
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_no_git_repo() {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let non_repo_path = temp_dir.path().join("some_file.txt");
+        run_with_env(&[], || {
+            let temp_dir = TempDir::new().expect("Failed to create temp directory");
+            let non_repo_path = temp_dir.path().join("some_file.txt");
 
-        let result = is_path_gitignored(non_repo_path);
-        assert!(result.is_err(), "Should error when not in a git repository");
+            let result = is_path_gitignored(non_repo_path);
+            assert!(result.is_err(), "Should error when not in a git repository");
+        });
     }
 }
 
@@ -449,114 +465,122 @@ mod is_path_gitignored_from_tests {
 
     #[test]
     fn test_is_path_gitignored_from_with_root() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored_from(repo_path.join("debug.log"), Some(&repo_path));
-        assert!(result.is_ok());
-        assert!(
-            result.unwrap(),
-            "debug.log should be ignored when specifying root"
-        );
+            let result = is_path_gitignored_from(repo_path.join("debug.log"), Some(&repo_path));
+            assert!(result.is_ok());
+            assert!(
+                result.unwrap(),
+                "debug.log should be ignored when specifying root"
+            );
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_from_without_root() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored_from(repo_path.join("README.md"), None::<&Path>);
-        assert!(result.is_ok());
-        assert!(!result.unwrap(), "README.md should not be ignored");
+            let result = is_path_gitignored_from(repo_path.join("README.md"), None::<&Path>);
+            assert!(result.is_ok());
+            assert!(!result.unwrap(), "README.md should not be ignored");
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_from_nonexistent_file_with_root() {
-        let temp_dir = setup_test_repo();
-        let repo_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = setup_test_repo();
+            let repo_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        let result = is_path_gitignored_from(repo_path.join("test.log"), Some(&repo_path));
-        assert!(result.is_ok());
-        assert!(
-            result.unwrap(),
-            "test.log should be ignored based on pattern"
-        );
+            let result = is_path_gitignored_from(repo_path.join("test.log"), Some(&repo_path));
+            assert!(result.is_ok());
+            assert!(
+                result.unwrap(),
+                "test.log should be ignored based on pattern"
+            );
+        });
     }
 
     #[test]
     fn test_is_path_gitignored_nested_repos() {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let base_path = temp_dir
-            .path()
-            .canonicalize()
-            .expect("Failed to canonicalize path");
+        run_with_env(&[], || {
+            let temp_dir = TempDir::new().expect("Failed to create temp directory");
+            let base_path = temp_dir
+                .path()
+                .canonicalize()
+                .expect("Failed to canonicalize path");
 
-        // Create repo1 (outer repo)
-        let repo1_path = base_path.join("repo1");
-        fs::create_dir_all(&repo1_path).expect("Failed to create repo1 dir");
-        let _repo1 = git2::Repository::init(&repo1_path).expect("Failed to init repo1");
+            // Create repo1 (outer repo)
+            let repo1_path = base_path.join("repo1");
+            fs::create_dir_all(&repo1_path).expect("Failed to create repo1 dir");
+            let _repo1 = git2::Repository::init(&repo1_path).expect("Failed to init repo1");
 
-        // Create .gitignore in repo1 that ignores repo2/
-        let gitignore1_path = repo1_path.join(".gitignore");
-        let mut gitignore1_file =
-            File::create(&gitignore1_path).expect("Failed to create .gitignore in repo1");
-        writeln!(gitignore1_file, "repo2/").expect("Failed to write to repo1 .gitignore");
+            // Create .gitignore in repo1 that ignores repo2/
+            let gitignore1_path = repo1_path.join(".gitignore");
+            let mut gitignore1_file =
+                File::create(&gitignore1_path).expect("Failed to create .gitignore in repo1");
+            writeln!(gitignore1_file, "repo2/").expect("Failed to write to repo1 .gitignore");
 
-        // Create repo2 (inner repo) inside repo1
-        let repo2_path = repo1_path.join("repo2");
-        fs::create_dir_all(&repo2_path).expect("Failed to create repo2 dir");
-        let _repo2 = git2::Repository::init(&repo2_path).expect("Failed to init repo2");
+            // Create repo2 (inner repo) inside repo1
+            let repo2_path = repo1_path.join("repo2");
+            fs::create_dir_all(&repo2_path).expect("Failed to create repo2 dir");
+            let _repo2 = git2::Repository::init(&repo2_path).expect("Failed to init repo2");
 
-        // Create .gitignore in repo2 that doesn't ignore blah
-        let gitignore2_path = repo2_path.join(".gitignore");
-        let mut gitignore2_file =
-            File::create(&gitignore2_path).expect("Failed to create .gitignore in repo2");
-        writeln!(gitignore2_file, "*.log").expect("Failed to write to repo2 .gitignore");
+            // Create .gitignore in repo2 that doesn't ignore blah
+            let gitignore2_path = repo2_path.join(".gitignore");
+            let mut gitignore2_file =
+                File::create(&gitignore2_path).expect("Failed to create .gitignore in repo2");
+            writeln!(gitignore2_file, "*.log").expect("Failed to write to repo2 .gitignore");
 
-        // Create a file in repo2
-        let blah_file = repo2_path.join("blah");
-        File::create(&blah_file).expect("Failed to create blah file");
+            // Create a file in repo2
+            let blah_file = repo2_path.join("blah");
+            File::create(&blah_file).expect("Failed to create blah file");
 
-        // Test 1: is_path_gitignored should use repo2 context (closest repo) and return false
-        let result_closest = is_path_gitignored(&blah_file);
-        assert!(
-            result_closest.is_ok(),
-            "Should successfully check gitignore status"
-        );
-        assert!(
-            !result_closest.unwrap(),
-            "blah should not be ignored in repo2 context"
-        );
+            // Test 1: is_path_gitignored should use repo2 context (closest repo) and return false
+            let result_closest = is_path_gitignored(&blah_file);
+            assert!(
+                result_closest.is_ok(),
+                "Should successfully check gitignore status"
+            );
+            assert!(
+                !result_closest.unwrap(),
+                "blah should not be ignored in repo2 context"
+            );
 
-        // Test 2: is_path_gitignored_from with repo1 root should return true (repo2/ is ignored)
-        let result_from_repo1 = is_path_gitignored_from(&blah_file, Some(&repo1_path));
-        assert!(
-            result_from_repo1.is_ok(),
-            "Should successfully check from repo1"
-        );
-        assert!(
-            result_from_repo1.unwrap(),
-            "blah should be ignored when viewed from repo1 (repo2/ is ignored)"
-        );
+            // Test 2: is_path_gitignored_from with repo1 root should return true (repo2/ is ignored)
+            let result_from_repo1 = is_path_gitignored_from(&blah_file, Some(&repo1_path));
+            assert!(
+                result_from_repo1.is_ok(),
+                "Should successfully check from repo1"
+            );
+            assert!(
+                result_from_repo1.unwrap(),
+                "blah should be ignored when viewed from repo1 (repo2/ is ignored)"
+            );
 
-        // Test 3: is_path_gitignored_from with repo2 root should return false
-        let result_from_repo2 = is_path_gitignored_from(&blah_file, Some(&repo2_path));
-        assert!(
-            result_from_repo2.is_ok(),
-            "Should successfully check from repo2"
-        );
-        assert!(
-            !result_from_repo2.unwrap(),
-            "blah should not be ignored when viewed from repo2"
-        );
+            // Test 3: is_path_gitignored_from with repo2 root should return false
+            let result_from_repo2 = is_path_gitignored_from(&blah_file, Some(&repo2_path));
+            assert!(
+                result_from_repo2.is_ok(),
+                "Should successfully check from repo2"
+            );
+            assert!(
+                !result_from_repo2.unwrap(),
+                "blah should not be ignored when viewed from repo2"
+            );
+        });
     }
 }
