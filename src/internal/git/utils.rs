@@ -182,6 +182,8 @@ pub fn path_entry_config<T: AsRef<str>>(path: T) -> PathEntryConfig {
 ///
 /// # Arguments
 /// * `file_path` - The path to the file to check
+/// * `root` - Optional root directory to be used as the git repository root. If None, the function
+///   will search for the repository from the file's directory.
 ///
 /// # Returns
 /// * `Ok(bool)` - True if the file is ignored, false otherwise
@@ -189,14 +191,19 @@ pub fn path_entry_config<T: AsRef<str>>(path: T) -> PathEntryConfig {
 ///
 /// # Example
 /// ```rust
-/// let is_ignored = is_path_gitignored("src/temp.log")?;
+/// let is_ignored = is_path_gitignored_from("src/temp.log", "path/to/repo").unwrap();
 /// println!("Is file ignored: {}", is_ignored);
 /// ```
-pub fn is_path_gitignored<P: AsRef<Path>>(path: P) -> Result<bool, Box<dyn std::error::Error>> {
+pub fn is_path_gitignored_from<P1: AsRef<Path>, P2: AsRef<Path>>(
+    path: P1,
+    root: Option<P2>,
+) -> Result<bool, Box<dyn std::error::Error>> {
     let path = path.as_ref();
 
     // Find the directory to start the repository search from
-    let search_dir = if path.is_dir() {
+    let search_dir = if let Some(root) = root {
+        root.as_ref().to_path_buf()
+    } else if path.is_dir() {
         path.to_path_buf()
     } else {
         // If it's a file or doesn't exist, use its parent directory
@@ -206,7 +213,18 @@ pub fn is_path_gitignored<P: AsRef<Path>>(path: P) -> Result<bool, Box<dyn std::
     };
 
     // Try to find the Git repository from the path's directory
-    let repo = git2::Repository::discover(search_dir)?;
+    let repo = git2::Repository::discover(search_dir);
+    let repo = match repo {
+        Ok(r) => r,
+        Err(e) => {
+            println!(
+                "Warning: Could not find a Git repository from path '{}': {}",
+                path.display(),
+                e
+            );
+            return Err(Box::new(e));
+        }
+    };
 
     // Get the absolute path
     let abs_path = abs_path(path);
@@ -238,3 +256,15 @@ pub fn is_path_gitignored<P: AsRef<Path>>(path: P) -> Result<bool, Box<dyn std::
         }
     }
 }
+
+/// Checks if a given file path is ignored by Git according to .gitignore rules
+///
+/// This is a convenience wrapper around `is_path_gitignored_from` that does not require
+/// a root directory. It will search for the Git repository starting from the file's directory.
+pub fn is_path_gitignored<P: AsRef<Path>>(path: P) -> Result<bool, Box<dyn std::error::Error>> {
+    is_path_gitignored_from(path, None::<&Path>)
+}
+
+#[cfg(test)]
+#[path = "utils_test.rs"]
+mod test;
