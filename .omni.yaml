@@ -8,6 +8,7 @@ up:
 
 commands:
   create-tag:
+    argparser: true
     desc: Create a new version tag for omni
     run: |
       set -e
@@ -45,6 +46,7 @@ commands:
       echo "Created tag: $new_tag"
 
   website-dev:
+    argparser: true
     desc: |
       Starts a local development server for the website
 
@@ -55,6 +57,7 @@ commands:
       yarn start
 
   cargo-package:
+    argparser: true
     desc: Runs cargo package after overriding the version
     run: |
       # Check if git is dirty
@@ -81,6 +84,7 @@ commands:
       git checkout Cargo.toml
 
   lint:
+    argparser: true
     desc: Runs the linter
     aliases:
       - clippy
@@ -89,18 +93,46 @@ commands:
       cargo clippy --all-features
 
   test:
-    desc: Runs the tests
+    argparser: true
+    desc: Runs all tests
+    syntax:
+      parameters:
+        - name: --unit
+          type: flag
+          desc: Select the unit tests
+        - name: --integration
+          type: flag
+          desc: Select the integration tests
     run: |
       set -e
-      cargo test
-      GENERATE_FIXTURES=false bats tests/
+
+      run_unit=${OMNI_ARG_UNIT_VALUE:-false}
+      run_integration=${OMNI_ARG_INTEGRATION_VALUE:-false}
+
+      if [[ "$run_unit" == "false" && "$run_integration" == "false" ]]; then
+        run_unit=true
+        run_integration=true
+      fi
+
+      if [[ "$run_unit" == "true" ]]; then
+        echo >&2 -e "\033[1;34mRunning unit tests...\033[0m"
+        cargo test
+      fi
+
+      if [[ "$run_integration" == "true" ]]; then
+        echo >&2 -e "\033[1;34mRunning integration tests...\033[0m"
+        GENERATE_FIXTURES=false bats tests/
+      fi
+
     subcommands:
       generate:
+        argparser: true
         desc: Generates the fixtures for the tests
         run: |
           GENERATE_FIXTURES=true bats --filter-tags generate tests/ "$@"
 
       renumber:
+        argparser: true
         desc: Renumber the bats tests
         run: |
           set -e
@@ -126,6 +158,7 @@ commands:
           done
 
   fix:
+    argparser: true
     desc: Fixes the code
     run: |
       set -e
