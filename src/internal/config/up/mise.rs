@@ -47,7 +47,7 @@ use crate::internal::env::cache_home;
 use crate::internal::env::current_dir;
 use crate::internal::env::data_home;
 use crate::internal::env::state_home;
-use crate::internal::git::is_path_gitignored;
+use crate::internal::git::is_path_gitignored_from;
 use crate::internal::git_env;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
@@ -1537,6 +1537,8 @@ impl UpConfigMise {
         detect_version_funcs.push(detect_version_from_tool_version_file);
 
         let in_repo = git_env(".").in_repo();
+        let wd = workdir(".");
+        let wd_root = wd.root();
         for search_dir in search_dirs.iter() {
             // For safety, we remove any leading slashes from the search directory,
             // as we only want to search in the workdir
@@ -1577,7 +1579,9 @@ impl UpConfigMise {
                     {
                         // Check if the entry is .gitignore'd, we do this now for now as it
                         // seems less costly than evaluating all files ahead of time
-                        if in_repo && matches!(is_path_gitignored(entry.path()), Ok(true)) {
+                        if in_repo
+                            && matches!(is_path_gitignored_from(entry.path(), wd_root), Ok(true))
+                        {
                             continue;
                         }
 
