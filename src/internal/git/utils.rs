@@ -256,4 +256,4 @@ pub fn is_path_gitignored<P: AsRef<Path>>(path: P) -> Result<bool, Box<dyn std::
 
 #[cfg(test)]
 #[path = "utils_test.rs"]
-mod test;
+mod tests;
