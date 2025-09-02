@@ -213,18 +213,7 @@ pub fn is_path_gitignored_from<P1: AsRef<Path>, P2: AsRef<Path>>(
     };
 
     // Try to find the Git repository from the path's directory
-    let repo = git2::Repository::discover(search_dir);
-    let repo = match repo {
-        Ok(r) => r,
-        Err(e) => {
-            println!(
-                "Warning: Could not find a Git repository from path '{}': {}",
-                path.display(),
-                e
-            );
-            return Err(Box::new(e));
-        }
-    };
+    let repo = git2::Repository::discover(search_dir)?;
 
     // Get the absolute path
     let abs_path = abs_path(path);
