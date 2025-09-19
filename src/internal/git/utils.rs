@@ -31,10 +31,35 @@ pub fn package_root_path() -> String {
 
 static TIMEOUT_DURATION: Duration = Duration::from_secs(2);
 
+fn coerce_handle_to_url(input: &str) -> String {
+    // If already has a scheme, return as-is
+    if input.contains("://") {
+        return input.to_string();
+    }
+    // Transform patterns like "host:owner[/repo]" into https URLs for org handles
+    if let Some((host, rest)) = input.split_once(':') {
+        if !host.is_empty() && !rest.is_empty() && !rest.contains('@') {
+            // Use ssh scheme for scp-like shorthand (no user specified)
+            return format!("ssh://{host}/{rest}");
+        }
+    }
+    // Default: prefix https://
+    format!("https://{}", input)
+}
+
 pub fn safe_normalize_url(url: &str) -> Result<Url, GitUrlError> {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        match timeout(TIMEOUT_DURATION, async { Url::parse(url) }).await {
+        match timeout(TIMEOUT_DURATION, async {
+            let candidate = if url.contains("://") {
+                url.to_string()
+            } else {
+                coerce_handle_to_url(url)
+            };
+            Url::parse(&candidate)
+        })
+        .await
+        {
             Ok(result) => result.map_err(GitUrlError::from),
             Err(_) => Err(GitUrlError::NormalizeTimeout),
         }

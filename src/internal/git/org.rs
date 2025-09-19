@@ -834,13 +834,38 @@ impl Org {
         let mut repo = None;
 
         if let Some(path) = parsed_url.path_segments() {
-            let mut path_segments = path.collect::<Vec<_>>();
-            path_segments.retain(|segment| !segment.is_empty());
-            if path_segments.len() > 1 {
-                repo = Some(path_segments.pop().unwrap().to_string());
-            }
-            if !path_segments.is_empty() {
-                owner = Some(path_segments.pop().unwrap().to_string());
+            let mut segs = path.collect::<Vec<_>>();
+            segs.retain(|s| !s.is_empty());
+
+            // Provider-aware parsing for namespace and repo
+            let host = parsed_url.host_str().unwrap_or("");
+            let _has_scheme = config.handle.contains("://");
+            if host == "dev.azure.com" {
+                // Azure DevOps patterns:
+                // - https://dev.azure.com/{org}/{project}/_git/{repo}
+                // - https://dev.azure.com/{org}/{project}
+                if segs.len() >= 2 {
+                    owner = Some(format!("{}/{}", segs[0], segs[1]));
+                }
+                if let Some(idx) = segs.iter().position(|s| *s == "_git") {
+                    if idx + 1 < segs.len() {
+                        repo = Some(segs[idx + 1].to_string());
+                    }
+                } else if segs.len() >= 3 {
+                    // In case _git is omitted and repo is provided as third segment
+                    repo = Some(segs[2].to_string());
+                }
+                if segs.len() == 1 {
+                    owner = Some(segs[0].to_string());
+                }
+            } else {
+                // Generic/GitHub/GitLab: owner is full namespace (all but last), repo is leaf
+                if segs.len() >= 2 {
+                    repo = Some(segs.last().unwrap().to_string());
+                    owner = Some(segs[..segs.len() - 1].join("/"));
+                } else if segs.len() == 1 {
+                    owner = Some(segs[0].to_string());
+                }
             }
         }
 
@@ -1085,6 +1110,10 @@ impl Org {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "org_test.rs"]
+mod tests;
 
 #[derive(Debug, Clone)]
 pub enum RepoError {
