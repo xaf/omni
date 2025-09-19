@@ -71,3 +71,7 @@ impl From<git_url_parse::GitUrlParseError> for GitUrlError {
         GitUrlError::GitUrlParse(err.to_string())
     }
 }
+
+#[cfg(test)]
+#[path = "parsed_repo_url_test.rs"]
+mod tests;

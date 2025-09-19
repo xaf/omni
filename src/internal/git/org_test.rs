@@ -38,6 +38,18 @@ fn github_partial_handles() {
 }
 
 #[test]
+fn github_partial_ssh_handles() {
+    // owner only
+    let org = mk_org("git@github.com:owner");
+    assert_eq!(org.owner.as_deref(), Some("owner"));
+    assert!(org.repo.is_none());
+    // owner + repo
+    let org = mk_org("git@github.com:owner/repo.git");
+    assert_eq!(org.owner.as_deref(), Some("owner"));
+    assert_eq!(org.repo.as_deref(), Some("repo"));
+}
+
+#[test]
 fn gitlab_namespace_parsing() {
     // namespace only
     let org = mk_org("gitlab.com:group/sub1");
@@ -50,6 +62,18 @@ fn gitlab_namespace_parsing() {
     assert_eq!(org.repo.as_deref(), Some("repo"));
     assert!(org.get_repo_git_url("repo").is_some());
     assert!(org.get_repo_git_url("other").is_none());
+}
+
+#[test]
+fn gitlab_partial_ssh_handles() {
+    // owner only
+    let org = mk_org("git@gitlab.com:group/sub");
+    assert_eq!(org.owner.as_deref(), Some("group/sub"));
+    assert!(org.repo.is_none());
+    // owner + repo
+    let org = mk_org("git@gitlab.com:group/sub/repo.git");
+    assert_eq!(org.owner.as_deref(), Some("group/sub"));
+    assert_eq!(org.repo.as_deref(), Some("repo"));
 }
 
 #[test]
@@ -92,4 +116,29 @@ fn azure_owner_repo_parsing() {
     assert_eq!(org.owner.as_deref(), Some("Org/Project"));
     assert_eq!(org.repo.as_deref(), Some("Repo"));
     assert!(org.get_repo_git_url("Repo").is_some());
+}
+
+#[test]
+fn azure_ssh_owner_only_and_repo() {
+    // owner only via SSH
+    let org = mk_org("git@ssh.dev.azure.com:v3/Org/Project");
+    assert_eq!(org.owner.as_deref(), Some("Org/Project"));
+    assert!(org.repo.is_none());
+
+    // owner + repo via SSH
+    let org = mk_org("git@ssh.dev.azure.com:v3/Org/Project/Repo");
+    assert_eq!(org.owner.as_deref(), Some("Org/Project"));
+    assert_eq!(org.repo.as_deref(), Some("Repo"));
+}
+
+#[test]
+fn generic_partial_ssh_handles() {
+    // owner only
+    let org = mk_org("git@example.com:org");
+    assert_eq!(org.owner.as_deref(), Some("org"));
+    assert!(org.repo.is_none());
+    // owner + repo
+    let org = mk_org("git@example.com:org/repo");
+    assert_eq!(org.owner.as_deref(), Some("org"));
+    assert_eq!(org.repo.as_deref(), Some("repo"));
 }

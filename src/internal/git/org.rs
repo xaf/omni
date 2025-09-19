@@ -840,28 +840,45 @@ impl Org {
             // Provider-aware parsing for namespace and repo
             let host = parsed_url.host_str().unwrap_or("");
             let _has_scheme = config.handle.contains("://");
-            if host == "dev.azure.com" {
+            if host == "dev.azure.com" || host == "ssh.dev.azure.com" {
                 // Azure DevOps patterns:
                 // - https://dev.azure.com/{org}/{project}/_git/{repo}
                 // - https://dev.azure.com/{org}/{project}
-                if segs.len() >= 2 {
-                    owner = Some(format!("{}/{}", segs[0], segs[1]));
+                // - ssh: git@ssh.dev.azure.com:v3/{org}/{project}/{repo}
+                let mut i = 0;
+                if host == "ssh.dev.azure.com" && !segs.is_empty() && segs[0] == "v3" {
+                    i = 1;
                 }
-                if let Some(idx) = segs.iter().position(|s| *s == "_git") {
-                    if idx + 1 < segs.len() {
-                        repo = Some(segs[idx + 1].to_string());
+                if segs.len() >= i + 2 {
+                    owner = Some(format!("{}/{}", segs[i], segs[i + 1]));
+                }
+                if host == "ssh.dev.azure.com" {
+                    if segs.len() >= i + 3 {
+                        let r = segs[i + 2].to_string();
+                        let r = r.strip_suffix(".git").unwrap_or(&r).to_string();
+                        repo = Some(r);
                     }
-                } else if segs.len() >= 3 {
+                } else if let Some(idx) = segs.iter().position(|s| *s == "_git") {
+                    if idx + 1 < segs.len() {
+                        let r = segs[idx + 1].to_string();
+                        let r = r.strip_suffix(".git").unwrap_or(&r).to_string();
+                        repo = Some(r);
+                    }
+                } else if segs.len() >= i + 3 {
                     // In case _git is omitted and repo is provided as third segment
-                    repo = Some(segs[2].to_string());
+                    let r = segs[i + 2].to_string();
+                    let r = r.strip_suffix(".git").unwrap_or(&r).to_string();
+                    repo = Some(r);
                 }
-                if segs.len() == 1 {
-                    owner = Some(segs[0].to_string());
+                if segs.len() == i + 1 {
+                    owner = Some(segs[i].to_string());
                 }
             } else {
                 // Generic/GitHub/GitLab: owner is full namespace (all but last), repo is leaf
                 if segs.len() >= 2 {
-                    repo = Some(segs.last().unwrap().to_string());
+                    let r = segs.last().unwrap().to_string();
+                    let r = r.strip_suffix(".git").unwrap_or(&r).to_string();
+                    repo = Some(r);
                     owner = Some(segs[..segs.len() - 1].join("/"));
                 } else if segs.len() == 1 {
                     owner = Some(segs[0].to_string());
