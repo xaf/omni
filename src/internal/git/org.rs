@@ -2,8 +2,6 @@ use std::collections::HashSet;
 use std::hash::Hash;
 use std::path::PathBuf;
 
-use git_url_parse::GitUrl;
-use crate::internal::git::utils::extract_owner_repo;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use itertools::Itertools;
@@ -894,27 +892,24 @@ impl Org {
         if let Ok(url) = safe_git_url_parse(repo) {
             let self_url = match self.url.as_ref() {
                 Some(self_url) => self_url,
-                None => return url.host().is_some() && extract_owner_repo(&url).is_some(),
+                None => return url.host.is_some() && url.owner.is_some() && !url.name.is_empty(),
             };
 
-            let url_scheme = url.scheme().unwrap_or("").to_string();
-            let url_port = url.port();
-            let url_user = url.user();
-            let url_pass = url.password();
-            let url_host = url.host();
-            let (url_owner, url_name) = match extract_owner_repo(&url) {
-                Some(v) => v,
-                None => return false,
-            };
+            let url_scheme = url.scheme.unwrap_or_default();
+            let url_port = url.port;
+            let url_user = url.user.as_deref();
+            let url_pass = url.password.as_deref();
+            let url_host = url.host.as_deref();
+            let url_owner = match &url.owner { Some(o) => o, None => return false };
+            let url_name = &url.name;
 
             return (!self.enforce_scheme || self_url.scheme() == url_scheme)
                 && (self_url.port() == url_port)
-                && (!self.enforce_user
-                    || self_url.username() == url_user.unwrap_or(""))
+                && (!self.enforce_user || self_url.username() == url_user.unwrap_or(""))
                 && (!self.enforce_password || self_url.password() == url_pass)
                 && self_url.host_str() == url_host
-                && (self.owner.is_none() || self.owner.as_deref() == Some(&url_owner))
-                && (self.repo.is_none() || self.repo.as_deref() == Some(&url_name));
+                && (self.owner.is_none() || self.owner.as_deref() == Some(url_owner))
+                && (self.repo.is_none() || self.repo.as_deref() == Some(url_name));
         }
         false
     }
@@ -1113,17 +1108,17 @@ pub struct Repo {
 impl Repo {
     pub fn parse(repo: &str) -> Result<Self, RepoError> {
         if let Ok(url) = safe_git_url_parse(repo) {
-            if let Some((owner, name)) = extract_owner_repo(&url) {
+            if let (Some(owner), name) = (&url.owner, &url.name) {
                 return Ok(Self {
-                    name,
-                    owner: Some(owner),
-                    host: url.host().map(|s| s.to_string()),
-                    port: url.port(),
-                    scheme: url.scheme().map(|s| s.to_string()),
-                    scheme_prefix: url.print_scheme(),
-                    git_suffix: url.path().ends_with(".git"),
-                    user: url.user().map(|s| s.to_string()),
-                    password: url.password().map(|s| s.to_string()),
+                    name: name.clone(),
+                    owner: Some(owner.clone()),
+                    host: url.host.clone(),
+                    port: url.port,
+                    scheme: url.scheme.clone(),
+                    scheme_prefix: url.print_scheme,
+                    git_suffix: url.git_suffix,
+                    user: url.user.clone(),
+                    password: url.password.clone(),
                     rel_path: OnceCell::new(),
                 });
             } else {

@@ -155,9 +155,10 @@ impl CloneCommand {
         // we can clone to the default worktree
         if cloned.is_none() {
             if let Ok(clone_url) = safe_git_url_parse(&repo) {
-                if clone_url.scheme() != Some("file")
-                    && clone_url.host().is_some()
-                    && crate::internal::git::utils::extract_owner_repo(&clone_url).is_some()
+                if clone_url.scheme.as_deref() != Some("file")
+                    && clone_url.host.is_some()
+                    && clone_url.owner.is_some()
+                    && !clone_url.name.is_empty()
                 {
                     let config = config(".");
                     let worktree = config.worktree();
@@ -178,7 +179,7 @@ impl CloneCommand {
                     };
 
                     if self.try_clone(
-                        &clone_url.to_string(),
+                        &clone_url.raw,
                         &clone_path,
                         clone_args,
                         spinner.clone(),
@@ -186,7 +187,7 @@ impl CloneCommand {
                         should_run_up,
                         lookup_only,
                     ) {
-                        cloned = Some((clone_path, clone_url.to_string()));
+                        cloned = Some((clone_path, clone_url.raw.clone()));
                     }
                 }
             }

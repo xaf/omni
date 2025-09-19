@@ -1,5 +1,6 @@
 use git_url_parse::GitUrl;
 use git_url_parse::types::provider::{AzureDevOpsProvider, GenericProvider, GitLabProvider};
+use crate::internal::errors::GitUrlError;
 
 #[derive(Debug, Clone)]
 pub struct ParsedRepoUrl {
@@ -16,8 +17,8 @@ pub struct ParsedRepoUrl {
 }
 
 impl ParsedRepoUrl {
-    pub fn parse(input: &str) -> Result<Self, git_url_parse::GitUrlParseError> {
-        let url = GitUrl::parse(input)?;
+    pub fn parse(input: &str) -> Result<Self, GitUrlError> {
+        let url = GitUrl::parse(input).map_err(GitUrlError::from)?;
         Ok(Self::from_git_url(&url, input.to_string()))
     }
 
@@ -33,9 +34,17 @@ impl ParsedRepoUrl {
         let (owner, name) = if let Ok(p) = url.provider_info::<GenericProvider>() {
             (Some(p.owner().to_string()), p.repo().to_string())
         } else if let Ok(p) = url.provider_info::<GitLabProvider>() {
-            (Some(p.owner().to_string()), p.repo().to_string())
+            // Owner includes subgroups, matching older GitUrl semantics
+            let fullname = p.fullname(); // e.g., owner/group1/group2/repo
+            let repo = p.repo().to_string();
+            let owner = fullname
+                .strip_suffix(&format!("/{}", repo))
+                .unwrap_or(&fullname)
+                .to_string();
+            (Some(owner), repo)
         } else if let Ok(p) = url.provider_info::<AzureDevOpsProvider>() {
-            (Some(p.org().to_string()), p.repo().to_string())
+            // Owner is org/project for Azure DevOps
+            (Some(format!("{}/{}", p.org(), p.project())), p.repo().to_string())
         } else {
             (None, String::new())
         };
@@ -55,3 +64,10 @@ impl ParsedRepoUrl {
     }
 }
 
+// Keep the external error type usage confined to this file by implementing
+// a conversion into our internal error without exposing the external type.
+impl From<git_url_parse::GitUrlParseError> for GitUrlError {
+    fn from(err: git_url_parse::GitUrlParseError) -> Self {
+        GitUrlError::GitUrlParse(err.to_string())
+    }
+}

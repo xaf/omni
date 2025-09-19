@@ -607,14 +607,13 @@ fn question_org(worktree: &str) -> (Vec<OrgConfig>, bool) {
     for repository in repositories {
         let origin_url = repository.origin_url;
         if let Ok(git_url) = full_git_url_parse(&origin_url) {
-            let host = git_url.host().unwrap_or("");
-            if let Some((owner, _name)) = crate::internal::git::utils::extract_owner_repo(&git_url)
-            {
-                let scheme = git_url.scheme().unwrap_or("");
-                let print_scheme = git_url.print_scheme();
-                let user = git_url.user();
-                let pass = git_url.password();
-                let port = git_url.port();
+            let host = git_url.host.as_deref().unwrap_or("");
+            if let Some(owner) = git_url.owner.as_deref() {
+                let scheme = git_url.scheme.as_deref().unwrap_or("");
+                let print_scheme = git_url.print_scheme;
+                let user = git_url.user.as_deref();
+                let pass = git_url.password.as_deref();
+                let port = git_url.port;
 
                 // Build org string with scheme/user if present
                 let mut prefix = String::new();

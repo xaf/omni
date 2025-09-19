@@ -7,7 +7,6 @@ use std::process::exit;
 use std::str::FromStr;
 
 use blake3::Hasher as Blake3Hasher;
-// No direct GitUrl storage; parse on demand where needed
 use imara_diff::diff;
 use imara_diff::intern::InternedInput;
 use imara_diff::Algorithm;
@@ -695,14 +694,15 @@ impl UpCommand {
 
             if repo.is_none() {
                 if let Ok(clone_url) = safe_git_url_parse(&repo_config.handle) {
-                    if clone_url.scheme() != Some("file")
-                        && clone_url.host().is_some()
-                        && crate::internal::git::utils::extract_owner_repo(&clone_url).is_some()
+                    if clone_url.scheme.as_deref() != Some("file")
+                        && clone_url.host.is_some()
+                        && clone_url.owner.is_some()
+                        && !clone_url.name.is_empty()
                     {
                         let worktree = config.worktree();
                         repo = Some(RepositoryToClone {
                             suggested_by: vec![repo_id.clone()],
-                            clone_url: clone_url.to_string(),
+                            clone_url: clone_url.raw.clone(),
                             clone_path: format_path_with_template(
                                 &worktree,
                                 &clone_url,

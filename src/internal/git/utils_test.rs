@@ -26,10 +26,9 @@ mod safe_git_url_parse_tests {
 
         assert!(result.is_ok());
         let git_url = result.unwrap();
-        assert_eq!(git_url.host(), Some("github.com"));
-        let (owner, name) = extract_owner_repo(&git_url).unwrap();
-        assert_eq!(owner, "owner");
-        assert_eq!(name, "repo");
+        assert_eq!(git_url.host.as_deref(), Some("github.com"));
+        assert_eq!(git_url.owner.as_deref(), Some("owner"));
+        assert_eq!(git_url.name, "repo");
     }
 
     #[test]
@@ -39,10 +38,9 @@ mod safe_git_url_parse_tests {
 
         assert!(result.is_ok());
         let git_url = result.unwrap();
-        assert_eq!(git_url.host(), Some("github.com"));
-        let (owner, name) = extract_owner_repo(&git_url).unwrap();
-        assert_eq!(owner, "owner");
-        assert_eq!(name, "repo");
+        assert_eq!(git_url.host.as_deref(), Some("github.com"));
+        assert_eq!(git_url.owner.as_deref(), Some("owner"));
+        assert_eq!(git_url.name, "repo");
     }
 
     #[test]
@@ -108,10 +106,9 @@ mod full_git_url_parse_tests {
 
         assert!(result.is_ok());
         let git_url = result.unwrap();
-        assert_eq!(git_url.host(), Some("github.com"));
-        let (owner, name) = extract_owner_repo(&git_url).unwrap();
-        assert_eq!(owner, "owner");
-        assert_eq!(name, "repo");
+        assert_eq!(git_url.host.as_deref(), Some("github.com"));
+        assert_eq!(git_url.owner.as_deref(), Some("owner"));
+        assert_eq!(git_url.name, "repo");
     }
 
     #[test]

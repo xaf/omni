@@ -1,5 +1,4 @@
 use url::ParseError as UrlParseError;
-use git_url_parse::GitUrlParseError;
 use thiserror::Error;
 
 use crate::internal::config::up::utils::SyncUpdateInit;
@@ -42,5 +41,5 @@ pub enum GitUrlError {
     #[error("error during URL parsing: {0}")]
     UrlParseError(#[from] UrlParseError),
     #[error("error during Git URL parsing: {0}")]
-    GitUrlParse(#[from] GitUrlParseError),
+    GitUrlParse(String),
 }
