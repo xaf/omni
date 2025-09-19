@@ -675,10 +675,9 @@ impl TidyGitRepo {
             // we can clone to the default worktree
             if expected_path.is_none() {
                 if let Ok(repo_url) = safe_git_url_parse(origin_url) {
-                    if repo_url.scheme.to_string() != "file"
-                        && !repo_url.name.is_empty()
-                        && repo_url.owner.is_some()
-                        && repo_url.host.is_some()
+                    if repo_url.scheme() != Some("file")
+                        && repo_url.host().is_some()
+                        && crate::internal::git::utils::extract_owner_repo(&repo_url).is_some()
                     {
                         let config = config(".");
                         let worktree = config.worktree();

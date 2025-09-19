@@ -3,7 +3,7 @@ use std::hash::Hash;
 use std::path::PathBuf;
 
 use git_url_parse::GitUrl;
-use git_url_parse::Scheme;
+use crate::internal::git::utils::extract_owner_repo;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use itertools::Itertools;
@@ -877,13 +877,13 @@ impl Org {
 
     pub fn get_repo_path(&self, repo: &str) -> Option<PathBuf> {
         // Get the repo git url
-        let git_url = self.get_repo_git_url(repo)?;
+        let git_url_str = self.get_repo_git_url(repo)?;
+        let git_url = match safe_git_url_parse(&git_url_str) {
+            Ok(u) => u,
+            Err(_) => return None,
+        };
 
-        Some(format_path_with_template(
-            &self.worktree(),
-            &git_url,
-            &self.repo_path_format(),
-        ))
+        Some(format_path_with_template(&self.worktree(), &git_url, &self.repo_path_format()))
     }
 
     pub fn is_default(&self) -> bool {
@@ -894,22 +894,27 @@ impl Org {
         if let Ok(url) = safe_git_url_parse(repo) {
             let self_url = match self.url.as_ref() {
                 Some(self_url) => self_url,
-
-                // If url is None, it means it's the default, org,
-                // and the default org matches all as long as the
-                // parsed repository has at least host, owner and
-                // name
-                None => return url.host.is_some() && url.owner.is_some() && !url.name.is_empty(),
+                None => return url.host().is_some() && extract_owner_repo(&url).is_some(),
             };
 
-            return (!self.enforce_scheme || self_url.scheme() == url.scheme.to_string())
-                && (self_url.port() == url.port || self_url.port_or_known_default() == url.port)
+            let url_scheme = url.scheme().unwrap_or("").to_string();
+            let url_port = url.port();
+            let url_user = url.user();
+            let url_pass = url.password();
+            let url_host = url.host();
+            let (url_owner, url_name) = match extract_owner_repo(&url) {
+                Some(v) => v,
+                None => return false,
+            };
+
+            return (!self.enforce_scheme || self_url.scheme() == url_scheme)
+                && (self_url.port() == url_port)
                 && (!self.enforce_user
-                    || self_url.username() == url.user.as_deref().unwrap_or(""))
-                && (!self.enforce_password || self_url.password() == url.token.as_deref())
-                && self_url.host_str() == url.host.as_deref()
-                && (self.owner.is_none() || self.owner == url.owner)
-                && (self.repo.is_none() || self.repo == Some(url.name));
+                    || self_url.username() == url_user.unwrap_or(""))
+                && (!self.enforce_password || self_url.password() == url_pass)
+                && self_url.host_str() == url_host
+                && (self.owner.is_none() || self.owner.as_deref() == Some(&url_owner))
+                && (self.repo.is_none() || self.repo.as_deref() == Some(&url_name));
         }
         false
     }
@@ -922,7 +927,7 @@ impl Org {
     // }
     // }
 
-    pub fn get_repo_git_url(&self, repo: &str) -> Option<GitUrl> {
+    pub fn get_repo_git_url(&self, repo: &str) -> Option<String> {
         if let Ok(repo) = Repo::parse(repo) {
             if let Some(self_url) = self.url.as_ref() {
                 // If the repo has a scheme, we need to make sure it matches the org's scheme
@@ -1024,11 +1029,6 @@ impl Org {
                 (_, Some(scheme)) => scheme,
                 (None, None) => "https".to_string(),
             };
-            let scheme = if scheme == "ssh" {
-                Scheme::Ssh
-            } else {
-                Scheme::Https
-            };
 
             let user = match (&self.url, repo.user) {
                 (Some(self_url), _) => {
@@ -1054,27 +1054,38 @@ impl Org {
                 (None, None) => None,
             };
 
-            let git_url = GitUrl {
-                host,
-                name: name.clone(),
-                owner: Some(owner.clone()),
-                organization: None,
-                fullname: format!("{}/{}", owner.clone(), name.clone()),
-                scheme,
-                user,
-                token: password,
-                port,
-                path: format!(
-                    "{}{}/{}",
-                    if scheme == Scheme::Ssh { "" } else { "/" },
-                    owner.clone(),
-                    name,
-                ),
-                git_suffix: repo.git_suffix,
-                scheme_prefix: scheme != Scheme::Ssh || port.is_some(),
-            };
-
-            return Some(git_url);
+            // Build a URL string compatible with GitUrl::parse
+            let scheme_prefix = scheme != "ssh" || port.is_some();
+            let mut s = String::new();
+            if scheme_prefix {
+                s.push_str(&format!("{scheme}://"));
+            }
+            if let Some(u) = &user {
+                s.push_str(u);
+                if let Some(p) = &password {
+                    s.push(':');
+                    s.push_str(p);
+                }
+                s.push('@');
+            }
+            if let Some(h) = &host {
+                s.push_str(h);
+            }
+            if let Some(p) = port {
+                s.push(':');
+                s.push_str(&p.to_string());
+            }
+            if scheme == "ssh" && !scheme_prefix {
+                s.push(':');
+                s.push_str(&format!("{}/{}", owner, name));
+            } else {
+                s.push('/');
+                s.push_str(&format!("{}/{}", owner, name));
+            }
+            if repo.git_suffix {
+                s.push_str(".git");
+            }
+            return Some(s);
         }
         None
     }
@@ -1102,17 +1113,17 @@ pub struct Repo {
 impl Repo {
     pub fn parse(repo: &str) -> Result<Self, RepoError> {
         if let Ok(url) = safe_git_url_parse(repo) {
-            if url.host.is_some() && url.owner.is_some() && !url.name.is_empty() {
+            if let Some((owner, name)) = extract_owner_repo(&url) {
                 return Ok(Self {
-                    name: url.name,
-                    owner: url.owner,
-                    host: url.host,
-                    port: url.port,
-                    scheme: Some(url.scheme.to_string()),
-                    scheme_prefix: url.scheme_prefix,
-                    git_suffix: url.git_suffix,
-                    user: url.user,
-                    password: url.token,
+                    name,
+                    owner: Some(owner),
+                    host: url.host().map(|s| s.to_string()),
+                    port: url.port(),
+                    scheme: url.scheme().map(|s| s.to_string()),
+                    scheme_prefix: url.print_scheme(),
+                    git_suffix: url.path().ends_with(".git"),
+                    user: url.user().map(|s| s.to_string()),
+                    password: url.password().map(|s| s.to_string()),
                     rel_path: OnceCell::new(),
                 });
             } else {

@@ -230,10 +230,17 @@ impl BuiltinCommand for ConfigPathSwitchCommand {
                     ));
                     exit(1);
                 }
-                let (repo_path, repo_git_url) = remote_repo.unwrap();
+                let (repo_path, repo_git_url_str) = remote_repo.unwrap();
 
+                let repo_git_url = match full_git_url_parse(&repo_git_url_str) {
+                    Ok(u) => u,
+                    Err(_) => {
+                        omni_error!("invalid repository url returned");
+                        exit(1);
+                    }
+                };
                 repo_id = id_from_git_url(&repo_git_url);
-                repo_handle = Some(repo_git_url.to_string());
+                repo_handle = Some(repo_git_url_str);
                 worktree_path = Some(repo_path);
                 package_path = package_path_from_handle(&repo_handle.clone().unwrap());
             }
@@ -285,10 +292,17 @@ impl BuiltinCommand for ConfigPathSwitchCommand {
                     ));
                     exit(1);
                 }
-                let (repo_path, repo_git_url) = remote_repo.unwrap();
+                let (repo_path, repo_git_url_str) = remote_repo.unwrap();
 
+                let repo_git_url = match full_git_url_parse(&repo_git_url_str) {
+                    Ok(u) => u,
+                    Err(_) => {
+                        omni_error!("invalid repository url returned");
+                        exit(1);
+                    }
+                };
                 repo_id = id_from_git_url(&repo_git_url);
-                repo_handle = Some(repo_git_url.to_string());
+                repo_handle = Some(repo_git_url_str);
                 worktree_path = Some(repo_path);
             }
         }

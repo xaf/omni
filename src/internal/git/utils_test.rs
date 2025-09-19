@@ -26,9 +26,10 @@ mod safe_git_url_parse_tests {
 
         assert!(result.is_ok());
         let git_url = result.unwrap();
-        assert_eq!(git_url.host, Some("github.com".to_string()));
-        assert_eq!(git_url.owner, Some("owner".to_string()));
-        assert_eq!(git_url.name, "repo");
+        assert_eq!(git_url.host(), Some("github.com"));
+        let (owner, name) = extract_owner_repo(&git_url).unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(name, "repo");
     }
 
     #[test]
@@ -38,9 +39,10 @@ mod safe_git_url_parse_tests {
 
         assert!(result.is_ok());
         let git_url = result.unwrap();
-        assert_eq!(git_url.host, Some("github.com".to_string()));
-        assert_eq!(git_url.owner, Some("owner".to_string()));
-        assert_eq!(git_url.name, "repo");
+        assert_eq!(git_url.host(), Some("github.com"));
+        let (owner, name) = extract_owner_repo(&git_url).unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(name, "repo");
     }
 
     #[test]
@@ -72,8 +74,7 @@ mod id_from_git_url_tests {
 
     #[test]
     fn test_id_from_git_url_missing_owner() {
-        let mut git_url = safe_git_url_parse("https://github.com/owner/repo.git").unwrap();
-        git_url.owner = None;
+        let git_url = safe_git_url_parse("https://github.com/.git").unwrap_or_else(|_| safe_git_url_parse("https://github.com/").unwrap());
         let result = id_from_git_url(&git_url);
 
         assert_eq!(result, None);
@@ -81,8 +82,8 @@ mod id_from_git_url_tests {
 
     #[test]
     fn test_id_from_git_url_missing_host() {
-        let mut git_url = safe_git_url_parse("https://github.com/owner/repo.git").unwrap();
-        git_url.host = None;
+        // Use a file URL which has no host
+        let git_url = safe_git_url_parse("file:///owner/repo").unwrap();
         let result = id_from_git_url(&git_url);
 
         assert_eq!(result, None);
@@ -90,8 +91,7 @@ mod id_from_git_url_tests {
 
     #[test]
     fn test_id_from_git_url_empty_name() {
-        let mut git_url = safe_git_url_parse("https://github.com/owner/repo.git").unwrap();
-        git_url.name = String::new();
+        let git_url = safe_git_url_parse("https://github.com/owner/").unwrap();
         let result = id_from_git_url(&git_url);
 
         assert_eq!(result, None);
@@ -108,9 +108,10 @@ mod full_git_url_parse_tests {
 
         assert!(result.is_ok());
         let git_url = result.unwrap();
-        assert_eq!(git_url.host, Some("github.com".to_string()));
-        assert_eq!(git_url.owner, Some("owner".to_string()));
-        assert_eq!(git_url.name, "repo");
+        assert_eq!(git_url.host(), Some("github.com"));
+        let (owner, name) = extract_owner_repo(&git_url).unwrap();
+        assert_eq!(owner, "owner");
+        assert_eq!(name, "repo");
     }
 
     #[test]
@@ -252,8 +253,7 @@ mod package_path_from_git_url_tests {
 
     #[test]
     fn test_package_path_from_git_url_file_scheme() {
-        let mut git_url = safe_git_url_parse("https://github.com/owner/repo.git").unwrap();
-        git_url.scheme = git_url_parse::Scheme::File;
+        let git_url = safe_git_url_parse("file:///path/to/repo").unwrap();
         let result = package_path_from_git_url(&git_url);
 
         assert!(result.is_none());
@@ -261,8 +261,7 @@ mod package_path_from_git_url_tests {
 
     #[test]
     fn test_package_path_from_git_url_empty_name() {
-        let mut git_url = safe_git_url_parse("https://github.com/owner/repo.git").unwrap();
-        git_url.name = String::new();
+        let git_url = safe_git_url_parse("https://github.com/owner/").unwrap();
         let result = package_path_from_git_url(&git_url);
 
         assert!(result.is_none());
@@ -270,8 +269,7 @@ mod package_path_from_git_url_tests {
 
     #[test]
     fn test_package_path_from_git_url_missing_owner() {
-        let mut git_url = safe_git_url_parse("https://github.com/owner/repo.git").unwrap();
-        git_url.owner = None;
+        let git_url = safe_git_url_parse("https://github.com/repo.git").unwrap_or_else(|_| safe_git_url_parse("https://github.com/").unwrap());
         let result = package_path_from_git_url(&git_url);
 
         assert!(result.is_none());
@@ -279,8 +277,8 @@ mod package_path_from_git_url_tests {
 
     #[test]
     fn test_package_path_from_git_url_missing_host() {
-        let mut git_url = safe_git_url_parse("https://github.com/owner/repo.git").unwrap();
-        git_url.host = None;
+        // Use a file URL which has no host
+        let git_url = safe_git_url_parse("file:///owner/repo").unwrap();
         let result = package_path_from_git_url(&git_url);
 
         assert!(result.is_none());

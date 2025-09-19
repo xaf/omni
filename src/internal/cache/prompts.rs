@@ -8,6 +8,7 @@ use crate::internal::cache::database::RowExt;
 use crate::internal::cache::CacheManager;
 use crate::internal::cache::CacheManagerError;
 use crate::internal::git_env;
+use crate::internal::git::utils::extract_owner_repo;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PromptsCache {}
@@ -35,8 +36,8 @@ impl PromptsCache {
     pub fn answers(&self, path: &str) -> HashMap<String, serde_yaml::Value> {
         let git = git_env(path);
         match git.url() {
-            Some(url) => match url.owner {
-                Some(org) => self.get_answers(&org, &url.name),
+            Some(url) => match extract_owner_repo(&url) {
+                Some((org, name)) => self.get_answers(&org, &name),
                 None => HashMap::new(),
             },
             None => HashMap::new(),

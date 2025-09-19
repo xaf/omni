@@ -2,8 +2,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use git_url_parse::normalize_url;
 use git_url_parse::GitUrl;
+use git_url_parse::types::provider::{AzureDevOpsProvider, GenericProvider, GitLabProvider};
 use lazy_static::lazy_static;
 use tokio::runtime::Runtime;
 use tokio::time::timeout;
@@ -32,15 +32,11 @@ pub fn package_root_path() -> String {
 
 static TIMEOUT_DURATION: Duration = Duration::from_secs(2);
 
-async fn async_normalize_url(url: &str) -> Result<Url, GitUrlError> {
-    Ok(normalize_url(url)?)
-}
-
 pub fn safe_normalize_url(url: &str) -> Result<Url, GitUrlError> {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        match timeout(TIMEOUT_DURATION, async_normalize_url(url)).await {
-            Ok(result) => result,
+        match timeout(TIMEOUT_DURATION, async { Url::parse(url) }).await {
+            Ok(result) => result.map_err(GitUrlError::from),
             Err(_) => Err(GitUrlError::NormalizeTimeout),
         }
     })
@@ -61,8 +57,8 @@ pub fn safe_git_url_parse(url: &str) -> Result<GitUrl, GitUrlError> {
 }
 
 pub fn id_from_git_url(url: &GitUrl) -> Option<String> {
-    let url = url.clone();
-    if let (Some(host), Some(owner), name) = (url.host, url.owner, url.name) {
+    let host = url.host()?.to_string();
+    if let Some((owner, name)) = extract_owner_repo(url) {
         if !name.is_empty() {
             return Some(format!("{host}:{owner}/{name}"));
         }
@@ -75,31 +71,26 @@ pub fn full_git_url_parse(url: &str) -> Result<GitUrl, GitUrlError> {
     // let git_url = safe_git_url_parse(url.as_str())?;
     let git_url = safe_git_url_parse(url)?;
 
-    if git_url.scheme.to_string() == "file" {
-        return Err(GitUrlError::UnsupportedScheme(git_url.scheme.to_string()));
+    if git_url.scheme() == Some("file") {
+        return Err(GitUrlError::UnsupportedScheme("file".to_string()));
     }
-    if git_url.name.is_empty() {
+    if git_url.host().is_none() {
+        return Err(GitUrlError::MissingRepositoryHost);
+    }
+    if extract_owner_repo(&git_url).map(|(_, n)| n).unwrap_or_default().is_empty() {
         return Err(GitUrlError::MissingRepositoryName);
     }
-    if git_url.owner.is_none() {
+    if extract_owner_repo(&git_url).map(|(o, _)| o).is_none() {
         return Err(GitUrlError::MissingRepositoryOwner);
-    }
-    if git_url.host.is_none() {
-        return Err(GitUrlError::MissingRepositoryHost);
     }
 
     Ok(git_url)
 }
 
 pub fn format_path_with_template(worktree: &str, git_url: &GitUrl, path_format: &str) -> PathBuf {
-    let git_url = git_url.clone();
-    format_path_with_template_and_data(
-        worktree,
-        &git_url.host.unwrap(),
-        &git_url.owner.unwrap(),
-        &git_url.name,
-        path_format,
-    )
+    let host = git_url.host().unwrap_or("");
+    let (owner, name) = extract_owner_repo(git_url).unwrap_or((String::new(), String::new()));
+    format_path_with_template_and_data(worktree, host, &owner, &name, path_format)
 }
 
 pub fn format_path_with_template_and_data(
@@ -139,18 +130,38 @@ pub fn package_path_from_handle(handle: &str) -> Option<PathBuf> {
 }
 
 pub fn package_path_from_git_url(git_url: &GitUrl) -> Option<PathBuf> {
-    if git_url.scheme.to_string() == "file"
-        || git_url.name.is_empty()
-        || git_url.owner.is_none()
-        || git_url.host.is_none()
-    {
+    if git_url.scheme() == Some("file") {
         return None;
     }
-
-    let package_path =
-        format_path_with_template(package_root_path().as_str(), git_url, PACKAGE_PATH_FORMAT);
-
+    let host = git_url.host()?;
+    let (owner, name) = extract_owner_repo(git_url)?;
+    if owner.is_empty() || name.is_empty() {
+        return None;
+    }
+    let package_path = format_path_with_template_and_data(
+        package_root_path().as_str(),
+        host,
+        &owner,
+        &name,
+        PACKAGE_PATH_FORMAT,
+    );
     Some(package_path)
+}
+
+pub fn extract_owner_repo(url: &GitUrl) -> Option<(String, String)> {
+    // Try Generic
+    if let Ok(p) = url.provider_info::<GenericProvider>() {
+        return Some((p.owner().to_string(), p.repo().to_string()));
+    }
+    // Try GitLab
+    if let Ok(p) = url.provider_info::<GitLabProvider>() {
+        return Some((p.owner().to_string(), p.repo().to_string()));
+    }
+    // Try Azure DevOps
+    if let Ok(p) = url.provider_info::<AzureDevOpsProvider>() {
+        return Some((p.org().to_string(), p.repo().to_string()));
+    }
+    None
 }
 
 pub fn path_entry_config<T: AsRef<str>>(path: T) -> PathEntryConfig {

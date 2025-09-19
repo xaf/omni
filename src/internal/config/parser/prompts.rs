@@ -649,13 +649,19 @@ impl PromptType {
 
         let git = git_env(".");
         let (scope_org, scope_repo) = match git.url() {
-            Some(url) => (
-                url.owner,
-                match scope {
-                    PromptScope::Repository => Some(url.name),
-                    PromptScope::Organization => None,
-                },
-            ),
+            Some(url) => {
+                let owner_repo = crate::internal::git::utils::extract_owner_repo(&url);
+                match owner_repo {
+                    Some((org, name)) => (
+                        Some(org),
+                        match scope {
+                            PromptScope::Repository => Some(name),
+                            PromptScope::Organization => None,
+                        },
+                    ),
+                    None => (None, None),
+                }
+            }
             None => {
                 // TODO: make it work for any workdir by storing for the workdir id
                 //       instead of the org and repo

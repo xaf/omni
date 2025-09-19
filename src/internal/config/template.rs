@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use git_url_parse::GitUrl;
+use git_url_parse::types::provider::{AzureDevOpsProvider, GenericProvider, GitLabProvider};
 use serde::Deserialize;
 use serde::Serialize;
 use tera::Tera;
@@ -23,12 +24,17 @@ pub struct TemplateRepo {
 
 impl TemplateRepo {
     pub fn new(url: &GitUrl) -> Self {
-        Self {
-            handle: url.to_string(),
-            host: url.host.clone().unwrap_or_default(),
-            org: url.owner.clone().unwrap_or_default(),
-            name: url.name.clone(),
-        }
+        let host = url.host().unwrap_or("").to_string();
+        let (org, name) = if let Ok(p) = url.provider_info::<GenericProvider>() {
+            (p.owner().to_string(), p.repo().to_string())
+        } else if let Ok(p) = url.provider_info::<GitLabProvider>() {
+            (p.owner().to_string(), p.repo().to_string())
+        } else if let Ok(p) = url.provider_info::<AzureDevOpsProvider>() {
+            (p.org().to_string(), p.repo().to_string())
+        } else {
+            (String::new(), String::new())
+        };
+        Self { handle: url.to_string(), host, org, name }
     }
 }
 

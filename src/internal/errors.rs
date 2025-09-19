@@ -1,3 +1,4 @@
+use url::ParseError as UrlParseError;
 use git_url_parse::GitUrlParseError;
 use thiserror::Error;
 
@@ -39,5 +40,7 @@ pub enum GitUrlError {
     #[error("normalize timeout")]
     NormalizeTimeout,
     #[error("error during URL parsing: {0}")]
-    UrlParseError(#[from] GitUrlParseError),
+    UrlParseError(#[from] UrlParseError),
+    #[error("error during Git URL parsing: {0}")]
+    GitUrlParse(#[from] GitUrlParseError),
 }

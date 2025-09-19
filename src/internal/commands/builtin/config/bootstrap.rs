@@ -607,45 +607,50 @@ fn question_org(worktree: &str) -> (Vec<OrgConfig>, bool) {
     for repository in repositories {
         let origin_url = repository.origin_url;
         if let Ok(git_url) = full_git_url_parse(&origin_url) {
-            let mut org = git_url.clone();
+            let host = git_url.host().unwrap_or("");
+            if let Some((owner, _name)) = crate::internal::git::utils::extract_owner_repo(&git_url)
+            {
+                let scheme = git_url.scheme().unwrap_or("");
+                let print_scheme = git_url.print_scheme();
+                let user = git_url.user();
+                let pass = git_url.password();
+                let port = git_url.port();
 
-            // First we get the entry that's considering the host and
-            // the org, but not the repo
-            if org.git_suffix {
-                org.path = org
-                    .path
-                    .strip_suffix(".git")
-                    .unwrap_or(org.path.as_ref())
-                    .to_string();
-            }
-            org.git_suffix = false;
+                // Build org string with scheme/user if present
+                let mut prefix = String::new();
+                if print_scheme && !scheme.is_empty() {
+                    prefix.push_str(&format!("{scheme}://"));
+                }
+                if let Some(u) = user {
+                    prefix.push_str(u);
+                    if let Some(p) = pass {
+                        prefix.push(':');
+                        prefix.push_str(p);
+                    }
+                    prefix.push('@');
+                }
+                let mut host_port = host.to_string();
+                if let Some(p) = port {
+                    host_port.push(':');
+                    host_port.push_str(&p.to_string());
+                }
+                let org_str = format!("{prefix}{host_port}/{owner}");
+                let org_count = orgs_map.entry(org_str).or_insert(0);
+                *org_count += 1;
 
-            org.path = org
-                .path
-                .strip_suffix(format!("/{}", org.name).as_str())
-                .unwrap_or(org.path.as_ref())
-                .to_string();
-            org.name = "".to_string();
+                // Host with scheme/user
+                let host_str = format!("{prefix}{host_port}");
+                hosts.insert(host_str.clone());
+                let host_count = orgs_map.entry(host_str.clone()).or_insert(0);
+                *host_count += 1;
 
-            let org_str = org.to_string();
-            let org_count = orgs_map.entry(org_str).or_insert(0);
-            *org_count += 1;
-
-            // Then we get the entry that's considering the host only
-            org.path = "".to_string();
-            let host_str = org.to_string();
-            hosts.insert(host_str.clone());
-            let host_count = orgs_map.entry(host_str.clone()).or_insert(0);
-            *host_count += 1;
-
-            // And now we strip the user and protocol if any, and add another host entry
-            org.user = None;
-            org.scheme_prefix = false;
-            let stripped_host_str = org.to_string();
-            if stripped_host_str != host_str {
-                hosts.insert(stripped_host_str.clone());
-                let stripped_host_count = orgs_map.entry(stripped_host_str).or_insert(0);
-                *stripped_host_count += 1;
+                // Stripped host only
+                let stripped_host_str = host.to_string();
+                if stripped_host_str != host_str {
+                    hosts.insert(stripped_host_str.clone());
+                    let stripped_host_count = orgs_map.entry(stripped_host_str).or_insert(0);
+                    *stripped_host_count += 1;
+                }
             }
         }
     }
