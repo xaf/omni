@@ -36,7 +36,7 @@ cfg-if = "1.0.3"
 clap = { version = "4.5.47", features = ["string"] }
 ctrlc = { version = "3.4.7", features = ["termination"] }
 duct = "1.1.0"
-flate2 = "1.1.1"
+flate2 = "1.1.4"
 fs4 = "0.13.0"
 futures = "0.3.31"
 gethostname = "1.0.2"
