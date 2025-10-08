@@ -874,7 +874,7 @@ impl Org {
                     owner = Some(segs[i].to_string());
                 }
             } else {
-                // Generic/GitHub/GitLab: owner is full namespace (all but last), repo is leaf
+                // Generic/GitHub/GitLab URL forms and colon shorthand: owner is full namespace (all but last), repo is leaf
                 if segs.len() >= 2 {
                     let r = segs.last().unwrap().to_string();
                     let r = r.strip_suffix(".git").unwrap_or(&r).to_string();
@@ -965,7 +965,83 @@ impl Org {
     // }
 
     pub fn get_repo_git_url(&self, repo: &str) -> Option<String> {
+        let repo_raw = repo;
         if let Ok(repo) = Repo::parse(repo) {
+            // Fast path: if org defines owner (and optional pinned repo), build directly
+            if let Some(self_url) = self.url.as_ref() {
+                if let Some(org_owner) = &self.owner {
+                    // Enforce pinned repo name if present
+                    if let Some(pinned) = &self.repo {
+                        if repo.name != *pinned {
+                            return None;
+                        }
+                    }
+
+                    // If caller provided an explicit owner that doesn't match the org owner, reject
+                    // Support OWNER/repo passed as a single string as well
+                    let raw_parts = repo_raw
+                        .split('/')
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<&str>>();
+                    if raw_parts.len() >= 2 {
+                        let input_owner = raw_parts[..raw_parts.len() - 1].join("/");
+                        if input_owner != *org_owner {
+                            return None;
+                        }
+                    } else if let Some(arg_owner) = &repo.owner {
+                        if arg_owner != org_owner {
+                            return None;
+                        }
+                    }
+
+                    // Build URL string
+                    let host = self_url.host_str().map(|h| h.to_string());
+                    let name = self.repo.clone().unwrap_or_else(|| repo.name.clone());
+                    let scheme = self_url.scheme().to_string();
+                    let user = if self_url.username().is_empty() {
+                        None
+                    } else {
+                        Some(self_url.username().to_string())
+                    };
+                    let password = self_url.password().map(|t| t.to_string());
+                    let port = self_url.port();
+
+                    let scheme_prefix = scheme != "ssh" || port.is_some();
+                    let mut s = String::new();
+                    if scheme_prefix {
+                        s.push_str(&format!("{scheme}://"));
+                    }
+                    if let Some(u) = &user {
+                        s.push_str(u);
+                        if let Some(p) = &password {
+                            s.push(':');
+                            s.push_str(p);
+                        }
+                        s.push('@');
+                    }
+                    if let Some(h) = &host {
+                        s.push_str(h);
+                    }
+                    if let Some(p) = port {
+                        s.push(':');
+                        s.push_str(&p.to_string());
+                    }
+                    if scheme == "ssh" && !scheme_prefix {
+                        s.push(':');
+                        s.push_str(&format!("{}/{}", org_owner, name));
+                    } else {
+                        s.push('/');
+                        let is_azure = matches!(host.as_deref(), Some("dev.azure.com"));
+                        if is_azure {
+                            s.push_str(&format!("{}/_git/{}", org_owner, name));
+                        } else {
+                            s.push_str(&format!("{}/{}", org_owner, name));
+                        }
+                    }
+                    return Some(s);
+                }
+            }
+
             if let Some(self_url) = self.url.as_ref() {
                 // If the repo has a scheme, we need to make sure it matches the org's scheme
                 if repo.scheme_prefix && self.enforce_scheme {
@@ -1049,16 +1125,32 @@ impl Org {
                 (None, None) => return None,
             };
 
-            let owner = match (&self.owner, &repo.owner) {
-                (Some(owner), _) => owner,
-                (_, Some(owner)) => owner,
-                (None, None) => return None,
-            };
-
-            let name = if let Some(name) = &self.repo {
-                name.clone()
+            // Determine owner/name
+            let (owner, name) = if let Some(org_owner) = &self.owner {
+                let name = if let Some(name) = &self.repo { name.clone() } else { repo.name };
+                (Some(org_owner.clone()), name)
             } else {
-                repo.name
+                // Host-only org: parse from input string to support multi-segment owners
+                let host_str = host.as_deref().unwrap_or("");
+                let parts = repo_raw
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<&str>>();
+                if host_str == "dev.azure.com" {
+                    if parts.len() < 3 {
+                        return None;
+                    }
+                    let name = parts.last().unwrap().to_string();
+                    let owner = parts[..parts.len() - 1].join("/");
+                    (Some(owner), name)
+                } else {
+                    if parts.len() < 2 {
+                        return None;
+                    }
+                    let name = parts.last().unwrap().to_string();
+                    let owner = parts[..parts.len() - 1].join("/");
+                    (Some(owner), name)
+                }
             };
 
             let scheme = match (&self.url, repo.scheme) {
@@ -1113,11 +1205,21 @@ impl Org {
                 s.push_str(&p.to_string());
             }
             if scheme == "ssh" && !scheme_prefix {
+                // SSH scp-like path
                 s.push(':');
-                s.push_str(&format!("{}/{}", owner, name));
+                s.push_str(&format!("{}/{}", owner.as_deref().unwrap(), name));
             } else {
+                // HTTPS-like path; insert `_git` for Azure DevOps hosts
+                let is_azure = match &host {
+                    Some(h) => h == "dev.azure.com",
+                    None => false,
+                };
                 s.push('/');
-                s.push_str(&format!("{}/{}", owner, name));
+                if is_azure {
+                    s.push_str(&format!("{}/_git/{}", owner.as_deref().unwrap(), name));
+                } else {
+                    s.push_str(&format!("{}/{}", owner.as_deref().unwrap(), name));
+                }
             }
             if repo.git_suffix {
                 s.push_str(".git");
@@ -1155,55 +1257,54 @@ impl Repo {
     pub fn parse(repo: &str) -> Result<Self, RepoError> {
         if let Ok(url) = safe_git_url_parse(repo) {
             if let (Some(owner), name) = (&url.owner, &url.name) {
-                return Ok(Self {
-                    name: name.clone(),
-                    owner: Some(owner.clone()),
-                    host: url.host.clone(),
-                    port: url.port,
-                    scheme: url.scheme.clone(),
-                    scheme_prefix: url.print_scheme,
-                    git_suffix: url.git_suffix,
-                    user: url.user.clone(),
-                    password: url.password.clone(),
-                    rel_path: OnceCell::new(),
-                });
-            } else {
-                let mut parts = repo.split('/').collect::<Vec<&str>>();
-
-                let mut name = parts.pop().unwrap().to_string();
-                let mut git_suffix = false;
-                if name.ends_with(".git") {
-                    git_suffix = true;
-                    name = name[..name.len() - 4].to_string();
+                if !name.is_empty() {
+                    return Ok(Self {
+                        name: name.clone(),
+                        owner: Some(owner.clone()),
+                        host: url.host.clone(),
+                        port: url.port,
+                        scheme: url.scheme.clone(),
+                        scheme_prefix: url.print_scheme,
+                        git_suffix: url.git_suffix,
+                        user: url.user.clone(),
+                        password: url.password.clone(),
+                        rel_path: OnceCell::new(),
+                    });
                 }
-
-                let owner = if !parts.is_empty() {
-                    Some(parts.pop().unwrap().to_string())
-                } else {
-                    None
-                };
-
-                let host = if !parts.is_empty() && parts[0].contains('.') {
-                    Some(parts[0].to_string())
-                } else {
-                    None
-                };
-
-                return Ok(Self {
-                    name,
-                    owner,
-                    host,
-                    port: None,
-                    scheme: None,
-                    scheme_prefix: false,
-                    git_suffix,
-                    user: None,
-                    password: None,
-                    rel_path: OnceCell::new(),
-                });
             }
         }
-        Err(RepoError::ParseError)
+
+        // Fallback manual parse (tolerant of name-only input)
+        let mut parts = repo.split('/').collect::<Vec<&str>>();
+        let mut name = parts.pop().unwrap_or("").to_string();
+        let mut git_suffix = false;
+        if name.ends_with(".git") {
+            git_suffix = true;
+            name = name[..name.len() - 4].to_string();
+        }
+        let owner = if !parts.is_empty() {
+            Some(parts.pop().unwrap().to_string())
+        } else {
+            None
+        };
+        let host = if !parts.is_empty() && parts[0].contains('.') {
+            Some(parts[0].to_string())
+        } else {
+            None
+        };
+
+        Ok(Self {
+            name,
+            owner,
+            host,
+            port: None,
+            scheme: None,
+            scheme_prefix: false,
+            git_suffix,
+            user: None,
+            password: None,
+            rel_path: OnceCell::new(),
+        })
     }
 
     pub fn matches(&self, other: &Self) -> bool {

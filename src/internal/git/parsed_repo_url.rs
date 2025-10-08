@@ -31,8 +31,8 @@ impl ParsedRepoUrl {
         let git_suffix = url.path().ends_with(".git");
         let print_scheme = url.print_scheme();
 
-        let (owner, name) = if let Ok(p) = url.provider_info::<GenericProvider>() {
-            (Some(p.owner().to_string()), p.repo().to_string())
+        let (mut owner, mut name) = if let Ok(p) = url.provider_info::<AzureDevOpsProvider>() {
+            (Some(format!("{}/{}", p.org(), p.project())), p.repo().to_string())
         } else if let Ok(p) = url.provider_info::<GitLabProvider>() {
             // Owner includes subgroups, matching older GitUrl semantics
             let fullname = p.fullname(); // e.g., owner/group1/group2/repo
@@ -42,12 +42,73 @@ impl ParsedRepoUrl {
                 .unwrap_or(&fullname)
                 .to_string();
             (Some(owner), repo)
-        } else if let Ok(p) = url.provider_info::<AzureDevOpsProvider>() {
-            // Owner is org/project for Azure DevOps
-            (Some(format!("{}/{}", p.org(), p.project())), p.repo().to_string())
+        } else if let Ok(p) = url.provider_info::<GenericProvider>() {
+            (Some(p.owner().to_string()), p.repo().to_string())
         } else {
             (None, String::new())
         };
+
+        // Normalize owner/name deterministically per-host
+        let host_str = url.host().unwrap_or("");
+        let mut parts: Vec<&str> = url
+            .path()
+            .trim_start_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+        // Azure SSH v3 prefix
+        let start = if host_str == "ssh.dev.azure.com" && parts.first() == Some(&"v3") {
+            1
+        } else {
+            0
+        };
+        // Strip .git suffix from last segment
+        if parts.len() > start {
+            if let Some(last) = parts.last_mut() {
+                if let Some(stripped) = last.strip_suffix(".git") {
+                    *last = stripped;
+                }
+            }
+        }
+        if host_str == "dev.azure.com" || host_str == "ssh.dev.azure.com" {
+            // owner = Org/Project when available; name only if Repo present
+            if parts.len() >= start + 2 {
+                owner = Some(format!("{}/{}", parts[start], parts[start + 1]));
+            } else if parts.len() == start + 1 {
+                owner = Some(parts[start].to_string());
+            }
+            name.clear();
+            if let Some(idx) = parts.iter().position(|s| *s == "_git") {
+                if idx + 1 < parts.len() {
+                    name = parts[idx + 1].to_string();
+                }
+            } else if parts.len() >= start + 3 {
+                name = parts[start + 2].to_string();
+            }
+        } else if host_str == "gitlab.com" {
+            // owner = full namespace; name = leaf
+            if parts.len() >= 2 {
+                name = parts.last().unwrap().to_string();
+                owner = Some(parts[..parts.len() - 1].join("/"));
+            } else if parts.len() == 1 {
+                owner = Some(parts[0].to_string());
+                name.clear();
+            }
+        } else {
+            // Generic/GitHub
+            if parts.len() >= 2 {
+                name = parts.last().unwrap().to_string();
+                owner = Some(parts[..parts.len() - 1].join("/"));
+            } else if parts.len() == 1 {
+                owner = Some(parts[0].to_string());
+                name.clear();
+            }
+        }
+
+        // Ensure name has no .git suffix (double safety)
+        if let Some(stripped) = name.strip_suffix(".git") {
+            name = stripped.to_string();
+        }
 
         Self {
             raw,
