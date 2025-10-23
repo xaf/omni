@@ -20,6 +20,7 @@ use crate::internal::env::omni_org_env;
 use crate::internal::env::shell_is_interactive;
 use crate::internal::git::package_path_from_handle;
 use crate::internal::git::package_root_path;
+use crate::internal::git::strip_azure_version_prefix;
 use crate::internal::git::safe_git_url_parse;
 use crate::internal::git::safe_normalize_url;
 use crate::internal::git::utils::format_path_with_template;
@@ -839,7 +840,6 @@ impl Org {
 
             // Provider-aware parsing for namespace and repo
             let host = parsed_url.host_str().unwrap_or("");
-            let _has_scheme = config.handle.contains("://");
             if host == "dev.azure.com" || host == "ssh.dev.azure.com" {
                 // Azure DevOps patterns:
                 // - https://dev.azure.com/{org}/{project}/_git/{repo}
@@ -1166,17 +1166,8 @@ impl Org {
                     parts.remove(0);
                 }
 
-                if host_str == "dev.azure.com" {
-                    if !parts.is_empty() {
-                        let first = parts[0];
-                        if first.len() > 1
-                            && first.starts_with('v')
-                            && first[1..].chars().all(|c| c.is_ascii_digit())
-                        {
-                            parts.remove(0);
-                        }
-                    }
-
+                if matches!(host_str, "dev.azure.com" | "ssh.dev.azure.com") {
+                    strip_azure_version_prefix(&mut parts);
                     if let Some(idx) = parts.iter().position(|s| *s == "_git") {
                         if idx < 2 || idx + 1 >= parts.len() {
                             return None;
@@ -1241,6 +1232,16 @@ impl Org {
                 (None, None) => None,
             };
 
+            let owner = match owner {
+                Some(owner) if !owner.is_empty() => owner,
+                _ => return None,
+            };
+            if name.is_empty() {
+                return None;
+            }
+            let owner_ref = owner.as_str();
+            let name_ref = name.as_str();
+
             // Build a URL string compatible with GitUrl::parse
             let scheme_prefix = scheme != "ssh" || port.is_some();
             let mut s = String::new();
@@ -1265,7 +1266,7 @@ impl Org {
             if scheme == "ssh" && !scheme_prefix {
                 // SSH scp-like path
                 s.push(':');
-                s.push_str(&format!("{}/{}", owner.as_deref().unwrap(), name));
+                s.push_str(&format!("{owner_ref}/{name_ref}"));
             } else {
                 // HTTPS-like path; insert `_git` for Azure DevOps hosts
                 let is_azure = match &host {
@@ -1274,9 +1275,9 @@ impl Org {
                 };
                 s.push('/');
                 if is_azure {
-                    s.push_str(&format!("{}/_git/{}", owner.as_deref().unwrap(), name));
+                    s.push_str(&format!("{owner_ref}/_git/{name_ref}"));
                 } else {
-                    s.push_str(&format!("{}/{}", owner.as_deref().unwrap(), name));
+                    s.push_str(&format!("{owner_ref}/{name_ref}"));
                 }
             }
             if repo.git_suffix {

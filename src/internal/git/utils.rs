@@ -116,10 +116,20 @@ pub fn format_path_with_template(
     git_url: &ParsedRepoUrl,
     path_format: &str,
 ) -> PathBuf {
-    let host = git_url.host.as_deref().unwrap_or("");
-    let owner = git_url.owner.clone().unwrap_or_default();
-    let name = git_url.name.clone();
-    format_path_with_template_and_data(worktree, host, &owner, &name, path_format)
+    let host = git_url
+        .host
+        .as_deref()
+        .expect("format_path_with_template requires a host");
+    let owner = git_url
+        .owner
+        .as_deref()
+        .expect("format_path_with_template requires an owner");
+    let name = git_url.name.as_str();
+    assert!(
+        !host.is_empty() && !owner.is_empty() && !name.is_empty(),
+        "format_path_with_template requires non-empty host/owner/name"
+    );
+    format_path_with_template_and_data(worktree, host, owner, name, path_format)
 }
 
 pub fn format_path_with_template_and_data(

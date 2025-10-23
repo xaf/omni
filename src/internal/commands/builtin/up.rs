@@ -700,14 +700,15 @@ impl UpCommand {
                         && !clone_url.name.is_empty()
                     {
                         let worktree = config.worktree();
+                        let clone_path = format_path_with_template(
+                            &worktree,
+                            &clone_url,
+                            &config.repo_path_format,
+                        );
                         repo = Some(RepositoryToClone {
                             suggested_by: vec![repo_id.clone()],
                             clone_url: clone_url.raw.clone(),
-                            clone_path: format_path_with_template(
-                                &worktree,
-                                &clone_url,
-                                &config.repo_path_format,
-                            ),
+                            clone_path,
                             package_path: package_path_from_git_url(&clone_url),
                             clone_args: repo_config.args.clone(),
                             clone_as_package: repo_config.clone_as_package(),

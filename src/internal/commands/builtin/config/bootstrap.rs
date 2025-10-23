@@ -482,9 +482,9 @@ fn question_repo_path_format(worktree: String) -> (String, bool) {
 
         if !found {
             let git_url = full_git_url_parse("https://github.com/xaf/omni").unwrap();
-            let example = format_path_with_template(&worktree, &git_url, &current_repo_path_format);
+            let example =
+                format_path_with_template(&worktree, &git_url, &current_repo_path_format);
             let example_str = example.to_string_lossy().to_string();
-
             choices.insert(
                 0,
                 (

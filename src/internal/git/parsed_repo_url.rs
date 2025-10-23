@@ -56,34 +56,28 @@ impl ParsedRepoUrl {
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
-        // Azure SSH v3 prefix
-        let start = if host_str == "ssh.dev.azure.com" && parts.first() == Some(&"v3") {
-            1
-        } else {
-            0
-        };
-        // Strip .git suffix from last segment
-        if parts.len() > start {
-            if let Some(last) = parts.last_mut() {
-                if let Some(stripped) = last.strip_suffix(".git") {
-                    *last = stripped;
-                }
+        if matches!(host_str, "dev.azure.com" | "ssh.dev.azure.com") {
+            strip_azure_version_prefix(&mut parts);
+        }
+        if let Some(last) = parts.last_mut() {
+            if let Some(stripped) = last.strip_suffix(".git") {
+                *last = stripped;
             }
         }
         if host_str == "dev.azure.com" || host_str == "ssh.dev.azure.com" {
             // owner = Org/Project when available; name only if Repo present
-            if parts.len() >= start + 2 {
-                owner = Some(format!("{}/{}", parts[start], parts[start + 1]));
-            } else if parts.len() == start + 1 {
-                owner = Some(parts[start].to_string());
+            if parts.len() >= 2 {
+                owner = Some(format!("{}/{}", parts[0], parts[1]));
+            } else if parts.len() == 1 {
+                owner = Some(parts[0].to_string());
             }
             name.clear();
             if let Some(idx) = parts.iter().position(|s| *s == "_git") {
                 if idx + 1 < parts.len() {
                     name = parts[idx + 1].to_string();
                 }
-            } else if parts.len() >= start + 3 {
-                name = parts[start + 2].to_string();
+            } else if parts.len() >= 3 {
+                name = parts[2].to_string();
             }
         } else if host_str == "gitlab.com" {
             // owner = full namespace; name = leaf
@@ -105,11 +99,6 @@ impl ParsedRepoUrl {
             }
         }
 
-        // Ensure name has no .git suffix (double safety)
-        if let Some(stripped) = name.strip_suffix(".git") {
-            name = stripped.to_string();
-        }
-
         Self {
             raw,
             scheme,
@@ -121,6 +110,18 @@ impl ParsedRepoUrl {
             name,
             git_suffix,
             print_scheme,
+        }
+    }
+}
+
+pub(crate) fn strip_azure_version_prefix(parts: &mut Vec<&str>) {
+    if !parts.is_empty() {
+        let first = parts[0];
+        if first.len() > 1
+            && first.starts_with('v')
+            && first[1..].chars().all(|c| c.is_ascii_digit())
+        {
+            parts.remove(0);
         }
     }
 }
