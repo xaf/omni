@@ -278,7 +278,7 @@ impl CloneCommand {
             // Check using git ls-remote if the repository exists
             let mut cmd = TokioCommand::new("git");
             cmd.arg("ls-remote");
-            cmd.arg(clone_url.to_string());
+            cmd.arg(clone_url);
             cmd.stdout(std::process::Stdio::piped());
             cmd.stderr(std::process::Stdio::piped());
 
