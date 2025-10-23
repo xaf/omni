@@ -145,7 +145,10 @@ fn get_repo_git_url_github() {
     // pinned repo -> only that repo matches
     let org = mk_org("https://github.com/xaf/blah");
     assert!(org.get_repo_git_url("omni").is_none());
-    assert_eq!(org.get_repo_git_url("blah").unwrap(), "https://github.com/xaf/blah");
+    assert_eq!(
+        org.get_repo_git_url("blah").unwrap(),
+        "https://github.com/xaf/blah"
+    );
 }
 
 #[test]
@@ -158,30 +161,44 @@ fn get_repo_git_url_gitlab() {
     // pinned repo -> only that repo matches
     let org = mk_org("https://gitlab.com/group/sub1/repo");
     assert!(org.get_repo_git_url("other").is_none());
-    assert_eq!(org.get_repo_git_url("repo").unwrap(), "https://gitlab.com/group/sub1/repo");
+    assert_eq!(
+        org.get_repo_git_url("repo").unwrap(),
+        "https://gitlab.com/group/sub1/repo"
+    );
 }
 
 #[test]
 fn get_repo_git_url_generic() {
     let org = mk_org("https://example.com/org");
-    assert_eq!(org.get_repo_git_url("repo").unwrap(), "https://example.com/org/repo");
+    assert_eq!(
+        org.get_repo_git_url("repo").unwrap(),
+        "https://example.com/org/repo"
+    );
 
     let org = mk_org("https://example.com/org/repo");
     assert!(org.get_repo_git_url("other").is_none());
-    assert_eq!(org.get_repo_git_url("repo").unwrap(), "https://example.com/org/repo");
+    assert_eq!(
+        org.get_repo_git_url("repo").unwrap(),
+        "https://example.com/org/repo"
+    );
 }
 
 #[test]
 fn get_repo_git_url_azure() {
     // owner only -> builds with _git
     let org = mk_org("https://dev.azure.com/Org/Project");
-    let url = org.get_repo_git_url("Repo").expect("should build azure url");
+    let url = org
+        .get_repo_git_url("Repo")
+        .expect("should build azure url");
     assert_eq!(url, "https://dev.azure.com/Org/Project/_git/Repo");
 
     // pinned repo -> must match
     let org = mk_org("https://dev.azure.com/Org/Project/_git/Repo");
     assert!(org.get_repo_git_url("Other").is_none());
-    assert_eq!(org.get_repo_git_url("Repo").unwrap(), "https://dev.azure.com/Org/Project/_git/Repo");
+    assert_eq!(
+        org.get_repo_git_url("Repo").unwrap(),
+        "https://dev.azure.com/Org/Project/_git/Repo"
+    );
 }
 
 #[test]
@@ -189,12 +206,18 @@ fn get_repo_git_url_host_only_orgs() {
     // GitHub host-only, require OWNER/repo
     let org = mk_org("https://github.com");
     assert!(org.get_repo_git_url("repo").is_none());
-    assert_eq!(org.get_repo_git_url("owner/repo").unwrap(), "https://github.com/owner/repo");
+    assert_eq!(
+        org.get_repo_git_url("owner/repo").unwrap(),
+        "https://github.com/owner/repo"
+    );
 
     // Generic host-only
     let org = mk_org("https://example.com");
     assert!(org.get_repo_git_url("repo").is_none());
-    assert_eq!(org.get_repo_git_url("org/repo").unwrap(), "https://example.com/org/repo");
+    assert_eq!(
+        org.get_repo_git_url("org/repo").unwrap(),
+        "https://example.com/org/repo"
+    );
 
     // Azure host-only requires Org/Project/Repo
     let org = mk_org("https://dev.azure.com");
@@ -210,11 +233,17 @@ fn get_repo_git_url_host_only_orgs() {
 fn get_repo_git_url_owner_mismatch() {
     // When org has an owner, OWNER/repo matches; BLAH/repo does not
     let org = mk_org("https://github.com/OWNER");
-    assert_eq!(org.get_repo_git_url("OWNER/repo").unwrap(), "https://github.com/OWNER/repo");
+    assert_eq!(
+        org.get_repo_git_url("OWNER/repo").unwrap(),
+        "https://github.com/OWNER/repo"
+    );
     assert!(org.get_repo_git_url("BLAH/repo").is_none());
 
     let org = mk_org("https://gitlab.com/OWNER");
-    assert_eq!(org.get_repo_git_url("OWNER/repo").unwrap(), "https://gitlab.com/OWNER/repo");
+    assert_eq!(
+        org.get_repo_git_url("OWNER/repo").unwrap(),
+        "https://gitlab.com/OWNER/repo"
+    );
     assert!(org.get_repo_git_url("BLAH/repo").is_none());
 
     let org = mk_org("https://dev.azure.com/Org/Project");

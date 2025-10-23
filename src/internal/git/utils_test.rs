@@ -72,7 +72,8 @@ mod id_from_git_url_tests {
 
     #[test]
     fn test_id_from_git_url_missing_owner() {
-        let git_url = safe_git_url_parse("https://github.com/.git").unwrap_or_else(|_| safe_git_url_parse("https://github.com/").unwrap());
+        let git_url = safe_git_url_parse("https://github.com/.git")
+            .unwrap_or_else(|_| safe_git_url_parse("https://github.com/").unwrap());
         let result = id_from_git_url(&git_url);
 
         assert_eq!(result, None);
@@ -266,7 +267,8 @@ mod package_path_from_git_url_tests {
 
     #[test]
     fn test_package_path_from_git_url_missing_owner() {
-        let git_url = safe_git_url_parse("https://github.com/repo.git").unwrap_or_else(|_| safe_git_url_parse("https://github.com/").unwrap());
+        let git_url = safe_git_url_parse("https://github.com/repo.git")
+            .unwrap_or_else(|_| safe_git_url_parse("https://github.com/").unwrap());
         let result = package_path_from_git_url(&git_url);
 
         assert!(result.is_none());

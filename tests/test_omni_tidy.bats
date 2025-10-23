@@ -101,3 +101,39 @@ setup() {
   [ ! -d "git/test2" ]
   [ ! -d "git/test3" ]
 }
+
+# bats test_tags=omni:tidy
+@test "[omni_tidy=5] omni tidy skips repositories ignored by a parent .gitignore" {
+  setup_git_dir "git/parent" "https://github.com/parentorg/parentrepo.git"
+
+  (
+    cd "git/parent"
+    echo "ignored-child/" >> .gitignore
+    git add .gitignore
+    git commit -m "Ignore nested repository" 3>&-
+  )
+
+  setup_git_dir "git/parent/ignored-child" "https://github.com/childorg/ignoredchild.git"
+
+  setup_omni_config 'repo_path_format=%{org}/%{repo}'
+
+  run omni tidy --yes 3>&-
+  [ "$status" -eq 0 ]
+
+  [ -d "git/parentorg/parentrepo/ignored-child" ]
+  [ ! -d "git/childorg/ignoredchild" ]
+}
+
+# bats test_tags=omni:tidy
+@test "[omni_tidy=6] omni tidy skips repositories nested inside another repository" {
+  setup_git_dir "git/parent" "https://github.com/nestedorg/parentrepo.git"
+  setup_git_dir "git/parent/submodule" "https://github.com/childorg/submodule.git"
+
+  setup_omni_config 'repo_path_format=%{org}/%{repo}'
+
+  run omni tidy --yes 3>&-
+  [ "$status" -eq 0 ]
+
+  [ -d "git/nestedorg/parentrepo/submodule" ]
+  [ ! -d "git/childorg/submodule" ]
+}

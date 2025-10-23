@@ -29,6 +29,8 @@ use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
 use crate::internal::env::shell_is_interactive;
 use crate::internal::git::format_path_with_template;
+use crate::internal::git::is_path_gitignored;
+use crate::internal::git::is_path_gitignored_from;
 use crate::internal::git::package_path_from_handle;
 use crate::internal::git::package_root_path;
 use crate::internal::git::path_entry_config;
@@ -589,17 +591,18 @@ impl TidyGitRepo {
                         continue;
                     }
 
-                    // Take the parent
-                    let filepath = filepath.parent().unwrap();
+                    // Take the parent directory (the repository root)
+                    let repo_path = abs_path(filepath.parent().unwrap());
 
-                    if let Some(s) = spinner.clone() {
-                        s.set_message(format!("Searching: {}", filepath.to_str().unwrap()))
+                    if Self::should_skip_repository(&repo_path) {
+                        continue;
                     }
 
-                    // Convert to a string
-                    let filepath_str = filepath.to_str().unwrap();
+                    if let Some(s) = spinner.clone() {
+                        s.set_message(format!("Searching: {}", repo_path.to_str().unwrap()))
+                    }
 
-                    repositories.insert(filepath_str.to_string());
+                    repositories.insert(repo_path.to_str().unwrap().to_string());
                 }
                 if let Some(s) = spinner.clone() {
                     s.tick()
@@ -634,6 +637,45 @@ impl TidyGitRepo {
         }
 
         tidy_repos.into_iter().collect::<Vec<_>>()
+    }
+
+    fn should_skip_repository(path: &Path) -> bool {
+        let parent_repo = Self::find_parent_repository(path);
+
+        if Self::is_gitignored(path, parent_repo.as_deref()) {
+            return true;
+        }
+
+        parent_repo.is_some()
+    }
+
+    fn find_parent_repository(path: &Path) -> Option<PathBuf> {
+        let mut ancestor = path.parent();
+
+        while let Some(dir) = ancestor {
+            let git = git_env(dir.to_string_lossy());
+            if git.in_repo() {
+                if let Some(root) = git.root() {
+                    let root_path = abs_path(root);
+                    if root_path != path {
+                        return Some(root_path);
+                    }
+                }
+            }
+            ancestor = dir.parent();
+        }
+
+        None
+    }
+
+    fn is_gitignored(path: &Path, parent_repo: Option<&Path>) -> bool {
+        if let Some(parent) = parent_repo {
+            if matches!(is_path_gitignored_from(path, Some(parent)), Ok(true)) {
+                return true;
+            }
+        }
+
+        matches!(is_path_gitignored(path), Ok(true))
     }
 
     pub fn new_with_paths(current_path: PathBuf, expected_path: PathBuf) -> Self {

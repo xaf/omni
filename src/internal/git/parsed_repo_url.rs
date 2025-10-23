@@ -1,6 +1,6 @@
-use git_url_parse::GitUrl;
-use git_url_parse::types::provider::{AzureDevOpsProvider, GenericProvider, GitLabProvider};
 use crate::internal::errors::GitUrlError;
+use git_url_parse::types::provider::{AzureDevOpsProvider, GenericProvider, GitLabProvider};
+use git_url_parse::GitUrl;
 
 #[derive(Debug, Clone)]
 pub struct ParsedRepoUrl {
@@ -32,7 +32,10 @@ impl ParsedRepoUrl {
         let print_scheme = url.print_scheme();
 
         let (mut owner, mut name) = if let Ok(p) = url.provider_info::<AzureDevOpsProvider>() {
-            (Some(format!("{}/{}", p.org(), p.project())), p.repo().to_string())
+            (
+                Some(format!("{}/{}", p.org(), p.project())),
+                p.repo().to_string(),
+            )
         } else if let Ok(p) = url.provider_info::<GitLabProvider>() {
             // Owner includes subgroups, matching older GitUrl semantics
             let fullname = p.fullname(); // e.g., owner/group1/group2/repo
