@@ -32,21 +32,21 @@ temp-env = "0.3.6"
 
 [dependencies]
 blake3 = "1.8.2"
-cfg-if = "1.0.3"
-clap = { version = "4.5.47", features = ["string"] }
+cfg-if = "1.0.4"
+clap = { version = "4.5.50", features = ["string"] }
 ctrlc = { version = "3.4.7", features = ["termination"] }
 duct = "1.1.0"
-flate2 = "1.1.1"
+flate2 = "1.1.4"
 fs4 = "0.13.0"
 futures = "0.3.31"
-gethostname = "1.0.2"
+gethostname = "1.1.0"
 git-url-parse = "0.6.0"
 git2 = { version = "0.20.2", features = ["vendored-libgit2"] }
 glob = "0.3.1"
-globset = "0.4.14"
+globset = "0.4.18"
 humantime = "2.3.0"
 imara-diff = "0.1.6"
-indicatif = "0.18.0"
+indicatif = "0.18.1"
 itertools = "0.14.0"
 lazy_static = "1.4.0"
 libz-sys = { version = "1.1.21", features = ["static"] }  # So we can force static linking
@@ -65,9 +65,9 @@ pathdiff = "0.2.3"
 petname = "2.0.2"
 r2d2 = "0.8.10"
 r2d2_sqlite = { version = "0.25.0", features = ["bundled"] }
-regex = "1.11.2"
+regex = "1.12.2"
 requestty = "0.6.1"
-reqwest = { version = "0.12.23", features = ["blocking"] }
+reqwest = { version = "0.12.24", features = ["blocking"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 self-replace = "1.5.0"
 semver = "1.0.27"
@@ -81,13 +81,13 @@ shell-escape = "0.1.5"
 shell-words = "1.1.0"
 strsim = "0.11.1"
 tar = "0.4.42"
-tempfile = "3.22.0"
+tempfile = "3.23.0"
 tera = "1.20.0"
 term_cursor = "0.2.1"
 term_size = "0.3.2"
-thiserror = "2.0.16"
+thiserror = "2.0.17"
 time = { version = "0.3.43", features = ["macros", "serde-well-known"] }
-tokio = { version = "1.46.0", features = ["full"] }
+tokio = { version = "1.48.0", features = ["full"] }
 url = "2.5.6"
 uuid = { version = "1.18.1", features = ["v4", "fast-rng"] }
 walkdir = "2.4.0"
