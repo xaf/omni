@@ -923,7 +923,11 @@ impl Org {
             Err(_) => return None,
         };
 
-        Some(format_path_with_template(&self.worktree(), &git_url, &self.repo_path_format()))
+        Some(format_path_with_template(
+            &self.worktree(),
+            &git_url,
+            &self.repo_path_format(),
+        ))
     }
 
     pub fn is_default(&self) -> bool {
@@ -942,7 +946,10 @@ impl Org {
             let url_user = url.user.as_deref();
             let url_pass = url.password.as_deref();
             let url_host = url.host.as_deref();
-            let url_owner = match &url.owner { Some(o) => o, None => return false };
+            let url_owner = match &url.owner {
+                Some(o) => o,
+                None => return false,
+            };
             let url_name = &url.name;
 
             return (!self.enforce_scheme || self_url.scheme() == url_scheme)
@@ -1127,28 +1134,79 @@ impl Org {
 
             // Determine owner/name
             let (owner, name) = if let Some(org_owner) = &self.owner {
-                let name = if let Some(name) = &self.repo { name.clone() } else { repo.name };
+                let name = if let Some(name) = &self.repo {
+                    name.clone()
+                } else {
+                    repo.name
+                };
                 (Some(org_owner.clone()), name)
             } else {
-                // Host-only org: parse from input string to support multi-segment owners
+                // Host-only org: derive owner/name from the raw handle to ensure consistent parsing.
                 let host_str = host.as_deref().unwrap_or("");
-                let parts = repo_raw
+
+                let mut path_source = repo_raw;
+                if !repo_raw.contains("://") {
+                    if let Some(idx) = repo_raw.find(':') {
+                        if idx + 1 < repo_raw.len() {
+                            path_source = &repo_raw[idx + 1..];
+                        }
+                    }
+                } else if let Some(idx) = repo_raw.find("://") {
+                    if idx + 3 < repo_raw.len() {
+                        path_source = &repo_raw[idx + 3..];
+                    }
+                }
+
+                let mut parts = path_source
                     .split('/')
                     .filter(|s| !s.is_empty())
                     .collect::<Vec<&str>>();
+
+                if !host_str.is_empty() && parts.first().map(|p| *p == host_str).unwrap_or(false) {
+                    parts.remove(0);
+                }
+
                 if host_str == "dev.azure.com" {
-                    if parts.len() < 3 {
-                        return None;
+                    if !parts.is_empty() {
+                        let first = parts[0];
+                        if first.len() > 1
+                            && first.starts_with('v')
+                            && first[1..].chars().all(|c| c.is_ascii_digit())
+                        {
+                            parts.remove(0);
+                        }
                     }
-                    let name = parts.last().unwrap().to_string();
-                    let owner = parts[..parts.len() - 1].join("/");
-                    (Some(owner), name)
+
+                    if let Some(idx) = parts.iter().position(|s| *s == "_git") {
+                        if idx < 2 || idx + 1 >= parts.len() {
+                            return None;
+                        }
+                        let owner = parts[..idx].join("/");
+                        let name = parts[idx + 1].trim_end_matches(".git").to_string();
+                        if name.is_empty() {
+                            return None;
+                        }
+                        (Some(owner), name)
+                    } else {
+                        if parts.len() < 3 {
+                            return None;
+                        }
+                        let owner = parts[..parts.len() - 1].join("/");
+                        let name = parts.last().unwrap().trim_end_matches(".git").to_string();
+                        if name.is_empty() {
+                            return None;
+                        }
+                        (Some(owner), name)
+                    }
                 } else {
                     if parts.len() < 2 {
                         return None;
                     }
-                    let name = parts.last().unwrap().to_string();
                     let owner = parts[..parts.len() - 1].join("/");
+                    let name = parts.last().unwrap().trim_end_matches(".git").to_string();
+                    if name.is_empty() {
+                        return None;
+                    }
                     (Some(owner), name)
                 }
             };
@@ -1236,6 +1294,7 @@ mod tests;
 
 #[derive(Debug, Clone)]
 pub enum RepoError {
+    #[allow(dead_code)]
     ParseError,
 }
 
