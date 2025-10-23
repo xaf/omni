@@ -14,7 +14,6 @@ use blake3::Hasher;
 use fs4::fs_std::FileExt;
 use gethostname::gethostname;
 use git2::Repository;
-use git_url_parse::GitUrl;
 use lazy_static::lazy_static;
 use once_cell::sync::OnceCell;
 use petname::Generator;
@@ -829,7 +828,7 @@ impl GitRepoEnv {
         }
     }
 
-    pub fn url(&self) -> Option<GitUrl> {
+    pub fn url(&self) -> Option<crate::internal::git::ParsedRepoUrl> {
         if let Some(origin) = &self.origin {
             if let Ok(url) = safe_git_url_parse(origin) {
                 return Some(url);

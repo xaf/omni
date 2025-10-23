@@ -649,13 +649,16 @@ impl PromptType {
 
         let git = git_env(".");
         let (scope_org, scope_repo) = match git.url() {
-            Some(url) => (
-                url.owner,
-                match scope {
-                    PromptScope::Repository => Some(url.name),
-                    PromptScope::Organization => None,
-                },
-            ),
+            Some(url) => match (url.owner, url.name) {
+                (Some(org), name) if !name.is_empty() => (
+                    Some(org),
+                    match scope {
+                        PromptScope::Repository => Some(name),
+                        PromptScope::Organization => None,
+                    },
+                ),
+                _ => (None, None),
+            },
             None => {
                 // TODO: make it work for any workdir by storing for the workdir id
                 //       instead of the org and repo

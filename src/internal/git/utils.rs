@@ -2,8 +2,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use git_url_parse::normalize_url;
-use git_url_parse::GitUrl;
+use crate::internal::git::ParsedRepoUrl;
 use lazy_static::lazy_static;
 use tokio::runtime::Runtime;
 use tokio::time::timeout;
@@ -32,25 +31,46 @@ pub fn package_root_path() -> String {
 
 static TIMEOUT_DURATION: Duration = Duration::from_secs(2);
 
-async fn async_normalize_url(url: &str) -> Result<Url, GitUrlError> {
-    Ok(normalize_url(url)?)
+fn coerce_handle_to_url(input: &str) -> String {
+    // If already has a scheme, return as-is
+    if input.contains("://") {
+        return input.to_string();
+    }
+    // Transform patterns like "host:owner[/repo]" into https URLs for org handles
+    if let Some((host, rest)) = input.split_once(':') {
+        if !host.is_empty() && !rest.is_empty() && !rest.contains('@') {
+            // Use ssh scheme for scp-like shorthand (no user specified)
+            return format!("ssh://{host}/{rest}");
+        }
+    }
+    // Default: prefix https://
+    format!("https://{}", input)
 }
 
 pub fn safe_normalize_url(url: &str) -> Result<Url, GitUrlError> {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        match timeout(TIMEOUT_DURATION, async_normalize_url(url)).await {
-            Ok(result) => result,
+        match timeout(TIMEOUT_DURATION, async {
+            let candidate = if url.contains("://") {
+                url.to_string()
+            } else {
+                coerce_handle_to_url(url)
+            };
+            Url::parse(&candidate)
+        })
+        .await
+        {
+            Ok(result) => result.map_err(GitUrlError::from),
             Err(_) => Err(GitUrlError::NormalizeTimeout),
         }
     })
 }
 
-async fn async_git_url_parse(url: &str) -> Result<GitUrl, GitUrlError> {
-    Ok(GitUrl::parse(url)?)
+async fn async_git_url_parse(url: &str) -> Result<ParsedRepoUrl, GitUrlError> {
+    ParsedRepoUrl::parse(url)
 }
 
-pub fn safe_git_url_parse(url: &str) -> Result<GitUrl, GitUrlError> {
+pub fn safe_git_url_parse(url: &str) -> Result<ParsedRepoUrl, GitUrlError> {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
         match timeout(TIMEOUT_DURATION, async_git_url_parse(url)).await {
@@ -60,9 +80,9 @@ pub fn safe_git_url_parse(url: &str) -> Result<GitUrl, GitUrlError> {
     })
 }
 
-pub fn id_from_git_url(url: &GitUrl) -> Option<String> {
-    let url = url.clone();
-    if let (Some(host), Some(owner), name) = (url.host, url.owner, url.name) {
+pub fn id_from_git_url(url: &ParsedRepoUrl) -> Option<String> {
+    let host = url.host.as_ref()?.to_string();
+    if let (Some(owner), name) = (&url.owner, &url.name) {
         if !name.is_empty() {
             return Some(format!("{host}:{owner}/{name}"));
         }
@@ -70,13 +90,16 @@ pub fn id_from_git_url(url: &GitUrl) -> Option<String> {
     None
 }
 
-pub fn full_git_url_parse(url: &str) -> Result<GitUrl, GitUrlError> {
+pub fn full_git_url_parse(url: &str) -> Result<ParsedRepoUrl, GitUrlError> {
     // let url = safe_normalize_url(url)?;
     // let git_url = safe_git_url_parse(url.as_str())?;
     let git_url = safe_git_url_parse(url)?;
 
-    if git_url.scheme.to_string() == "file" {
-        return Err(GitUrlError::UnsupportedScheme(git_url.scheme.to_string()));
+    if git_url.scheme.as_deref() == Some("file") {
+        return Err(GitUrlError::UnsupportedScheme("file".to_string()));
+    }
+    if git_url.host.is_none() {
+        return Err(GitUrlError::MissingRepositoryHost);
     }
     if git_url.name.is_empty() {
         return Err(GitUrlError::MissingRepositoryName);
@@ -84,22 +107,29 @@ pub fn full_git_url_parse(url: &str) -> Result<GitUrl, GitUrlError> {
     if git_url.owner.is_none() {
         return Err(GitUrlError::MissingRepositoryOwner);
     }
-    if git_url.host.is_none() {
-        return Err(GitUrlError::MissingRepositoryHost);
-    }
 
     Ok(git_url)
 }
 
-pub fn format_path_with_template(worktree: &str, git_url: &GitUrl, path_format: &str) -> PathBuf {
-    let git_url = git_url.clone();
-    format_path_with_template_and_data(
-        worktree,
-        &git_url.host.unwrap(),
-        &git_url.owner.unwrap(),
-        &git_url.name,
-        path_format,
-    )
+pub fn format_path_with_template(
+    worktree: &str,
+    git_url: &ParsedRepoUrl,
+    path_format: &str,
+) -> PathBuf {
+    let host = git_url
+        .host
+        .as_deref()
+        .expect("format_path_with_template requires a host");
+    let owner = git_url
+        .owner
+        .as_deref()
+        .expect("format_path_with_template requires an owner");
+    let name = git_url.name.as_str();
+    assert!(
+        !host.is_empty() && !owner.is_empty() && !name.is_empty(),
+        "format_path_with_template requires non-empty host/owner/name"
+    );
+    format_path_with_template_and_data(worktree, host, owner, name, path_format)
 }
 
 pub fn format_path_with_template_and_data(
@@ -138,18 +168,23 @@ pub fn package_path_from_handle(handle: &str) -> Option<PathBuf> {
     }
 }
 
-pub fn package_path_from_git_url(git_url: &GitUrl) -> Option<PathBuf> {
-    if git_url.scheme.to_string() == "file"
-        || git_url.name.is_empty()
-        || git_url.owner.is_none()
-        || git_url.host.is_none()
-    {
+pub fn package_path_from_git_url(git_url: &ParsedRepoUrl) -> Option<PathBuf> {
+    if git_url.scheme.as_deref() == Some("file") {
         return None;
     }
-
-    let package_path =
-        format_path_with_template(package_root_path().as_str(), git_url, PACKAGE_PATH_FORMAT);
-
+    let host = git_url.host.as_deref()?;
+    let owner = git_url.owner.clone()?;
+    let name = git_url.name.clone();
+    if owner.is_empty() || name.is_empty() {
+        return None;
+    }
+    let package_path = format_path_with_template_and_data(
+        package_root_path().as_str(),
+        host,
+        owner.as_str(),
+        name.as_str(),
+        PACKAGE_PATH_FORMAT,
+    );
     Some(package_path)
 }
 

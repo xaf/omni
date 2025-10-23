@@ -3,7 +3,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use git_url_parse::GitUrl;
+use crate::internal::git::ParsedRepoUrl;
 use serde::Deserialize;
 use serde::Serialize;
 use tera::Tera;
@@ -22,13 +22,11 @@ pub struct TemplateRepo {
 }
 
 impl TemplateRepo {
-    pub fn new(url: &GitUrl) -> Self {
-        Self {
-            handle: url.to_string(),
-            host: url.host.clone().unwrap_or_default(),
-            org: url.owner.clone().unwrap_or_default(),
-            name: url.name.clone(),
-        }
+    pub fn new(url: &ParsedRepoUrl) -> Self {
+        let host = url.host.clone().unwrap_or_default();
+        let org = url.owner.clone().unwrap_or_default();
+        let name = url.name.clone();
+        Self { handle: url.raw.clone(), host, org, name }
     }
 }
 

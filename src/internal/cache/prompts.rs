@@ -35,9 +35,9 @@ impl PromptsCache {
     pub fn answers(&self, path: &str) -> HashMap<String, serde_yaml::Value> {
         let git = git_env(path);
         match git.url() {
-            Some(url) => match url.owner {
-                Some(org) => self.get_answers(&org, &url.name),
-                None => HashMap::new(),
+            Some(url) => match (url.owner.as_deref(), url.name.as_str()) {
+                (Some(org), name) if !name.is_empty() => self.get_answers(org, name),
+                _ => HashMap::new(),
             },
             None => HashMap::new(),
         }

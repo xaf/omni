@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::time::Duration;
 
-use git_url_parse::GitUrl;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use shell_escape::escape;
@@ -24,6 +23,7 @@ use crate::internal::config::SyntaxOptArgType;
 use crate::internal::env::omni_cmd_file;
 use crate::internal::env::shell_is_interactive;
 use crate::internal::git::format_path_with_template;
+use crate::internal::git::full_git_url_parse;
 use crate::internal::git::package_path_from_git_url;
 use crate::internal::git::safe_git_url_parse;
 use crate::internal::git::ORG_LOADER;
@@ -75,7 +75,7 @@ impl CloneCommand {
         repo: &str,
         clone_as_package: bool,
         spinner: Option<ProgressBar>,
-    ) -> Option<(PathBuf, GitUrl)> {
+    ) -> Option<(PathBuf, String)> {
         self.try_repo_handle(repo, &[], clone_as_package, spinner, None, false, true)
     }
 
@@ -87,7 +87,7 @@ impl CloneCommand {
         spinner: Option<ProgressBar>,
         should_run_cd: Option<bool>,
         should_run_up: bool,
-    ) -> Option<(PathBuf, GitUrl)> {
+    ) -> Option<(PathBuf, String)> {
         self.try_repo_handle(
             repo,
             clone_args,
@@ -109,7 +109,7 @@ impl CloneCommand {
         should_run_cd: Option<bool>,
         should_run_up: bool,
         lookup_only: bool,
-    ) -> Option<(PathBuf, GitUrl)> {
+    ) -> Option<(PathBuf, String)> {
         let mut cloned = None;
         let repo = repo.to_string();
 
@@ -119,21 +119,25 @@ impl CloneCommand {
                 (org.get_repo_git_url(&repo), org.get_repo_path(&repo))
             {
                 let clone_path = if clone_as_package {
-                    if let Some(clone_path) = package_path_from_git_url(&clone_url) {
-                        clone_path
+                    if let Ok(gu) = full_git_url_parse(&clone_url) {
+                        if let Some(clone_path) = package_path_from_git_url(&gu) {
+                            clone_path
+                        } else {
+                            omni_error!(format!(
+                                "could not format package path for {}",
+                                repo.yellow()
+                            ));
+                            exit(1);
+                        }
                     } else {
-                        omni_error!(format!(
-                            "could not format package path for {}",
-                            repo.yellow()
-                        ));
-                        exit(1);
+                        return None;
                     }
                 } else {
                     clone_path
                 };
 
                 if self.try_clone(
-                    &clone_url,
+                    &clone_url.to_string(),
                     &clone_path,
                     clone_args,
                     spinner.clone(),
@@ -141,7 +145,7 @@ impl CloneCommand {
                     should_run_up,
                     lookup_only,
                 ) {
-                    cloned = Some((clone_path, clone_url));
+                    cloned = Some((clone_path, clone_url.to_string()));
                     break;
                 }
             }
@@ -151,15 +155,18 @@ impl CloneCommand {
         // we can clone to the default worktree
         if cloned.is_none() {
             if let Ok(clone_url) = safe_git_url_parse(&repo) {
-                if clone_url.scheme.to_string() != "file"
-                    && !clone_url.name.is_empty()
-                    && clone_url.owner.is_some()
+                if clone_url.scheme.as_deref() != Some("file")
                     && clone_url.host.is_some()
+                    && clone_url.owner.is_some()
+                    && !clone_url.name.is_empty()
                 {
                     let config = config(".");
                     let worktree = config.worktree();
-                    let clone_path =
-                        format_path_with_template(&worktree, &clone_url, &config.repo_path_format);
+                    let clone_path = format_path_with_template(
+                        &worktree,
+                        &clone_url,
+                        &config.repo_path_format,
+                    );
                     let clone_path = if clone_as_package {
                         if let Some(clone_path) = package_path_from_git_url(&clone_url) {
                             clone_path
@@ -175,7 +182,7 @@ impl CloneCommand {
                     };
 
                     if self.try_clone(
-                        &clone_url,
+                        &clone_url.raw,
                         &clone_path,
                         clone_args,
                         spinner.clone(),
@@ -183,7 +190,7 @@ impl CloneCommand {
                         should_run_up,
                         lookup_only,
                     ) {
-                        cloned = Some((clone_path, clone_url));
+                        cloned = Some((clone_path, clone_url.raw.clone()));
                     }
                 }
             }
@@ -222,7 +229,7 @@ impl CloneCommand {
     #[allow(clippy::too_many_arguments)]
     fn try_clone(
         &self,
-        clone_url: &GitUrl,
+        clone_url: &str,
         clone_path: &PathBuf,
         clone_args: &[String],
         spinner: Option<ProgressBar>,
@@ -274,7 +281,7 @@ impl CloneCommand {
             // Check using git ls-remote if the repository exists
             let mut cmd = TokioCommand::new("git");
             cmd.arg("ls-remote");
-            cmd.arg(clone_url.to_string());
+            cmd.arg(clone_url);
             cmd.stdout(std::process::Stdio::piped());
             cmd.stderr(std::process::Stdio::piped());
 

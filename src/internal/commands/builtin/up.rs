@@ -7,7 +7,6 @@ use std::process::exit;
 use std::str::FromStr;
 
 use blake3::Hasher as Blake3Hasher;
-use git_url_parse::GitUrl;
 use imara_diff::diff;
 use imara_diff::intern::InternedInput;
 use imara_diff::Algorithm;
@@ -679,11 +678,13 @@ impl UpCommand {
                     org.get_repo_git_url(&repo_config.handle),
                     org.get_repo_path(&repo_config.handle),
                 ) {
+                    let package_path =
+                        safe_git_url_parse(&clone_url).ok().and_then(|u| package_path_from_git_url(&u));
                     repo = Some(RepositoryToClone {
                         suggested_by: vec![repo_id.clone()],
-                        clone_url: clone_url.clone(),
+                        clone_url: clone_url.to_string(),
                         clone_path,
-                        package_path: package_path_from_git_url(&clone_url),
+                        package_path,
                         clone_args: repo_config.args.clone(),
                         clone_as_package: repo_config.clone_as_package(),
                     });
@@ -693,20 +694,21 @@ impl UpCommand {
 
             if repo.is_none() {
                 if let Ok(clone_url) = safe_git_url_parse(&repo_config.handle) {
-                    if clone_url.scheme.to_string() != "file"
-                        && !clone_url.name.is_empty()
-                        && clone_url.owner.is_some()
+                    if clone_url.scheme.as_deref() != Some("file")
                         && clone_url.host.is_some()
+                        && clone_url.owner.is_some()
+                        && !clone_url.name.is_empty()
                     {
                         let worktree = config.worktree();
+                        let clone_path = format_path_with_template(
+                            &worktree,
+                            &clone_url,
+                            &config.repo_path_format,
+                        );
                         repo = Some(RepositoryToClone {
                             suggested_by: vec![repo_id.clone()],
-                            clone_url: clone_url.clone(),
-                            clone_path: format_path_with_template(
-                                &worktree,
-                                &clone_url,
-                                &config.repo_path_format,
-                            ),
+                            clone_url: clone_url.raw.clone(),
+                            clone_path,
                             package_path: package_path_from_git_url(&clone_url),
                             clone_args: repo_config.args.clone(),
                             clone_as_package: repo_config.clone_as_package(),
@@ -829,7 +831,7 @@ impl UpCommand {
                             suggested_by,
                             clone_url: existing_repo.clone_url.clone(),
                             clone_path: existing_repo.clone_path.clone(),
-                            package_path: package_path_from_git_url(&existing_repo.clone_url),
+                            package_path: existing_repo.package_path.clone(),
                             clone_args: args,
                             clone_as_package: existing_repo.clone_as_package
                                 && new_repo.clone_as_package,
@@ -1655,7 +1657,7 @@ impl BuiltinCommand for UpCommand {
 #[derive(Debug, Eq, Clone)]
 struct RepositoryToClone {
     suggested_by: Vec<String>,
-    clone_url: GitUrl,
+    clone_url: String,
     clone_path: PathBuf,
     package_path: Option<PathBuf>,
     clone_args: Vec<String>,

@@ -403,8 +403,11 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
             };
 
             if let Ok(git_url) = full_git_url_parse(&updater.repo_id) {
-                if let Some(host) = git_url.host {
-                    let key = (host.clone(), git_url.scheme.to_string());
+                if let Some(host) = git_url.host.as_deref() {
+                    let key = (
+                        host.to_string(),
+                        git_url.scheme.as_deref().unwrap_or("").to_string(),
+                    );
 
                     if let Some(succeeded) = auth_hosts.get(&key) {
                         if !succeeded {
