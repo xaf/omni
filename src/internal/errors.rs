@@ -1,5 +1,5 @@
-use url::ParseError as UrlParseError;
 use thiserror::Error;
+use url::ParseError as UrlParseError;
 
 use crate::internal::config::up::utils::SyncUpdateInit;
 

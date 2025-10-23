@@ -678,8 +678,9 @@ impl UpCommand {
                     org.get_repo_git_url(&repo_config.handle),
                     org.get_repo_path(&repo_config.handle),
                 ) {
-                    let package_path =
-                        safe_git_url_parse(&clone_url).ok().and_then(|u| package_path_from_git_url(&u));
+                    let package_path = safe_git_url_parse(&clone_url)
+                        .ok()
+                        .and_then(|u| package_path_from_git_url(&u));
                     repo = Some(RepositoryToClone {
                         suggested_by: vec![repo_id.clone()],
                         clone_url: clone_url.to_string(),

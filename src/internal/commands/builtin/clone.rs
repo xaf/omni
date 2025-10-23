@@ -162,11 +162,8 @@ impl CloneCommand {
                 {
                     let config = config(".");
                     let worktree = config.worktree();
-                    let clone_path = format_path_with_template(
-                        &worktree,
-                        &clone_url,
-                        &config.repo_path_format,
-                    );
+                    let clone_path =
+                        format_path_with_template(&worktree, &clone_url, &config.repo_path_format);
                     let clone_path = if clone_as_package {
                         if let Some(clone_path) = package_path_from_git_url(&clone_url) {
                             clone_path

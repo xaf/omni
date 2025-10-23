@@ -26,7 +26,12 @@ impl TemplateRepo {
         let host = url.host.clone().unwrap_or_default();
         let org = url.owner.clone().unwrap_or_default();
         let name = url.name.clone();
-        Self { handle: url.raw.clone(), host, org, name }
+        Self {
+            handle: url.raw.clone(),
+            host,
+            org,
+            name,
+        }
     }
 }
 
