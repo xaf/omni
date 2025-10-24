@@ -57,8 +57,10 @@ fn generate_sandbox_name_produces_safe_value() {
         reset_config();
 
         let command = SandboxCommand::new();
+        let root = sandbox_root();
+        fs::create_dir_all(&root).expect("create sandbox root");
         let name = command
-            .generate_sandbox_name()
+            .generate_sandbox_name(&[], &root)
             .expect("should generate sandbox name");
 
         assert!(!name.is_empty(), "generated name should not be empty");
@@ -74,6 +76,32 @@ fn generate_sandbox_name_produces_safe_value() {
         command
             .resolve_target(&name)
             .expect("generated name should be valid");
+    });
+}
+
+#[test]
+fn generate_sandbox_name_uses_dependency_prefix_when_possible() {
+    run_with_env(&[], || {
+        reset_config();
+
+        let command = SandboxCommand::new();
+        let root = sandbox_root();
+        fs::create_dir_all(&root).expect("create sandbox root");
+
+        let dependencies = vec!["gopher@1.0.0".to_string()];
+        let name = command
+            .generate_sandbox_name(&dependencies, &root)
+            .expect("should generate sandbox name");
+
+        let first_word = name
+            .split('-')
+            .next()
+            .expect("petname should have words")
+            .to_ascii_lowercase();
+        assert!(
+            first_word.starts_with("go"),
+            "first word {first_word} should reflect dependency prefix"
+        );
     });
 }
 

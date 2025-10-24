@@ -104,11 +104,85 @@ impl SandboxCommand {
         Ok(root.join(path))
     }
 
-    fn generate_sandbox_name(&self) -> Result<String, String> {
-        let petname = Petnames::default()
-            .generate_one(3, "-")
-            .ok_or_else(|| "failed to generate sandbox name".to_string())?;
-        Ok(petname)
+    fn generate_sandbox_name(
+        &self,
+        dependencies: &[String],
+        root: &Path,
+    ) -> Result<String, String> {
+        let prefixes: Vec<String> = dependencies
+            .iter()
+            .filter_map(|dep| Self::dependency_prefix(dep))
+            .collect();
+
+        for prefix in &prefixes {
+            if let Some(name) = Self::generate_name_with_prefix(prefix, root) {
+                return Ok(name);
+            }
+        }
+
+        for _ in 0..1000 {
+            if let Some(name) = Petnames::default().generate_one(3, "-") {
+                if !root.join(&name).exists() {
+                    return Ok(name);
+                }
+            } else {
+                break;
+            }
+        }
+
+        Err("failed to generate sandbox name".to_string())
+    }
+
+    fn dependency_prefix(dep: &str) -> Option<String> {
+        let base = dep.split('@').next().unwrap_or(dep);
+        let cleaned: String = base
+            .chars()
+            .take_while(|ch| ch.is_ascii_alphabetic())
+            .collect();
+
+        if cleaned.is_empty() {
+            return None;
+        }
+
+        let cleaned = cleaned.to_ascii_lowercase();
+
+        if cleaned.len() == 1 {
+            return Some(cleaned);
+        }
+
+        let mut prefix = String::new();
+        for ch in cleaned.chars() {
+            prefix.push(ch);
+            if prefix.len() >= 4 || matches!(ch, 'a' | 'e' | 'i' | 'o' | 'u' | 'y') {
+                break;
+            }
+        }
+
+        Some(prefix)
+    }
+
+    fn generate_name_with_prefix(prefix: &str, root: &Path) -> Option<String> {
+        let prefix = prefix.to_ascii_lowercase();
+        let mut generator = Petnames::default();
+        generator
+            .adverbs
+            .to_mut()
+            .retain(|w| w.starts_with(&prefix));
+
+        for _ in 0..10 {
+            let name = generator.generate_one(3, "-")?;
+            let parts: Vec<_> = name.split('-').collect();
+            if parts.len() != 3 {
+                break;
+            }
+
+            let path = root.join(&name);
+            if !path.exists() {
+                return Some(name);
+            }
+        }
+
+        None
     }
 
     fn write_config(&self, target: &Path, dependencies: &[String]) -> Result<(), String> {
@@ -181,17 +255,11 @@ impl SandboxCommand {
             ));
         }
 
-        for _ in 0..100 {
-            let name = self
-                .generate_sandbox_name()
-                .map_err(|err| format!("failed to generate sandbox name: {err}"))?;
-            let target = root.join(&name);
-            if !target.exists() {
-                return Ok((target, false));
-            }
-        }
-
-        Err("failed to generate a unique sandbox name".to_string())
+        let name = self
+            .generate_sandbox_name(&args.dependencies, &root)
+            .map_err(|err| format!("failed to generate sandbox name: {err}"))?;
+        let target = root.join(&name);
+        Ok((target, false))
     }
 
     fn initialize_at(
