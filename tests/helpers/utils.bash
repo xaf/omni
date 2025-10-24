@@ -131,6 +131,7 @@ setup_omni_config() {
 
   local HAS_REPO_PATH_FORMAT=false
   local HAS_WORKTREE=false
+  local HAS_SANDBOX=false
 
   for opt in "$@"; do
     case "${opt}" in
@@ -153,6 +154,10 @@ EOF
 	HAS_WORKTREE=true
 	echo "worktree: \"${opt#*=}\"" >> "${config_file}"
 	;;
+      sandbox=*)
+	HAS_SANDBOX=true
+	echo "sandbox: \"${opt#*=}\"" >> "${config_file}"
+	;;
       no_fast_search)
 	echo "cd:" >> "${config_file}"
 	echo "  fast_search: false" >> "${config_file}"
@@ -170,6 +175,10 @@ EOF
 
   if [[ "${HAS_WORKTREE}" = false ]]; then
     echo 'worktree: ~/git' >> "${config_file}"
+  fi
+
+  if [[ "${HAS_SANDBOX}" = false ]]; then
+    echo 'sandbox: ~/sandbox' >> "${config_file}"
   fi
 
   echo "==== OMNI CONFIG === BEGIN ====" >&2

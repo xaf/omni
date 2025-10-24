@@ -1110,6 +1110,8 @@ impl ConfigValue {
             (2, "suggest_config") => matches!(keypath[1].as_str(), "template_file"),
             // worktree
             (1, "worktree") => true,
+            // sandbox
+            (1, "sandbox") => true,
             _ => false,
         }
     }

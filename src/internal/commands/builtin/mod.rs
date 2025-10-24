@@ -24,6 +24,9 @@ pub(crate) use config::ConfigTrustCommand;
 pub(crate) mod scope;
 pub(crate) use scope::ScopeCommand;
 
+pub(crate) mod sandbox;
+pub(crate) use sandbox::SandboxCommand;
+
 pub(crate) mod status;
 pub(crate) use status::StatusCommand;
 

@@ -50,6 +50,11 @@ lazy_static! {
         }
         default_worktree_path
     };
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    static ref DEFAULT_SANDBOX: String = {
+        let home = user_home();
+        format!("{home}/sandbox")
+    };
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -87,6 +92,8 @@ pub struct OmniConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub up: Option<UpConfig>,
     pub up_command: UpCommandConfig,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub sandbox: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub worktree: String,
 }
@@ -216,6 +223,12 @@ impl OmniConfig {
             &error_handler.with_key("up_command"),
         );
 
+        let sandbox = config_value.get_as_str_or_default(
+            "sandbox",
+            &DEFAULT_SANDBOX,
+            &error_handler.with_key("sandbox"),
+        );
+
         let worktree = config_value.get_as_str_or_default(
             "worktree",
             &DEFAULT_WORKTREE,
@@ -245,8 +258,13 @@ impl OmniConfig {
             suggest_config,
             up,
             up_command,
+            sandbox,
             worktree,
         }
+    }
+
+    pub fn sandbox(&self) -> String {
+        self.sandbox.clone()
     }
 
     pub fn worktree(&self) -> String {
