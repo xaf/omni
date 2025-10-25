@@ -81,7 +81,7 @@ impl SandboxCommand {
     }
 
     fn resolve_target(&self, name: &str) -> Result<PathBuf, String> {
-        validate_name(name)?;
+        validate_sandbox_name(name)?;
 
         let path = Path::new(name);
         if path.is_absolute() {
@@ -236,7 +236,7 @@ impl SandboxCommand {
         }
 
         if let Some(name) = &args.name {
-            validate_name(name)?;
+            validate_sandbox_name(name)?;
             let target = self.resolve_target(name)?;
             if target.exists() {
                 return Err(format!(
@@ -409,7 +409,7 @@ impl BuiltinCommand for SandboxCommand {
                 .expect("should have args to parse"),
         );
         if let Some(name) = &args.name {
-            if let Err(err) = validate_name(name) {
+            if let Err(err) = validate_sandbox_name(name) {
                 omni_error!(err);
                 exit(1);
             }
@@ -507,13 +507,13 @@ fn run_omni_up(target: &Path) -> Result<(), String> {
     }
 }
 
-fn validate_name(name: &str) -> Result<(), String> {
+pub(crate) fn validate_sandbox_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("sandbox name cannot be empty".to_string());
     }
 
-    let mut chars = name.chars();
-    let first = chars
+    let mut chars_iter = name.chars();
+    let first = chars_iter
         .next()
         .ok_or_else(|| "sandbox name cannot be empty".to_string())?;
     if !first.is_ascii_alphanumeric() {
@@ -521,7 +521,7 @@ fn validate_name(name: &str) -> Result<(), String> {
     }
 
     let mut last = first;
-    for ch in name.chars().skip(1) {
+    for ch in chars_iter {
         if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
             return Err("sandbox name may only contain letters, digits, '-' or '_'".to_string());
         }

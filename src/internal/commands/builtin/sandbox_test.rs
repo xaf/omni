@@ -442,7 +442,7 @@ fn initialize_existing_configures_current_directory() {
         let id_contents = fs::read_to_string(project_root.join(".omni/id")).expect("id");
         let prefix = id_contents.split(':').next().unwrap_or("");
         assert!(
-            validate_name(prefix).is_ok(),
+            validate_sandbox_name(prefix).is_ok(),
             "workdir id should contain a valid prefix: {id_contents}"
         );
     });
