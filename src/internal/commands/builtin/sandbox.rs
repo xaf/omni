@@ -1,20 +1,26 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::exit;
 
 use crate::internal::commands::base::BuiltinCommand;
+use crate::internal::commands::utils::omni_cmd;
 use crate::internal::commands::Command;
 use crate::internal::config::config;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
+use crate::internal::env::omni_cmd_file;
 use crate::internal::init_workdir;
 use crate::internal::user_interface::StringColor;
+use crate::internal::workdir::add_trust;
 use crate::omni_error;
 use crate::omni_info;
 use petname::{Generator, Petnames};
+use shell_escape::escape;
+use std::env::current_exe;
 
 #[derive(Debug, Clone)]
 struct SandboxCommandArgs {
@@ -433,13 +439,71 @@ impl BuiltinCommand for SandboxCommand {
             }
         };
 
-        let target_display = target.to_string_lossy().to_string();
         omni_info!(format!(
             "sandbox initialized at {}",
-            target_display.light_blue()
+            target.to_string_lossy().light_blue()
         ));
 
+        if let Err(err) = record_cd(&target) {
+            omni_error!(err);
+            exit(1);
+        }
+
+        let target_str = match target.to_str() {
+            Some(path) => path,
+            None => {
+                omni_error!("failed to resolve sandbox path");
+                exit(1);
+            }
+        };
+
+        if !add_trust(target_str) {
+            omni_error!("failed to trust sandbox work directory");
+            exit(1);
+        }
+
+        if let Err(err) = run_omni_up(&target) {
+            omni_error!(err);
+            exit(1);
+        }
+
         exit(0);
+    }
+}
+
+fn record_cd(target: &Path) -> Result<(), String> {
+    if omni_cmd_file().is_none() {
+        return Ok(());
+    }
+
+    let target_str = target
+        .to_str()
+        .ok_or_else(|| "failed to resolve sandbox path".to_string())?;
+    let path_escaped = escape(Cow::Borrowed(target_str));
+
+    omni_cmd(format!("cd {path_escaped}").as_str()).map_err(|err| err.to_string())
+}
+
+fn run_omni_up(target: &Path) -> Result<(), String> {
+    let current_exe_path =
+        current_exe().map_err(|err| format!("failed to determine omni executable: {err}"))?;
+
+    omni_info!(format!(
+        "running {} in {}",
+        "omni up".light_yellow(),
+        target.display().to_string().light_cyan()
+    ));
+
+    let mut command = std::process::Command::new(current_exe_path);
+    command.arg("up");
+    command.current_dir(target);
+    command.env_remove("OMNI_FORCE_UPDATE");
+    command.env("OMNI_SKIP_UPDATE", "1");
+
+    match command.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!("omni up failed with status {status}")),
+        Err(err) => Err(format!("failed to run omni up: {err}")),
     }
 }
 
