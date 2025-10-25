@@ -161,18 +161,31 @@ fn initialize_named_fails_when_directory_exists() {
         reset_config();
 
         let command = SandboxCommand::new();
-        let existing = sandbox_root().join("existing");
-        fs::create_dir_all(&existing).expect("create existing sandbox");
+        let dependencies = vec!["python".to_string()];
 
         let args = SandboxCommandArgs {
             path: None,
             name: Some("existing".to_string()),
-            dependencies: vec![],
+            dependencies: dependencies.clone(),
         };
+
+        let (target_path, allow_existing, preferred_prefix) = command
+            .determine_target_path(&args)
+            .expect("determine target");
+        assert!(!allow_existing);
+
+        command
+            .initialize_at(
+                &target_path,
+                &dependencies,
+                allow_existing,
+                preferred_prefix.as_deref(),
+            )
+            .expect("first initialization should succeed");
 
         let err = command
             .determine_target_path(&args)
-            .expect_err("should fail for existing directory");
+            .expect_err("second initialization should fail");
         assert!(
             err.contains("already exists"),
             "unexpected error message: {err}"
@@ -240,6 +253,142 @@ fn initialize_named_rejects_invalid_name() {
             err.contains("sandbox name must start"),
             "unexpected error message: {err}"
         );
+    });
+}
+
+#[test]
+fn initialize_with_path_creates_sandbox() {
+    run_with_env(&[], || {
+        reset_config();
+
+        let command = SandboxCommand::new();
+        let dependencies = vec!["python".to_string()];
+        let sandbox_dir = sandbox_root().join("path_sandbox");
+        fs::create_dir_all(&sandbox_dir).expect("create sandbox path");
+
+        let args = SandboxCommandArgs {
+            path: Some(sandbox_dir.clone()),
+            name: None,
+            dependencies: dependencies.clone(),
+        };
+
+        let (target_path, allow_existing, preferred_prefix) = command
+            .determine_target_path(&args)
+            .expect("determine target for path");
+        assert!(allow_existing);
+
+        command
+            .initialize_at(
+                &target_path,
+                &dependencies,
+                allow_existing,
+                preferred_prefix.as_deref(),
+            )
+            .expect("initialize sandbox using path");
+
+        assert!(sandbox_dir.join(".omni.yaml").exists());
+        assert!(sandbox_dir.join(".omni/id").exists());
+    });
+}
+
+#[test]
+fn initialize_with_path_fails_if_omni_yaml_exists() {
+    run_with_env(&[], || {
+        reset_config();
+
+        let command = SandboxCommand::new();
+        let dependencies = vec!["python".to_string()];
+        let sandbox_dir = sandbox_root().join("path_with_yaml");
+        fs::create_dir_all(&sandbox_dir).expect("create sandbox path");
+        fs::write(sandbox_dir.join(".omni.yaml"), "existing").expect("write .omni.yaml");
+
+        let args = SandboxCommandArgs {
+            path: Some(sandbox_dir.clone()),
+            name: None,
+            dependencies: dependencies.clone(),
+        };
+
+        let (target_path, allow_existing, preferred_prefix) = command
+            .determine_target_path(&args)
+            .expect("determine target for path");
+        assert!(allow_existing);
+
+        let err = command
+            .initialize_at(
+                &target_path,
+                &dependencies,
+                allow_existing,
+                preferred_prefix.as_deref(),
+            )
+            .expect_err("should fail when .omni.yaml exists");
+        assert!(err.contains("already has an .omni.yaml"));
+    });
+}
+
+#[test]
+fn initialize_with_path_fails_if_workdir_exists() {
+    run_with_env(&[], || {
+        reset_config();
+
+        let command = SandboxCommand::new();
+        let dependencies = vec!["python".to_string()];
+        let sandbox_dir = sandbox_root().join("path_with_workdir");
+        fs::create_dir_all(sandbox_dir.join(".omni")).expect("create .omni directory");
+        fs::write(sandbox_dir.join(".omni/id"), "existing:id").expect("write .omni/id");
+
+        let args = SandboxCommandArgs {
+            path: Some(sandbox_dir.clone()),
+            name: None,
+            dependencies: dependencies.clone(),
+        };
+
+        let (target_path, allow_existing, preferred_prefix) = command
+            .determine_target_path(&args)
+            .expect("determine target for path");
+        assert!(allow_existing);
+
+        let err = command
+            .initialize_at(
+                &target_path,
+                &dependencies,
+                allow_existing,
+                preferred_prefix.as_deref(),
+            )
+            .expect_err("should fail when .omni/id exists");
+        assert!(err.contains("already contains a work directory"));
+    });
+}
+
+#[test]
+fn initialize_with_path_fails_if_git_repo_exists() {
+    run_with_env(&[], || {
+        reset_config();
+
+        let command = SandboxCommand::new();
+        let dependencies = vec!["python".to_string()];
+        let sandbox_dir = sandbox_root().join("path_with_git");
+        fs::create_dir_all(sandbox_dir.join(".git")).expect("create .git directory");
+
+        let args = SandboxCommandArgs {
+            path: Some(sandbox_dir.clone()),
+            name: None,
+            dependencies: dependencies.clone(),
+        };
+
+        let (target_path, allow_existing, preferred_prefix) = command
+            .determine_target_path(&args)
+            .expect("determine target for path");
+        assert!(allow_existing);
+
+        let err = command
+            .initialize_at(
+                &target_path,
+                &dependencies,
+                allow_existing,
+                preferred_prefix.as_deref(),
+            )
+            .expect_err("should fail when directory is git repo");
+        assert!(err.contains("already contains a git repository"));
     });
 }
 
