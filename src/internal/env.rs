@@ -213,8 +213,6 @@ pub fn workdir_or_init<T: AsRef<str>>(path: T) -> Result<WorkDirEnv, String> {
         ));
     }
 
-    // Open the 'id' file in the local config directory in write/create mode
-    // and write a uuid to it
     let id_file = local_config_dir.join("id");
     match OpenOptions::new()
         .write(true)
@@ -246,6 +244,59 @@ pub fn workdir_or_init<T: AsRef<str>>(path: T) -> Result<WorkDirEnv, String> {
     }
 
     Ok(wd)
+}
+
+pub fn init_workdir<T: AsRef<str>>(
+    path: T,
+    preferred_name: Option<&str>,
+) -> Result<WorkDirEnv, String> {
+    let path_str = path.as_ref();
+    let canonical = std::fs::canonicalize(path_str).unwrap_or_else(|_| PathBuf::from(path_str));
+    let path = canonical.to_str().unwrap().to_owned();
+
+    let workdir_path = PathBuf::from(&path);
+    let id_path = workdir_path.join(".omni/id");
+    if id_path.exists() {
+        return Err(format!("workdir '{}' already exists", path));
+    }
+
+    if let Some(parent) = id_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create directory '{}': {}", parent.display(), err))?;
+    }
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&id_path)
+        .map_err(|err| format!("failed to open '{}': {}", id_path.display(), err))?;
+
+    let prefix = if let Some(name) = preferred_name {
+        if !WorkDirEnv::is_valid_id_prefix(name) {
+            return Err(format!(
+                "invalid workdir prefix '{}': must start and end with a letter or digit and contain only letters, digits, '-' or '_'",
+                name
+            ));
+        }
+        Some(name.to_string())
+    } else {
+        workdir_path
+            .file_name()
+            .and_then(|os| os.to_str())
+            .filter(|name| WorkDirEnv::is_valid_id_prefix(name))
+            .map(|s| s.to_string())
+    };
+
+    let id = prefix
+        .map(|p| WorkDirEnv::generate_id_with_prefix(&p))
+        .unwrap_or_else(WorkDirEnv::generate_id);
+    file.write_all(id.as_bytes())
+        .map_err(|err| format!("failed to write to '{}': {}", id_path.display(), err))?;
+
+    workdir_flush_cache(&path);
+    git_env_flush_cache(&path);
+
+    Ok(workdir(&path))
 }
 
 fn compute_user_home() -> String {
@@ -1032,7 +1083,38 @@ impl WorkDirEnv {
 
     fn generate_id() -> String {
         let petname_id = Petnames::default().generate_one(3, "-").expect("no names");
-        format!("{}:{:016x}", petname_id, Self::machine_id_hash(&petname_id))
+        Self::generate_id_with_prefix(&petname_id)
+    }
+
+    fn generate_id_with_prefix(prefix: &str) -> String {
+        debug_assert!(Self::is_valid_id_prefix(prefix));
+        format!("{}:{:016x}", prefix, Self::machine_id_hash(prefix))
+    }
+
+    fn is_valid_id_prefix(name: &str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+
+        let mut chars = name.chars();
+        let first = match chars.next() {
+            Some(ch) => ch,
+            None => return false,
+        };
+
+        if !first.is_ascii_alphanumeric() {
+            return false;
+        }
+
+        let mut last = first;
+        for ch in chars {
+            if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+                return false;
+            }
+            last = ch;
+        }
+
+        last.is_ascii_alphanumeric()
     }
 
     fn verify_id(id: &str) -> bool {
@@ -1047,7 +1129,7 @@ impl WorkDirEnv {
         // Check if first part is words with lowercase letters separated by '-'
         if !id_parts[0]
             .chars()
-            .all(|c| c.is_ascii_lowercase() || c == '-')
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         {
             return false;
         }

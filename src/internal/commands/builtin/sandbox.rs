@@ -10,8 +10,8 @@ use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
+use crate::internal::init_workdir;
 use crate::internal::user_interface::StringColor;
-use crate::internal::workdir_or_init;
 use crate::omni_error;
 use crate::omni_info;
 use petname::{Generator, Petnames};
@@ -75,9 +75,7 @@ impl SandboxCommand {
     }
 
     fn resolve_target(&self, name: &str) -> Result<PathBuf, String> {
-        if name.trim().is_empty() {
-            return Err("sandbox name cannot be empty".to_string());
-        }
+        validate_name(name)?;
 
         let path = Path::new(name);
         if path.is_absolute() {
@@ -167,7 +165,7 @@ impl SandboxCommand {
         generator
             .adverbs
             .to_mut()
-            .retain(|w| w.starts_with(&prefix));
+            .retain(|word| word.starts_with(&prefix));
 
         for _ in 0..10 {
             let name = generator.generate_one(3, "-")?;
@@ -220,22 +218,19 @@ impl SandboxCommand {
         })
     }
 
-    fn initialize_workdir(&self, target: &Path) -> Result<(), String> {
-        workdir_or_init(
-            target
-                .to_str()
-                .ok_or_else(|| "failed to resolve sandbox path".to_string())?,
-        )
-        .map(|_| ())
-        .map_err(|err| format!("failed to initialize sandbox: {err}"))
-    }
-
-    fn determine_target_path(&self, args: &SandboxCommandArgs) -> Result<(PathBuf, bool), String> {
+    fn determine_target_path(
+        &self,
+        args: &SandboxCommandArgs,
+    ) -> Result<(PathBuf, bool, Option<String>), String> {
         if let Some(path) = &args.path {
-            return Ok((path.clone(), true));
+            let generated = self
+                .generate_sandbox_name(&args.dependencies, &self.sandbox_root())
+                .ok();
+            return Ok((path.clone(), true, generated));
         }
 
         if let Some(name) = &args.name {
+            validate_name(name)?;
             let target = self.resolve_target(name)?;
             if target.exists() {
                 return Err(format!(
@@ -243,7 +238,7 @@ impl SandboxCommand {
                     target.display()
                 ));
             }
-            return Ok((target, false));
+            return Ok((target, false, Some(name.clone())));
         }
 
         let root = self.sandbox_root();
@@ -259,7 +254,7 @@ impl SandboxCommand {
             .generate_sandbox_name(&args.dependencies, &root)
             .map_err(|err| format!("failed to generate sandbox name: {err}"))?;
         let target = root.join(&name);
-        Ok((target, false))
+        Ok((target, false, Some(name)))
     }
 
     fn initialize_at(
@@ -267,6 +262,7 @@ impl SandboxCommand {
         target: &Path,
         dependencies: &[String],
         allow_existing: bool,
+        preferred_id_prefix: Option<&str>,
     ) -> Result<PathBuf, String> {
         if target.exists() {
             if !target.is_dir() {
@@ -312,7 +308,13 @@ impl SandboxCommand {
         }
 
         self.write_config(target, dependencies)?;
-        self.initialize_workdir(target)?;
+
+        let target_str = target
+            .to_str()
+            .ok_or_else(|| "failed to resolve sandbox path".to_string())?;
+
+        init_workdir(target_str, preferred_id_prefix)
+            .map_err(|err| format!("failed to initialize sandbox: {err}"))?;
 
         Ok(target.to_path_buf())
     }
@@ -400,16 +402,28 @@ impl BuiltinCommand for SandboxCommand {
                 .exec_parse_args_typed(argv, self.name())
                 .expect("should have args to parse"),
         );
-
-        let (target_path, allow_existing) = match self.determine_target_path(&args) {
-            Ok(value) => value,
-            Err(err) => {
+        if let Some(name) = &args.name {
+            if let Err(err) = validate_name(name) {
                 omni_error!(err);
                 exit(1);
             }
-        };
+        }
 
-        let init_result = self.initialize_at(&target_path, &args.dependencies, allow_existing);
+        let (target_path, allow_existing, preferred_id_prefix) =
+            match self.determine_target_path(&args) {
+                Ok(value) => value,
+                Err(err) => {
+                    omni_error!(err);
+                    exit(1);
+                }
+            };
+
+        let init_result = self.initialize_at(
+            &target_path,
+            &args.dependencies,
+            allow_existing,
+            preferred_id_prefix.as_deref(),
+        );
 
         let target = match init_result {
             Ok(target) => target,
@@ -427,6 +441,34 @@ impl BuiltinCommand for SandboxCommand {
 
         exit(0);
     }
+}
+
+fn validate_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("sandbox name cannot be empty".to_string());
+    }
+
+    let mut chars = name.chars();
+    let first = chars
+        .next()
+        .ok_or_else(|| "sandbox name cannot be empty".to_string())?;
+    if !first.is_ascii_alphanumeric() {
+        return Err("sandbox name must start with a letter or digit".to_string());
+    }
+
+    let mut last = first;
+    for ch in name.chars().skip(1) {
+        if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+            return Err("sandbox name may only contain letters, digits, '-' or '_'".to_string());
+        }
+        last = ch;
+    }
+
+    if !last.is_ascii_alphanumeric() {
+        return Err("sandbox name must end with a letter or digit".to_string());
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
