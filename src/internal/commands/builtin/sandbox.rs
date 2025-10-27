@@ -391,6 +391,13 @@ impl BuiltinCommand for SandboxCommand {
                     ),
                     leftovers: true,
                     allow_hyphen_values: true,
+                    required_without: vec!["empty".to_string()],
+                    ..Default::default()
+                },
+                SyntaxOptArg {
+                    names: vec!["--empty".to_string()],
+                    desc: Some("Create an empty sandbox without any dependencies.".to_string()),
+                    arg_type: SyntaxOptArgType::Flag,
                     ..Default::default()
                 },
             ],
