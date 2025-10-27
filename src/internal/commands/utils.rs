@@ -9,6 +9,8 @@ use path_clean::PathClean;
 use requestty::question::completions;
 use requestty::question::Completions;
 
+use crate::internal::commands::builtin::sandbox::validate_sandbox_name;
+use crate::internal::config::config;
 use crate::internal::env::omni_cmd_file;
 use crate::internal::env::user_home;
 use crate::internal::env::Shell;
@@ -232,6 +234,30 @@ pub fn path_auto_complete(
         let add_space = if Shell::current().is_fish() { " " } else { "" };
         for match_value in ORG_LOADER.complete(value) {
             completions.insert(format!("{match_value}{add_space}"));
+        }
+
+        let sandbox_root = PathBuf::from(config(".").sandbox());
+        if let Ok(entries) = std::fs::read_dir(&sandbox_root) {
+            for entry in entries.flatten() {
+                let Ok(file_type) = entry.file_type() else {
+                    continue;
+                };
+                if !file_type.is_dir() {
+                    continue;
+                }
+
+                let name = entry.file_name().to_string_lossy().to_string();
+
+                if !name.starts_with(value) {
+                    continue;
+                }
+
+                if validate_sandbox_name(&name).is_err() {
+                    continue;
+                }
+
+                completions.insert(format!("{name}{add_space}"));
+            }
         }
     }
 
