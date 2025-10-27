@@ -3,6 +3,7 @@ use super::*;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::internal::commands::utils::validate_sandbox_name;
 use crate::internal::config::{config, flush_config};
 use crate::internal::testutils::run_with_env;
 

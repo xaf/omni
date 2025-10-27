@@ -6,6 +6,7 @@ use std::process::exit;
 
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::utils::omni_cmd;
+use crate::internal::commands::utils::validate_sandbox_name;
 use crate::internal::commands::Command;
 use crate::internal::config::config;
 use crate::internal::config::parser::ParseArgsValue;
@@ -505,34 +506,6 @@ fn run_omni_up(target: &Path) -> Result<(), String> {
         Ok(status) => Err(format!("omni up failed with status {status}")),
         Err(err) => Err(format!("failed to run omni up: {err}")),
     }
-}
-
-pub(crate) fn validate_sandbox_name(name: &str) -> Result<(), String> {
-    if name.is_empty() {
-        return Err("sandbox name cannot be empty".to_string());
-    }
-
-    let mut chars_iter = name.chars();
-    let first = chars_iter
-        .next()
-        .ok_or_else(|| "sandbox name cannot be empty".to_string())?;
-    if !first.is_ascii_alphanumeric() {
-        return Err("sandbox name must start with a letter or digit".to_string());
-    }
-
-    let mut last = first;
-    for ch in chars_iter {
-        if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
-            return Err("sandbox name may only contain letters, digits, '-' or '_'".to_string());
-        }
-        last = ch;
-    }
-
-    if !last.is_ascii_alphanumeric() {
-        return Err("sandbox name must end with a letter or digit".to_string());
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
