@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::exit;
 
 use crate::internal::commands::base::BuiltinCommand;
-use crate::internal::commands::utils::omni_cmd;
+use crate::internal::commands::utils::omni_cmd_always;
 use crate::internal::commands::utils::validate_sandbox_name;
 use crate::internal::commands::Command;
 use crate::internal::config::config;
@@ -489,7 +489,7 @@ fn record_cd(target: &Path) -> Result<(), String> {
         .ok_or_else(|| "failed to resolve sandbox path".to_string())?;
     let path_escaped = escape(Cow::Borrowed(target_str));
 
-    omni_cmd(format!("cd {path_escaped}").as_str()).map_err(|err| err.to_string())
+    omni_cmd_always(format!("cd {path_escaped}").as_str()).map_err(|err| err.to_string())
 }
 
 fn run_omni_up(target: &Path) -> Result<(), String> {
