@@ -7,7 +7,7 @@ use shell_escape::escape;
 use crate::internal::commands::base::AutocompleteParameter;
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::base::CommandAutocompletion;
-use crate::internal::commands::utils::omni_cmd;
+use crate::internal::commands::utils::omni_cmd_on_success;
 use crate::internal::commands::utils::path_auto_complete;
 use crate::internal::commands::utils::validate_sandbox_name;
 use crate::internal::commands::Command;
@@ -89,7 +89,7 @@ impl CdCommand {
         }
 
         let path_escaped = escape(std::borrow::Cow::Borrowed(path_str.as_str()));
-        match omni_cmd(format!("cd {path_escaped}").as_str()) {
+        match omni_cmd_on_success(format!("cd {path_escaped}").as_str()) {
             Ok(_) => {}
             Err(e) => {
                 omni_error!(e);
@@ -107,7 +107,7 @@ impl CdCommand {
             }
 
             let path_escaped = escape(std::borrow::Cow::Borrowed(path_str.as_str()));
-            match omni_cmd(format!("cd {path_escaped}").as_str()) {
+            match omni_cmd_on_success(format!("cd {path_escaped}").as_str()) {
                 Ok(_) => {}
                 Err(e) => {
                     omni_error!(e);

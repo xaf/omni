@@ -89,23 +89,15 @@ fn omni_cmd_with_disposition(cmd: &str, disposition: Option<&str>) -> Result<(),
         Some(mode) => writeln!(file, "{cmd} # exec:{mode}"),
         None => writeln!(file, "{cmd}"),
     }
-        .map_err(|e| io::Error::other(format!("Unable to write to omni command file: {e}")))?;
+    .map_err(|e| io::Error::other(format!("Unable to write to omni command file: {e}")))?;
 
     drop(file);
 
     Ok(())
 }
 
-pub fn omni_cmd(cmd: &str) -> Result<(), io::Error> {
-    omni_cmd_with_disposition(cmd, None)
-}
-
 pub fn omni_cmd_always(cmd: &str) -> Result<(), io::Error> {
     omni_cmd_with_disposition(cmd, Some("always"))
-}
-
-pub fn omni_cmd_on_error(cmd: &str) -> Result<(), io::Error> {
-    omni_cmd_with_disposition(cmd, Some("error"))
 }
 
 pub fn omni_cmd_on_success(cmd: &str) -> Result<(), io::Error> {
