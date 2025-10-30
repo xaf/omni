@@ -409,11 +409,11 @@ impl OrgLoader {
         results
     }
 
-    fn normalize_repo_args<'a>(
-        repo: &'a str,
+    fn normalize_repo_args(
+        repo: &str,
         only_worktree: bool,
         only_packages: bool,
-    ) -> (&'a str, bool, bool) {
+    ) -> (&str, bool, bool) {
         if let Some(repo) = repo.strip_prefix("package#") {
             (repo, only_worktree, true)
         } else {
