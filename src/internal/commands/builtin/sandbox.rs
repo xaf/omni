@@ -406,7 +406,7 @@ impl BuiltinCommand for SandboxCommand {
     }
 
     fn category(&self) -> Option<Vec<String>> {
-        Some(vec!["Work directories".to_string()])
+        Some(vec!["Git commands".to_string()])
     }
 
     fn exec(&self, argv: Vec<String>) {
