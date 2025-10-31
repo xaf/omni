@@ -11,7 +11,7 @@ use tokio::process::Command as TokioCommand;
 
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::builtin::UpCommand;
-use crate::internal::commands::utils::omni_cmd;
+use crate::internal::commands::utils::omni_cmd_on_success;
 use crate::internal::commands::Command;
 use crate::internal::config;
 use crate::internal::config::parser::ParseArgsValue;
@@ -335,7 +335,7 @@ impl CloneCommand {
         if auto_cd && omni_cmd_file().is_some() {
             let path_str = clone_path.to_string_lossy();
             let path_escaped = escape(path_str);
-            match omni_cmd(format!("cd {path_escaped}").as_str()) {
+            match omni_cmd_on_success(format!("cd {path_escaped}").as_str()) {
                 Ok(_) => {}
                 Err(e) => {
                     omni_error!(e);

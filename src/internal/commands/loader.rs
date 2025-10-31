@@ -20,6 +20,7 @@ use crate::internal::commands::builtin::HookCommand;
 use crate::internal::commands::builtin::HookEnvCommand;
 use crate::internal::commands::builtin::HookInitCommand;
 use crate::internal::commands::builtin::HookUuidCommand;
+use crate::internal::commands::builtin::SandboxCommand;
 use crate::internal::commands::builtin::ScopeCommand;
 use crate::internal::commands::builtin::StatusCommand;
 use crate::internal::commands::builtin::TidyCommand;
@@ -102,6 +103,7 @@ impl CommandLoader {
         commands.push(HookInitCommand::new_command());
         commands.push(HookUuidCommand::new_command());
         commands.push(ScopeCommand::new_command());
+        commands.push(SandboxCommand::new_command());
         commands.push(StatusCommand::new_command());
         commands.push(TidyCommand::new_command());
         commands.push(UpCommand::new_command());

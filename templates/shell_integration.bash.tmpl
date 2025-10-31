@@ -19,15 +19,46 @@ function omni() {
 	# Check if OMNI_CMD_FILE exists, and if it does, run the commands
 	# inside without a subshell, so that the commands can modify the
 	# environment of the current shell, and then delete the file
-	if [[ -f $OMNI_CMD_FILE ]] && [[ "$EXIT_CODE" == "0" ]]; then
+	if [[ -f $OMNI_CMD_FILE ]]; then
+		local omni_exit_code=$EXIT_CODE
 		while IFS= read -r cmd; do
-			eval $cmd
-			EXIT_CODE=$?
-			if [[ "$EXIT_CODE" != "0" ]]; then
-				echo -e "\033[96momni:\033[0m \033[31mcommand failed:\033[0m $cmd \033[90m(exit: $EXIT_CODE)\033[0m"
+			# Skip blank or comment-only lines
+			[[ "${cmd}" =~ ^[[:space:]]*$ ]] && continue
+			[[ "${cmd}" =~ ^[[:space:]]*# ]] && continue
+
+			local disposition="success"
+			case "${cmd}" in
+				*'# exec:always')
+					disposition="always"
+					;;
+				*'# exec:error')
+					disposition="error"
+					;;
+				*'# exec:success')
+					disposition="success"
+					;;
+				*)
+					;;
+			esac
+
+			case "${disposition}" in
+				always) ;;
+				error)
+					[[ "${omni_exit_code}" == "0" ]] && continue
+					;;
+				success|*)
+					[[ "${omni_exit_code}" != "0" ]] && continue
+					;;
+			esac
+
+			eval "${cmd}"
+			local cmd_exit=$?
+			if [[ "$cmd_exit" != "0" ]]; then
+				echo -e "\033[96momni:\033[0m \033[31mcommand failed:\033[0m ${cmd} \033[90m(exit: $cmd_exit)\033[0m"
+				[[ "$EXIT_CODE" == "0" ]] && EXIT_CODE=$cmd_exit
 				break
 			fi
-		done < $OMNI_CMD_FILE
+		done < "$OMNI_CMD_FILE"
 	fi
 
 	# Delete the files, we do that with '&' so there's no delay to return

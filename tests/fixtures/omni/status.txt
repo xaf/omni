@@ -8,6 +8,9 @@ Loaded configuration files
 Worktree
   <BATS_TEST_TMPDIR>/git
 
+Sandbox
+  <BATS_TEST_TMPDIR>/sandbox
+
 Git Orgs
   none
 

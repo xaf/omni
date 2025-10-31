@@ -67,6 +67,13 @@
       "desc": "Sets up or tear down a repository depending on its up configuration"
     },
     {
+      "name": "sandbox",
+      "category": [
+        "Git commands"
+      ],
+      "desc": "Create a sandbox directory pre-configured for omni."
+    },
+    {
       "name": "scope",
       "category": [
         "Git commands"

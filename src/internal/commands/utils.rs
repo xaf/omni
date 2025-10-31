@@ -9,6 +9,7 @@ use path_clean::PathClean;
 use requestty::question::completions;
 use requestty::question::Completions;
 
+use crate::internal::config::config;
 use crate::internal::env::omni_cmd_file;
 use crate::internal::env::user_home;
 use crate::internal::env::Shell;
@@ -74,7 +75,7 @@ where
     absolute_path
 }
 
-pub fn omni_cmd(cmd: &str) -> Result<(), io::Error> {
+fn omni_cmd_with_disposition(cmd: &str, disposition: Option<&str>) -> Result<(), io::Error> {
     let cmd_file = omni_cmd_file().expect("shell integration not loaded");
 
     let mut file = OpenOptions::new()
@@ -84,12 +85,23 @@ pub fn omni_cmd(cmd: &str) -> Result<(), io::Error> {
         .open(cmd_file.clone())
         .map_err(|e| io::Error::other(format!("Unable to open omni command file: {e}")))?;
 
-    writeln!(file, "{cmd}")
-        .map_err(|e| io::Error::other(format!("Unable to write to omni command file: {e}")))?;
+    match disposition {
+        Some(mode) => writeln!(file, "{cmd} # exec:{mode}"),
+        None => writeln!(file, "{cmd}"),
+    }
+    .map_err(|e| io::Error::other(format!("Unable to write to omni command file: {e}")))?;
 
     drop(file);
 
     Ok(())
+}
+
+pub fn omni_cmd_always(cmd: &str) -> Result<(), io::Error> {
+    omni_cmd_with_disposition(cmd, Some("always"))
+}
+
+pub fn omni_cmd_on_success(cmd: &str) -> Result<(), io::Error> {
+    omni_cmd_with_disposition(cmd, Some("success"))
 }
 
 pub fn file_auto_complete(p: String) -> Completions<String> {
@@ -233,9 +245,61 @@ pub fn path_auto_complete(
         for match_value in ORG_LOADER.complete(value) {
             completions.insert(format!("{match_value}{add_space}"));
         }
+
+        let sandbox_root = PathBuf::from(config(".").sandbox());
+        if let Ok(entries) = std::fs::read_dir(&sandbox_root) {
+            for entry in entries.flatten() {
+                let Ok(file_type) = entry.file_type() else {
+                    continue;
+                };
+                if !file_type.is_dir() {
+                    continue;
+                }
+
+                let name = entry.file_name().to_string_lossy().to_string();
+
+                if !name.starts_with(value) {
+                    continue;
+                }
+
+                if validate_sandbox_name(&name).is_err() {
+                    continue;
+                }
+
+                completions.insert(format!("{name}{add_space}"));
+            }
+        }
     }
 
     completions
+}
+
+pub fn validate_sandbox_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("sandbox name cannot be empty".to_string());
+    }
+
+    let mut chars_iter = name.chars();
+    let first = chars_iter
+        .next()
+        .ok_or_else(|| "sandbox name cannot be empty".to_string())?;
+    if !first.is_ascii_alphanumeric() {
+        return Err("sandbox name must start with a letter or digit".to_string());
+    }
+
+    let mut last = first;
+    for ch in chars_iter {
+        if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+            return Err("sandbox name may only contain letters, digits, '-' or '_'".to_string());
+        }
+        last = ch;
+    }
+
+    if !last.is_ascii_alphanumeric() {
+        return Err("sandbox name must end with a letter or digit".to_string());
+    }
+
+    Ok(())
 }
 
 pub fn str_to_bool(value: &str) -> Option<bool> {

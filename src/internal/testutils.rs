@@ -1,6 +1,7 @@
 cfg_if::cfg_if! {
     if #[cfg(test)] {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering;
 
         use crate::internal::cache::database::cleanup_test_pool;
         use crate::internal::config::flush_config;

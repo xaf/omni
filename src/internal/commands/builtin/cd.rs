@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::process::exit;
 
 use shell_escape::escape;
@@ -6,8 +7,9 @@ use shell_escape::escape;
 use crate::internal::commands::base::AutocompleteParameter;
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::base::CommandAutocompletion;
-use crate::internal::commands::utils::omni_cmd;
+use crate::internal::commands::utils::omni_cmd_on_success;
 use crate::internal::commands::utils::path_auto_complete;
+use crate::internal::commands::utils::validate_sandbox_name;
 use crate::internal::commands::Command;
 use crate::internal::config::config;
 use crate::internal::config::parser::ParseArgsValue;
@@ -87,7 +89,7 @@ impl CdCommand {
         }
 
         let path_escaped = escape(std::borrow::Cow::Borrowed(path_str.as_str()));
-        match omni_cmd(format!("cd {path_escaped}").as_str()) {
+        match omni_cmd_on_success(format!("cd {path_escaped}").as_str()) {
             Ok(_) => {}
             Err(e) => {
                 omni_error!(e);
@@ -105,7 +107,7 @@ impl CdCommand {
             }
 
             let path_escaped = escape(std::borrow::Cow::Borrowed(path_str.as_str()));
-            match omni_cmd(format!("cd {path_escaped}").as_str()) {
+            match omni_cmd_on_success(format!("cd {path_escaped}").as_str()) {
                 Ok(_) => {}
                 Err(e) => {
                     omni_error!(e);
@@ -147,11 +149,37 @@ impl CdCommand {
 
         let only_worktree = !args.include_packages;
         let allow_interactive = !args.locate;
-        if let Some(wd_path) = ORG_LOADER.find_repo(wd, only_worktree, false, allow_interactive) {
+
+        if let Some(wd_path) = ORG_LOADER.find_repo_quick(wd, only_worktree, false) {
+            return Some(format!("{}", wd_path.display()));
+        }
+
+        if let Some(sandbox_path) = Self::find_sandbox(wd) {
+            return Some(sandbox_path);
+        }
+
+        if let Some(wd_path) =
+            ORG_LOADER.find_repo_slow(wd, only_worktree, false, allow_interactive)
+        {
             return Some(format!("{}", wd_path.display()));
         }
 
         None
+    }
+
+    fn find_sandbox(name: &str) -> Option<String> {
+        validate_sandbox_name(name).ok()?;
+
+        let sandbox_root = PathBuf::from(config(".").sandbox());
+        let candidate = sandbox_root.join(name);
+        if !candidate.is_dir() {
+            return None;
+        }
+
+        match std::fs::canonicalize(&candidate) {
+            Ok(path) => Some(path.to_string_lossy().to_string()),
+            Err(_) => Some(candidate.to_string_lossy().to_string()),
+        }
     }
 }
 

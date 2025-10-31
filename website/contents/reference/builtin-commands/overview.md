@@ -32,7 +32,7 @@ Those commands take precedence over any custom commands, makefile commands or co
 | [`cd`](builtin-commands/cd) | Change directory to the git directory of the specified repository |
 | [`clone`](builtin-commands/clone) | Clone the specified repository |
 | [`down`](builtin-commands/down) | Tear down a repository depending on its up configuration |
+| [`sandbox`](builtin-commands/sandbox) | Create a sandbox directory pre-configured for omni |
 | [`scope`](builtin-commands/scope) | Runs an omni command in the context of the specified repository |
 | [`tidy`](builtin-commands/tidy) | Organize your git repositories using the configured format |
 | [`up`](builtin-commands/up) | Sets up a repository depending on its up configuration |
-

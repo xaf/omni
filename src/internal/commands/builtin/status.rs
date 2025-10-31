@@ -29,6 +29,7 @@ struct StatusCommandArgs {
     config: bool,
     config_files: bool,
     worktree: bool,
+    sandbox: bool,
     orgs: bool,
     path: bool,
 }
@@ -40,6 +41,7 @@ impl From<BTreeMap<String, ParseArgsValue>> for StatusCommandArgs {
             "config",
             "config_files",
             "worktree",
+            "sandbox",
             "orgs",
             "path",
         ];
@@ -64,6 +66,7 @@ impl From<BTreeMap<String, ParseArgsValue>> for StatusCommandArgs {
         let config = *flag_values.get("config").unwrap();
         let config_files = *flag_values.get("config_files").unwrap() || none_selected;
         let worktree = *flag_values.get("worktree").unwrap() || none_selected;
+        let sandbox = *flag_values.get("sandbox").unwrap() || none_selected;
         let orgs = *flag_values.get("orgs").unwrap() || none_selected;
         let path = *flag_values.get("path").unwrap() || none_selected;
 
@@ -73,6 +76,7 @@ impl From<BTreeMap<String, ParseArgsValue>> for StatusCommandArgs {
             config,
             config_files,
             worktree,
+            sandbox,
             orgs,
             path,
         }
@@ -167,6 +171,22 @@ impl StatusCommand {
 
         let config = config(".");
         println!("{}{}", prefix, config.worktree());
+    }
+
+    fn print_sandbox(&self, args: &StatusCommandArgs) {
+        if !args.sandbox {
+            return;
+        }
+
+        let prefix = if args.single {
+            "".to_string()
+        } else {
+            println!("\n{}", "Sandbox".bold());
+            "  ".to_string()
+        };
+
+        let config = config(".");
+        println!("{}{}", prefix, config.sandbox());
     }
 
     fn print_orgs(&self, args: &StatusCommandArgs) {
@@ -342,6 +362,12 @@ impl BuiltinCommand for StatusCommand {
                     ..Default::default()
                 },
                 SyntaxOptArg {
+                    names: vec!["--sandbox".to_string()],
+                    desc: Some("Show the sandbox root.".to_string()),
+                    arg_type: SyntaxOptArgType::Flag,
+                    ..Default::default()
+                },
+                SyntaxOptArg {
                     names: vec!["--orgs".to_string()],
                     desc: Some(
                         "Show the organizations."
@@ -384,6 +410,7 @@ impl BuiltinCommand for StatusCommand {
         self.print_configuration(&args);
         self.print_configuration_files(&args);
         self.print_worktree(&args);
+        self.print_sandbox(&args);
         self.print_orgs(&args);
         self.print_path(&args);
 

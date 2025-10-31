@@ -2,7 +2,8 @@ use super::*;
 
 mod dynamic_env {
     use super::*;
-    use crate::internal::cache::up_environments::{UpEnvironment, UpVersion};
+    use crate::internal::cache::up_environments::UpEnvironment;
+    use crate::internal::cache::up_environments::UpVersion;
 
     fn create_test_up_version(
         tool: &str,

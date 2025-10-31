@@ -13,6 +13,7 @@ Options:
   --config-files       Show the configuration files that omni is loading for the current
                        directory.
   --worktree           Show the default worktree.
+  --sandbox            Show the sandbox root.
   --orgs               Show the organizations.
   --path               Show the current omnipath.
   -h, --help           Show this help message and exit

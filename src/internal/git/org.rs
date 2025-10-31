@@ -409,19 +409,26 @@ impl OrgLoader {
         results
     }
 
-    pub fn find_repo(
+    fn normalize_repo_args(
+        repo: &str,
+        only_worktree: bool,
+        only_packages: bool,
+    ) -> (&str, bool, bool) {
+        if let Some(repo) = repo.strip_prefix("package#") {
+            (repo, only_worktree, true)
+        } else {
+            (repo, only_worktree, only_packages)
+        }
+    }
+
+    pub fn find_repo_quick(
         &self,
         repo: &str,
         only_worktree: bool,
         only_packages: bool,
-        allow_interactive: bool,
     ) -> Option<PathBuf> {
-        let (repo, only_worktree, only_packages) = if let Some(repo) = repo.strip_prefix("package#")
-        {
-            (repo, only_worktree, true)
-        } else {
-            (repo, only_worktree, only_packages)
-        };
+        let (repo, only_worktree, only_packages) =
+            Self::normalize_repo_args(repo, only_worktree, only_packages);
 
         if let Some(path) = self.omnipath_lookup(repo, only_worktree, only_packages) {
             return Some(path);
@@ -429,12 +436,34 @@ impl OrgLoader {
         if let Some(path) = self.basic_naive_lookup(repo, only_worktree, only_packages) {
             return Some(path);
         }
-        if let Some(path) =
-            self.file_system_lookup(repo, only_worktree, only_packages, allow_interactive)
-        {
+        None
+    }
+
+    pub fn find_repo_slow(
+        &self,
+        repo: &str,
+        only_worktree: bool,
+        only_packages: bool,
+        allow_interactive: bool,
+    ) -> Option<PathBuf> {
+        let (repo, only_worktree, only_packages) =
+            Self::normalize_repo_args(repo, only_worktree, only_packages);
+
+        self.file_system_lookup(repo, only_worktree, only_packages, allow_interactive)
+    }
+
+    pub fn find_repo(
+        &self,
+        repo: &str,
+        only_worktree: bool,
+        only_packages: bool,
+        allow_interactive: bool,
+    ) -> Option<PathBuf> {
+        if let Some(path) = self.find_repo_quick(repo, only_worktree, only_packages) {
             return Some(path);
         }
-        None
+
+        self.find_repo_slow(repo, only_worktree, only_packages, allow_interactive)
     }
 
     fn omnipath_lookup(

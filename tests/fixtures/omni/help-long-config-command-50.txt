@@ -26,6 +26,9 @@ Git commands
   up, down          Sets up or tear down a
                     repository depending on
                     its up configuration
+  sandbox           Create a sandbox
+                    directory pre-configured
+                    for omni.
   scope             Runs an omni command in
                     the context of the
                     specified repository
