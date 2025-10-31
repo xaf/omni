@@ -466,7 +466,7 @@ impl BuiltinCommand for SandboxCommand {
         };
 
         omni_info!(format!(
-            "sandbox initialized at {}",
+            "initialized at {}",
             target.to_string_lossy().light_blue()
         ));
 
