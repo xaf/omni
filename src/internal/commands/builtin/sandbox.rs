@@ -406,7 +406,7 @@ impl BuiltinCommand for SandboxCommand {
                     ),
                     leftovers: true,
                     allow_hyphen_values: true,
-                    required_without: vec!["empty".to_string()],
+                    required_without: vec!["allow-empty".to_string()],
                     ..Default::default()
                 },
                 SyntaxOptArg {
