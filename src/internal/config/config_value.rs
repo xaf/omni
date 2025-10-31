@@ -13,18 +13,13 @@ use crate::internal::env::user_home;
 use crate::internal::user_interface::colors::StringColor;
 use crate::omni_error;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ConfigSource {
+    #[default]
     Default,
     File(String),
     Package(PathEntryConfig),
     Null,
-}
-
-impl Default for ConfigSource {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl ConfigSource {
@@ -37,19 +32,14 @@ impl ConfigSource {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq, Ord, PartialOrd)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq, Ord, PartialOrd)]
 pub enum ConfigScope {
     Null,
+    #[default]
     Default,
     System,
     User,
     Workdir,
-}
-
-impl Default for ConfigScope {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
