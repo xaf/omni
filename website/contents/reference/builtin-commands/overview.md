@@ -30,7 +30,6 @@ Those commands take precedence over any custom commands, makefile commands or co
 | Builtin command         | Description                                               |
 |-------------------------|-----------------------------------------------------------|
 | [`cd`](builtin-commands/cd) | Change directory to the git directory of the specified repository |
-| [`sandbox`](builtin-commands/sandbox) | Create a sandbox directory pre-configured for omni |
 | [`clone`](builtin-commands/clone) | Clone the specified repository |
 | [`down`](builtin-commands/down) | Tear down a repository depending on its up configuration |
 | [`sandbox`](builtin-commands/sandbox) | Create a sandbox directory pre-configured for omni |
