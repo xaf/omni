@@ -14,10 +14,7 @@ setup() {
   export COLUMNS=1000
 }
 
-
-
-
-@test "[omni_sandbox=04] --name and --path are exclusive" {
+@test "[omni_sandbox=01] --name and --path are exclusive" {
   run omni sandbox --name clash --path . 3>&-
   echo "STATUS: $status"
   echo "OUTPUT: $output"
