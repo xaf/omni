@@ -120,14 +120,31 @@ jobs:
         with:
           subject-path: '/tmp/binaries/**/*'
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: v${{ env.RELEASE_VERSION }}
-          tag_name: v${{ env.RELEASE_VERSION }}
-          files: /tmp/binaries/**/*
-          fail_on_unmatched_files: true
-          body: ${{ steps.changelog.outputs.changes }}
+      - name: Prepare release assets
+        id: prepare-assets
+        run: |
+          # Find all artifacts and create a space-separated list for gh release create
+          ASSETS=$(find /tmp/binaries -type f -not -path '*/\.*' | tr '\n' ' ')
+          echo "assets=$ASSETS" >> "$GITHUB_OUTPUT"
+          echo "Found assets:"
+          echo "$ASSETS" | tr ' ' '\n'
+
+      - name: Save changelog to file
+        run: |
+          cat > /tmp/release-notes.md << 'EOF'
+          ${{ steps.changelog.outputs.changes }}
+          EOF
+
+      - name: Create immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create release with all assets in one atomic operation
+          gh release create "v${{ env.RELEASE_VERSION }}" \
+            --title "v${{ env.RELEASE_VERSION }}" \
+            --notes-file /tmp/release-notes.md \
+            --verify-tag \
+            ${{ steps.prepare-assets.outputs.assets }}
 
 
   publish-crate:
