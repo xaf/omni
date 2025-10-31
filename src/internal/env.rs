@@ -1129,7 +1129,7 @@ impl WorkDirEnv {
         // Check if first part is words with lowercase letters separated by '-'
         if !id_parts[0]
             .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
         {
             return false;
         }
