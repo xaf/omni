@@ -1,7 +1,9 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::Component;
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::exit;
 
 use crate::internal::commands::base::BuiltinCommand;
@@ -19,7 +21,8 @@ use crate::internal::user_interface::StringColor;
 use crate::internal::workdir::add_trust;
 use crate::omni_error;
 use crate::omni_info;
-use petname::{Generator, Petnames};
+use petname::Generator;
+use petname::Petnames;
 use shell_escape::escape;
 use std::env::current_exe;
 

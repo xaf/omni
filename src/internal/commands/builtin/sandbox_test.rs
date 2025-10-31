@@ -1,10 +1,12 @@
 use super::*;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use crate::internal::commands::utils::validate_sandbox_name;
-use crate::internal::config::{config, flush_config};
+use crate::internal::config::config;
+use crate::internal::config::flush_config;
 use crate::internal::testutils::run_with_env;
 
 struct DirGuard {

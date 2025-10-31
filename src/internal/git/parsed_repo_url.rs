@@ -1,5 +1,7 @@
 use crate::internal::errors::GitUrlError;
-use git_url_parse::types::provider::{AzureDevOpsProvider, GenericProvider, GitLabProvider};
+use git_url_parse::types::provider::AzureDevOpsProvider;
+use git_url_parse::types::provider::GenericProvider;
+use git_url_parse::types::provider::GitLabProvider;
 use git_url_parse::GitUrl;
 
 #[derive(Debug, Clone)]

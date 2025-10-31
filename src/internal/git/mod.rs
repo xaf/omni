@@ -17,7 +17,8 @@ pub(crate) use utils::safe_git_url_parse;
 pub(crate) use utils::safe_normalize_url;
 
 mod parsed_repo_url;
-pub(crate) use parsed_repo_url::{strip_azure_version_prefix, ParsedRepoUrl};
+pub(crate) use parsed_repo_url::strip_azure_version_prefix;
+pub(crate) use parsed_repo_url::ParsedRepoUrl;
 
 mod updater;
 pub(crate) use updater::auto_update_async;
