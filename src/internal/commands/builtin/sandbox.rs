@@ -230,6 +230,21 @@ impl SandboxCommand {
         args: &SandboxCommandArgs,
     ) -> Result<(PathBuf, bool, Option<String>), String> {
         if let Some(path) = &args.path {
+            if path.exists() {
+                if !path.is_dir() {
+                    return Err(format!(
+                        "sandbox destination '{}' exists and is not a directory",
+                        path.display()
+                    ));
+                }
+            } else if let Err(err) = fs::create_dir_all(path) {
+                return Err(format!(
+                    "failed to create sandbox directory '{}': {}",
+                    path.display(),
+                    err
+                ));
+            }
+
             let generated = self
                 .generate_sandbox_name(&args.dependencies, &self.sandbox_root())
                 .ok();
