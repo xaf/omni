@@ -14,8 +14,8 @@ The command aborts when the target already contains a git repository, an omni wo
 
 | Parameter | Required | Value type | Description |
 |-----------|----------|------------|-------------|
-| `--path`, `-p` | no | directory path | Create the sandbox at an explicit path. The directory (and any missing parents) are created automatically if they do not exist. The destination must not already contain an omni work directory, git repository, or `.omni.yaml` file. Incompatible with `--name`. |
-| `--name`, `-n` | no | string | Name of the sandbox directory to create under the sandbox root. Incompatible with `--path`. |
+| `--path`, `-p` | no | directory path | Create the sandbox at an explicit path. The directory (and any missing parents) are created automatically if they do not exist. The destination must not already contain an omni work directory, git repository, or `.omni.yaml` file. |
+| `--name`, `-n` | no | string | Name of the sandbox directory to create under the sandbox root. |
 | `--allow-empty` | no | `null` | Permit creating a sandbox without any dependencies. When omitted and no dependencies are provided, the command still succeeds but writes placeholder comments in `.omni.yaml`. |
 | `dependencies…` | no | string list | Dependencies to place under the `up:` section of the generated `.omni.yaml`. Individual entries can pin versions (for example `go@1.21.1`). |
 
