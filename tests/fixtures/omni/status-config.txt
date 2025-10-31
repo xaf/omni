@@ -64,6 +64,7 @@ path_repo_updates:
   ref_type: branch
   self_update: ask
 repo_path_format: '%{host}/%{org}/%{repo}'
+sandbox: <BATS_TEST_TMPDIR>/sandbox
 up_command:
   attach_kill_timeout: 600
   attach_lock_timeout: 5
