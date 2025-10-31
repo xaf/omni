@@ -29,7 +29,8 @@ omni sandbox node python
 # Create a sandbox with a fixed name in the sandbox root.
 omni sandbox --name hackday go@1.22.0 terraform@1.6.1
 
-# Create a sandbox in an explicit directory. The directory must not # already contain an omni workdir, git repository, or .omni.yaml file.
+# Create a sandbox in an explicit directory. The directory must not
+# already contain an omni workdir, git repository, or .omni.yaml file.
 omni sandbox --path ~/tmp/scratchpad rust@1.75.0
 
 # Creating a sandbox also runs `omni up` automatically and trusts the new workdir.
