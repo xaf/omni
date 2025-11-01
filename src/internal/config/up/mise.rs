@@ -1389,12 +1389,12 @@ impl UpConfigMise {
 
         // Update environment
         environment.add_version(UpVersionParams {
-            backend: "".to_string(), // mise is the default backend
-            tool: fqtn.tool().to_string(),
-            plugin_name: fqtn.plugin_name().to_string(),
-            normalized_name: normalized_name.clone(),
-            version: version.clone(),
-            bin_path: bin_path.clone(),
+            backend: "", // mise is the default backend
+            tool: fqtn.tool(),
+            plugin_name: fqtn.plugin_name(),
+            normalized_name: &normalized_name,
+            version: &version,
+            bin_path: &bin_path,
             dirs: self.dirs.clone(),
             ..UpVersionParams::default()
         });

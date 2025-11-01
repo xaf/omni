@@ -855,10 +855,10 @@ impl UpConfigGithubRelease {
 
         // Update environment
         environment.add_version(UpVersionParams {
-            backend: "ghrelease".to_string(),
-            tool: self.repository.clone(),
-            version: version.clone(),
-            bin_path: bin_path.to_string(),
+            backend: "ghrelease",
+            tool: &self.repository,
+            version: &version,
+            bin_path,
             dirs: self.dirs.clone(),
             env_vars,
             ..UpVersionParams::default()

@@ -732,10 +732,10 @@ impl UpConfigGoInstall {
 
         // Update environment
         environment.add_version(UpVersionParams {
-            backend: "go-install".to_string(),
-            tool: self.path.clone(),
-            version: version.to_string(),
-            bin_path: "bin".to_string(),
+            backend: "go-install",
+            tool: &self.path,
+            version,
+            bin_path: "bin",
             dirs: self.dirs.clone(),
             ..UpVersionParams::default()
         });

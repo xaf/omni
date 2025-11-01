@@ -22,16 +22,31 @@ use crate::internal::cache::database::RowExt;
 use crate::internal::cache::CacheManager;
 use crate::internal::cache::CacheManagerError;
 
-#[derive(Debug, Clone, Default)]
-pub struct UpVersionParams {
-    pub backend: String,
-    pub tool: String,
-    pub plugin_name: String,
-    pub normalized_name: String,
-    pub version: String,
-    pub bin_path: String,
+#[derive(Debug, Clone)]
+pub struct UpVersionParams<'a> {
+    pub backend: &'a str,
+    pub tool: &'a str,
+    pub plugin_name: &'a str,
+    pub normalized_name: &'a str,
+    pub version: &'a str,
+    pub bin_path: &'a str,
     pub dirs: BTreeSet<String>,
     pub env_vars: Vec<UpEnvVar>,
+}
+
+impl<'a> Default for UpVersionParams<'a> {
+    fn default() -> Self {
+        Self {
+            backend: "",
+            tool: "",
+            plugin_name: "",
+            normalized_name: "",
+            version: "",
+            bin_path: "",
+            dirs: BTreeSet::new(),
+            env_vars: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -366,7 +381,7 @@ impl UpEnvironment {
         true
     }
 
-    pub fn add_version(&mut self, params: UpVersionParams) -> bool {
+    pub fn add_version(&mut self, params: UpVersionParams<'_>) -> bool {
         let mut dirs = params.dirs;
         if dirs.is_empty() {
             dirs.insert("".to_string());
@@ -390,12 +405,12 @@ impl UpEnvironment {
 
         for dir in dirs {
             self.versions.push(UpVersion {
-                tool: params.tool.clone(),
-                plugin_name: params.plugin_name.clone(),
-                normalized_name: params.normalized_name.clone(),
-                backend: params.backend.clone(),
-                version: params.version.clone(),
-                bin_path: params.bin_path.clone(),
+                tool: params.tool.to_string(),
+                plugin_name: params.plugin_name.to_string(),
+                normalized_name: params.normalized_name.to_string(),
+                backend: params.backend.to_string(),
+                version: params.version.to_string(),
+                bin_path: params.bin_path.to_string(),
                 dir,
                 data_path: None,
                 env_vars: params.env_vars.clone(),
@@ -477,29 +492,6 @@ impl From<OldUpVersion> for UpVersion {
     }
 }
 
-impl UpVersion {
-    pub fn new(
-        tool: &str,
-        plugin_name: &str,
-        normalized_name: &str,
-        backend: &str,
-        version: &str,
-        bin_path: &str,
-        dir: &str,
-    ) -> Self {
-        Self {
-            tool: tool.to_string(),
-            plugin_name: plugin_name.to_string(),
-            normalized_name: normalized_name.to_string(),
-            backend: backend.to_string(),
-            version: version.to_string(),
-            bin_path: bin_path.to_string(),
-            dir: dir.to_string(),
-            data_path: None,
-            env_vars: Vec::new(),
-        }
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
 pub struct UpEnvVar {

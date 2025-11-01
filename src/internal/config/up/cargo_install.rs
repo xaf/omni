@@ -729,10 +729,10 @@ impl UpConfigCargoInstall {
 
         // Update environment
         environment.add_version(UpVersionParams {
-            backend: "cargo-install".to_string(),
-            tool: self.crate_name.clone(),
-            version: version.to_string(),
-            bin_path: "bin".to_string(),
+            backend: "cargo-install",
+            tool: &self.crate_name,
+            version,
+            bin_path: "bin",
             dirs: self.dirs.clone(),
             ..UpVersionParams::default()
         });
