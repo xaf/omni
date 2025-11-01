@@ -92,11 +92,18 @@ pub fn reshim(progress_handler: &dyn ProgressHandler) -> Result<Option<String>, 
     }
 
     // Use a glob to get the shims from the github release tools
-    // bin directories
+    // For SDK releases with bin/ subdirectory, use that; otherwise use the root
     let gh_glob = format!("{}/ghreleases/*/*/*", data_home());
     if let Ok(entries) = glob::glob(&gh_glob) {
         for entry in entries.flatten() {
-            shims_sources.push(entry);
+            let bin_dir = entry.join("bin");
+            if bin_dir.exists() && bin_dir.is_dir() {
+                // SDK structure: use bin/ subdirectory
+                shims_sources.push(bin_dir);
+            } else {
+                // Regular binary release: use root directory
+                shims_sources.push(entry);
+            }
         }
     }
 

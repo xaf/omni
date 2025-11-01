@@ -455,6 +455,16 @@ impl DynamicEnv {
                     hasher.update(data_path.as_bytes());
                     hasher.update(DATA_SEPARATOR.as_bytes());
                 }
+                for env_var in &toolversion.env_vars {
+                    hasher.update(env_var.operation.as_bytes());
+                    hasher.update(DATA_SEPARATOR.as_bytes());
+                    hasher.update(env_var.name.as_bytes());
+                    hasher.update(DATA_SEPARATOR.as_bytes());
+                    if let Some(value) = &env_var.value {
+                        hasher.update(value.as_bytes());
+                        hasher.update(DATA_SEPARATOR.as_bytes());
+                    }
+                }
             }
 
             // Convert the hash to a u64
@@ -559,30 +569,7 @@ impl DynamicEnv {
 
         // Add the requested environments
         for env_var in up_env.env_vars.iter() {
-            match (env_var.operation, env_var.value.clone()) {
-                (EnvOperationEnum::Set, Some(value)) => {
-                    envsetter.set_value(&env_var.name, &value);
-                }
-                (EnvOperationEnum::Set, None) => {
-                    envsetter.unset_value(&env_var.name);
-                }
-                (EnvOperationEnum::Prepend, Some(value)) => {
-                    envsetter.prepend_to_list(&env_var.name, &value);
-                }
-                (EnvOperationEnum::Append, Some(value)) => {
-                    envsetter.append_to_list(&env_var.name, &value);
-                }
-                (EnvOperationEnum::Remove, Some(value)) => {
-                    envsetter.remove_from_list(&env_var.name, &value);
-                }
-                (EnvOperationEnum::Prefix, Some(value)) => {
-                    envsetter.prefix_value(&env_var.name, &value);
-                }
-                (EnvOperationEnum::Suffix, Some(value)) => {
-                    envsetter.suffix_value(&env_var.name, &value);
-                }
-                (_, None) => {}
-            }
+            envsetter.apply_env_var(env_var);
         }
     }
 
@@ -598,16 +585,20 @@ impl DynamicEnv {
             let version = toolversion.version.clone();
 
             // Handle backends that won't require extra setup
-            match toolversion.backend.as_str() {
+            let skip_tool_specific = match toolversion.backend.as_str() {
                 "" | "default" => {
-                    // Do not do anything here if we use the default backend
+                    // Continue with tool-specific handling for default backend
+                    false
                 }
                 "ghrelease" => {
-                    envsetter.prepend_to_list(
-                        "PATH",
-                        &github_release_tool_path(&tool, &version).to_string_lossy(),
-                    );
-                    continue;
+                    let tool_path = github_release_tool_path(&tool, &version);
+                    let bin_path = if toolversion.bin_path.is_empty() {
+                        tool_path
+                    } else {
+                        tool_path.join(&toolversion.bin_path)
+                    };
+                    envsetter.prepend_to_list("PATH", &bin_path.to_string_lossy());
+                    true
                 }
                 "cargo-install" => {
                     envsetter.prepend_to_list(
@@ -616,7 +607,7 @@ impl DynamicEnv {
                             .join("bin")
                             .to_string_lossy(),
                     );
-                    continue;
+                    true
                 }
                 "go-install" => {
                     envsetter.prepend_to_list(
@@ -625,15 +616,16 @@ impl DynamicEnv {
                             .join("bin")
                             .to_string_lossy(),
                     );
-                    continue;
+                    true
                 }
                 _ => {
                     // Skip the tool if we don't know the backend
                     continue;
                 }
-            }
+            };
 
-            self.features.push(format!("{tool}:{version}"));
+            if !skip_tool_specific {
+                self.features.push(format!("{tool}:{version}"));
 
             let normalized_name = toolversion.normalized_name.clone();
             let tool_prefix = mise_tool_path(&normalized_name, &version);
@@ -765,9 +757,15 @@ impl DynamicEnv {
                         envsetter.set_value("HELM_DATA_HOME", &format!("{data_path}/data"));
                     }
                 }
-                _ => {
-                    envsetter.prepend_to_list("PATH", &format!("{tool_prefix}{bin_path}"));
+                    _ => {
+                        envsetter.prepend_to_list("PATH", &format!("{tool_prefix}{bin_path}"));
+                    }
                 }
+            }
+
+            // Apply any tool-specific environment variables (works for all backends)
+            for env_var in &toolversion.env_vars {
+                envsetter.apply_env_var(env_var);
             }
         }
     }
@@ -882,6 +880,33 @@ impl DynamicEnvSetter {
                 key.to_string(),
                 Box::new(f),
             ));
+    }
+
+    fn apply_env_var(&mut self, env_var: &crate::internal::cache::up_environments::UpEnvVar) {
+        match (env_var.operation, env_var.value.clone()) {
+            (EnvOperationEnum::Set, Some(value)) => {
+                self.set_value(&env_var.name, &value);
+            }
+            (EnvOperationEnum::Set, None) => {
+                self.unset_value(&env_var.name);
+            }
+            (EnvOperationEnum::Prepend, Some(value)) => {
+                self.prepend_to_list(&env_var.name, &value);
+            }
+            (EnvOperationEnum::Append, Some(value)) => {
+                self.append_to_list(&env_var.name, &value);
+            }
+            (EnvOperationEnum::Remove, Some(value)) => {
+                self.remove_from_list(&env_var.name, &value);
+            }
+            (EnvOperationEnum::Prefix, Some(value)) => {
+                self.prefix_value(&env_var.name, &value);
+            }
+            (EnvOperationEnum::Suffix, Some(value)) => {
+                self.suffix_value(&env_var.name, &value);
+            }
+            (_, None) => {}
+        }
     }
 
     fn get_env_data(&self) -> DynamicEnvData {

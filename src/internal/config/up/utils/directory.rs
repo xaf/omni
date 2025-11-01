@@ -261,15 +261,27 @@ pub(crate) fn safe_rename<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io:
     Ok(())
 }
 
-fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+/// Recursively copy a directory and all its contents, preserving file permissions
+pub fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
     fs::create_dir_all(&dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.as_ref().join(entry.file_name());
         let ty = entry.file_type()?;
+
         if ty.is_dir() {
-            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            copy_dir_all(&src_path, &dst_path)?;
         } else {
-            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            fs::copy(&src_path, &dst_path)?;
+
+            // Preserve file permissions
+            #[cfg(unix)]
+            {
+                let metadata = fs::metadata(&src_path)?;
+                let permissions = metadata.permissions();
+                fs::set_permissions(&dst_path, permissions)?;
+            }
         }
     }
     Ok(())

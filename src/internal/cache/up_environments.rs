@@ -431,6 +431,26 @@ impl UpEnvironment {
 
         false
     }
+
+    pub fn add_version_env_vars(
+        &mut self,
+        normalized_name: &str,
+        version: &str,
+        dir: &str,
+        env_vars: Vec<UpEnvVar>,
+    ) -> bool {
+        for exists in self.versions.iter_mut() {
+            if exists.normalized_name == normalized_name
+                && exists.version == version
+                && exists.dir == dir
+            {
+                exists.env_vars = env_vars;
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 // TODO: deprecated, remove after leaving time to migrate to the new UpVersion
@@ -460,6 +480,8 @@ pub struct UpVersion {
     pub dir: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_vars: Vec<UpEnvVar>,
 }
 
 fn is_default_backend(backend: &str) -> bool {
@@ -477,6 +499,7 @@ impl From<OldUpVersion> for UpVersion {
             bin_path: "bin".to_string(),
             dir: args.dir,
             data_path: args.data_path,
+            env_vars: Vec::new(),
         }
     }
 }
@@ -500,6 +523,7 @@ impl UpVersion {
             bin_path: bin_path.to_string(),
             dir: dir.to_string(),
             data_path: None,
+            env_vars: Vec::new(),
         }
     }
 }
