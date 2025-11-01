@@ -60,6 +60,11 @@ use crate::internal::user_interface::StringColor;
 
 const GITHUB_API_URL: &str = "https://api.github.com";
 
+#[cfg(target_os = "macos")]
+const LIBRARY_PATH_ENV_VAR: &str = "DYLD_LIBRARY_PATH";
+#[cfg(target_os = "linux")]
+const LIBRARY_PATH_ENV_VAR: &str = "LD_LIBRARY_PATH";
+
 cfg_if::cfg_if! {
     if #[cfg(test)] {
         fn github_releases_bin_path() -> PathBuf {
@@ -2112,18 +2117,10 @@ impl UpConfigGithubRelease {
             for dir in sdk_dirs {
                 match dir.as_str() {
                     "lib" => {
-                        let lib_path = install_path.join("lib").to_string_lossy().to_string();
-                        #[cfg(target_os = "macos")]
                         env_vars.push(UpEnvVar {
-                            name: "DYLD_LIBRARY_PATH".to_string(),
+                            name: LIBRARY_PATH_ENV_VAR.to_string(),
                             operation: EnvOperationEnum::Prepend,
-                            value: Some(lib_path.clone()),
-                        });
-                        #[cfg(target_os = "linux")]
-                        env_vars.push(UpEnvVar {
-                            name: "LD_LIBRARY_PATH".to_string(),
-                            operation: EnvOperationEnum::Prepend,
-                            value: Some(lib_path),
+                            value: Some(install_path.join("lib").to_string_lossy().to_string()),
                         });
                     }
                     "man" => {
