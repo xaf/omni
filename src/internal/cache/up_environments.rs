@@ -22,7 +22,7 @@ use crate::internal::cache::database::RowExt;
 use crate::internal::cache::CacheManager;
 use crate::internal::cache::CacheManagerError;
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct UpVersionParams<'a> {
     pub backend: &'a str,
     pub tool: &'a str,
@@ -32,21 +32,6 @@ pub struct UpVersionParams<'a> {
     pub bin_path: &'a str,
     pub dirs: BTreeSet<String>,
     pub env_vars: Vec<UpEnvVar>,
-}
-
-impl<'a> Default for UpVersionParams<'a> {
-    fn default() -> Self {
-        Self {
-            backend: "",
-            tool: "",
-            plugin_name: "",
-            normalized_name: "",
-            version: "",
-            bin_path: "",
-            dirs: BTreeSet::new(),
-            env_vars: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -491,7 +476,6 @@ impl From<OldUpVersion> for UpVersion {
         }
     }
 }
-
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash)]
 pub struct UpEnvVar {

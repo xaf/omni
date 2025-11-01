@@ -40,6 +40,8 @@ use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::EnvConfig;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::parser::GithubAuthConfig;
+use crate::internal::config::template::config_template_context;
+use crate::internal::config::template::tera_render_error_message;
 use crate::internal::config::up::utils::cleanup_path;
 use crate::internal::config::up::utils::directory::safe_rename;
 use crate::internal::config::up::utils::force_remove_dir_all;
@@ -2086,25 +2088,36 @@ impl UpConfigGithubRelease {
         }
     }
 
-    /// Expand template variables in a string value
-    /// Supported variables: {{install_dir}}
-    fn expand_template_vars(value: &str, install_path: &Path) -> String {
-        value.replace("{{install_dir}}", &install_path.to_string_lossy())
-    }
-
     fn compute_sdk_env_vars(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
         let install_path = github_release_tool_path(&self.repository, version);
         let mut env_vars = Vec::new();
 
+        // Create tera context once for all env vars
+        let mut context = config_template_context(".");
+        context.insert("install_dir", &install_path.to_string_lossy().to_string());
+
         // Add user-defined env vars first (with template expansion)
         for env_op in self.env.operations.iter() {
+            let value =
+                env_op
+                    .value
+                    .as_ref()
+                    .map(|v| match tera::Tera::one_off(v, &context, false) {
+                        Ok(rendered) => rendered,
+                        Err(err) => {
+                            eprintln!(
+                                "Warning: Failed to expand template '{}': {}",
+                                v,
+                                tera_render_error_message(err)
+                            );
+                            v.to_string()
+                        }
+                    });
+
             env_vars.push(UpEnvVar {
                 name: env_op.name.clone(),
                 operation: env_op.operation,
-                value: env_op
-                    .value
-                    .as_ref()
-                    .map(|v| Self::expand_template_vars(v, &install_path)),
+                value,
             });
         }
 
