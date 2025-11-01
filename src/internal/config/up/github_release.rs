@@ -29,6 +29,7 @@ use crate::internal::cache::up_environments::UpEnvVar;
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::up_environments::UpVersionParams;
 use crate::internal::cache::utils as cache_utils;
+use crate::internal::cache::utils::Empty;
 use crate::internal::cache::GithubReleaseOperationCache;
 use crate::internal::cache::GithubReleaseVersion;
 use crate::internal::cache::GithubReleases;
@@ -36,6 +37,7 @@ use crate::internal::config;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::parser::ConfigErrorKind;
+use crate::internal::config::parser::EnvConfig;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::parser::GithubAuthConfig;
 use crate::internal::config::up::utils::cleanup_path;
@@ -592,6 +594,10 @@ pub struct UpConfigGithubRelease {
     )]
     pub auth: GithubAuthConfig,
 
+    /// Environment variables to set when using this release
+    #[serde(default, skip_serializing_if = "EnvConfig::is_empty")]
+    pub env: EnvConfig,
+
     /// A list of directories to make the release available for
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub dirs: BTreeSet<String>,
@@ -619,6 +625,7 @@ impl Default for UpConfigGithubRelease {
             api_url: None,
             checksum: GithubReleaseChecksumConfig::default(),
             auth: GithubAuthConfig::default(),
+            env: EnvConfig::default(),
             dirs: BTreeSet::new(),
             actual_version: OnceCell::new(),
             was_handled: OnceCell::new(),
@@ -798,6 +805,8 @@ impl UpConfigGithubRelease {
             table.get("auth").cloned(),
             &error_handler.with_key("auth"),
         );
+        let env =
+            EnvConfig::from_config_value(table.get("env").cloned(), &error_handler.with_key("env"));
 
         let dirs = config_value
             .get_as_str_array("dir", &error_handler.with_key("dir"))
@@ -817,6 +826,7 @@ impl UpConfigGithubRelease {
             skip_arch_matching,
             prefer_dist,
             api_url,
+            env,
             dirs,
             checksum,
             auth,
@@ -1168,7 +1178,6 @@ impl UpConfigGithubRelease {
             GithubAuthConfig::Skip(false) => unreachable!("skip: false is not expected"),
             GithubAuthConfig::Token(token) => return Some(token),
             GithubAuthConfig::TokenEnvVar(env_var) => {
-                eprintln!("using {env_var} for auth token");
                 let token = std::env::var(env_var).ok()?;
                 return Some(token);
             }
@@ -2077,13 +2086,32 @@ impl UpConfigGithubRelease {
         }
     }
 
+    /// Expand template variables in a string value
+    /// Supported variables: {{install_dir}}
+    fn expand_template_vars(value: &str, install_path: &Path) -> String {
+        value.replace("{{install_dir}}", &install_path.to_string_lossy())
+    }
+
     fn compute_sdk_env_vars(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
-        if sdk_dirs.is_empty() {
-            return Vec::new();
+        let install_path = github_release_tool_path(&self.repository, version);
+        let mut env_vars = Vec::new();
+
+        // Add user-defined env vars first (with template expansion)
+        for env_op in self.env.operations.iter() {
+            env_vars.push(UpEnvVar {
+                name: env_op.name.clone(),
+                operation: env_op.operation,
+                value: env_op
+                    .value
+                    .as_ref()
+                    .map(|v| Self::expand_template_vars(v, &install_path)),
+            });
         }
 
-        let mut env_vars = Vec::new();
-        let install_path = github_release_tool_path(&self.repository, version);
+        // If no SDK dirs detected, return only user-defined env vars
+        if sdk_dirs.is_empty() {
+            return env_vars;
+        }
 
         // Special case: TinyGo SDK
         if self.repository.eq_ignore_ascii_case("tinygo-org/tinygo") {
