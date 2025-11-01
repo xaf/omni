@@ -2011,7 +2011,7 @@ impl UpConfigGithubRelease {
         let known_sdk_dirs = ["lib", "src", "pkg", "include", "targets", "share"];
 
         // Use glob to find all bin/ directories recursively
-        let pattern = format!("{}//**/bin", extract_path.display());
+        let pattern = format!("{}/**/bin", extract_path.display());
 
         let bin_dirs = match glob::glob(&pattern) {
             Ok(paths) => paths.filter_map(Result::ok).collect::<Vec<_>>(),
