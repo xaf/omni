@@ -602,8 +602,8 @@ impl FromRow for GithubReleases {
 pub struct GithubReleaseVersion {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tag_name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(default)]
     pub draft: bool,
     #[serde(default)]
