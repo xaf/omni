@@ -49,6 +49,7 @@ This supports authenticated requests using [the `gh` command line interface](htt
 | `api_url` | string | The URL of the GitHub API to use, useful to use GitHub Enterprise (e.g. `https://github.example.com/api/v3`); defaults to `https://api.github.com` |
 | `checksum` | object | The configuration to verify the checksum of the downloaded asset; see [checksum configuration](#checksum-configuration) below |
 | `auth` | [`Auth`](../github#auth-object) object | The configuration to authenticate the GitHub API requests for this release; if specified, will override the global configuration |
+| `env` | object | Environment variables to set when using this release; see the [`env` parameter documentation](../env) for syntax details, and the [environment variables context](#environment-variables-context) section below for special context variables |
 
 ### Checksum configuration
 
@@ -81,6 +82,14 @@ The following strings can be used to specify the version:
 The version also supports the `||` operator to specify ranges. This operator is not compatible with the `latest` keywords. For instance, `1.2.x || >1.3.5 <=1.4.0` will match any version between `1.2.0` included and `1.3.0` excluded, or between `1.3.5` excluded and `1.4.0` included.
 
 The latest version satisfying the requirements will be installed.
+
+### Environment variables context
+
+In order to simplify setting environment variables for tools installed via GitHub releases, the environment variables values support some context variables.
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `install_dir` | The installation directory path for this release | `/Users/user/.local/share/omni/ghreleases/owner/repo/v1.2.3` |
 
 ## Examples
 
@@ -161,7 +170,7 @@ up:
       repository: xaf/omni
       version: 1.2.3
       dir: some/specific/dir
-      
+
   # Use this tool in multiple directories
   - github-release:
       repository: xaf/omni
@@ -169,6 +178,15 @@ up:
       dir:
         - some/specific/dir
         - another/dir
+
+  # Set custom environment variables for an SDK-like tool
+  - github-release:
+      repository: xaf/omni
+      version: 1.2.3
+      env:
+        ROOT_DIR: "{{ install_dir }}"
+        SPECIAL_PATH:
+          prepend: "{{ install_dir }}/bin"
 ```
 
 ## Dynamic environment
@@ -177,4 +195,9 @@ The following variables will be set as part of the [dynamic environment](/refere
 
 | Environment variable | Operation | Description |
 |----------------------|-----------|-------------|
+| `CPLUS_INCLUDE_PATH` | prepend | C++ header files directory (when `include/` directory detected) |
+| `C_INCLUDE_PATH` | prepend | C header files directory (when `include/` directory detected) |
+| `DYLD_LIBRARY_PATH` | prepend | Dynamic library path for shared libraries (macOS only, when `lib/` directory detected) |
+| `LD_LIBRARY_PATH` | prepend | Dynamic library path for shared libraries (Linux only, when `lib/` directory detected) |
+| `MANPATH` | prepend | Manual pages directory (when `man/` directory detected) |
 | `PATH` | prepend | Injects the path to the binaries of the installed tool |

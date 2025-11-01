@@ -2126,15 +2126,6 @@ impl UpConfigGithubRelease {
             return env_vars;
         }
 
-        // Special case: TinyGo SDK
-        if self.repository.eq_ignore_ascii_case("tinygo-org/tinygo") {
-            env_vars.push(UpEnvVar {
-                name: "TINYGOROOT".to_string(),
-                operation: EnvOperationEnum::Set,
-                value: Some(install_path.to_string_lossy().to_string()),
-            });
-        }
-
         // Generic SDK directory handling
         for dir in sdk_dirs {
             match dir.as_str() {
