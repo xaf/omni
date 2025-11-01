@@ -22,6 +22,18 @@ use crate::internal::cache::database::RowExt;
 use crate::internal::cache::CacheManager;
 use crate::internal::cache::CacheManagerError;
 
+#[derive(Debug, Clone, Default)]
+pub struct UpVersionParams {
+    pub backend: String,
+    pub tool: String,
+    pub plugin_name: String,
+    pub normalized_name: String,
+    pub version: String,
+    pub bin_path: String,
+    pub dirs: BTreeSet<String>,
+    pub env_vars: Vec<UpEnvVar>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpEnvironmentsCache {}
 
@@ -354,37 +366,16 @@ impl UpEnvironment {
         true
     }
 
-    pub fn add_simple_version(
-        &mut self,
-        backend: &str,
-        tool: &str,
-        version: &str,
-        bin_path: &str,
-        dirs: BTreeSet<String>,
-    ) -> bool {
-        self.add_version(backend, tool, "", "", version, bin_path, dirs)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_version(
-        &mut self,
-        backend: &str,
-        tool: &str,
-        plugin_name: &str,
-        normalized_name: &str,
-        version: &str,
-        bin_path: &str,
-        dirs: BTreeSet<String>,
-    ) -> bool {
-        let mut dirs = dirs;
+    pub fn add_version(&mut self, params: UpVersionParams) -> bool {
+        let mut dirs = params.dirs;
         if dirs.is_empty() {
             dirs.insert("".to_string());
         }
 
         for exists in self.versions.iter() {
-            if exists.backend == backend
-                && exists.normalized_name == normalized_name
-                && exists.version == version
+            if exists.backend == params.backend
+                && exists.normalized_name == params.normalized_name
+                && exists.version == params.version
             {
                 dirs.remove(&exists.dir);
                 if dirs.is_empty() {
@@ -398,15 +389,17 @@ impl UpEnvironment {
         }
 
         for dir in dirs {
-            self.versions.push(UpVersion::new(
-                tool,
-                plugin_name,
-                normalized_name,
-                backend,
-                version,
-                bin_path,
-                &dir,
-            ));
+            self.versions.push(UpVersion {
+                tool: params.tool.clone(),
+                plugin_name: params.plugin_name.clone(),
+                normalized_name: params.normalized_name.clone(),
+                backend: params.backend.clone(),
+                version: params.version.clone(),
+                bin_path: params.bin_path.clone(),
+                dir,
+                data_path: None,
+                env_vars: params.env_vars.clone(),
+            });
         }
 
         true
@@ -425,26 +418,6 @@ impl UpEnvironment {
                 && exists.dir == dir
             {
                 exists.data_path = Some(data_path.to_string());
-                return true;
-            }
-        }
-
-        false
-    }
-
-    pub fn add_version_env_vars(
-        &mut self,
-        normalized_name: &str,
-        version: &str,
-        dir: &str,
-        env_vars: Vec<UpEnvVar>,
-    ) -> bool {
-        for exists in self.versions.iter_mut() {
-            if exists.normalized_name == normalized_name
-                && exists.version == version
-                && exists.dir == dir
-            {
-                exists.env_vars = env_vars;
                 return true;
             }
         }

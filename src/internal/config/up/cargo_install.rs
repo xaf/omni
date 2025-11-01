@@ -12,6 +12,7 @@ use thiserror::Error;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
+use crate::internal::cache::up_environments::UpVersionParams;
 use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::CargoInstallOperationCache;
 use crate::internal::cache::CargoInstallVersions;
@@ -727,13 +728,14 @@ impl UpConfigCargoInstall {
         }
 
         // Update environment
-        environment.add_simple_version(
-            "cargo-install",
-            &self.crate_name,
-            version,
-            "bin",
-            self.dirs.clone(),
-        );
+        environment.add_version(UpVersionParams {
+            backend: "cargo-install".to_string(),
+            tool: self.crate_name.clone(),
+            version: version.to_string(),
+            bin_path: "bin".to_string(),
+            dirs: self.dirs.clone(),
+            ..UpVersionParams::default()
+        });
 
         let version_crate_name = self.version_crate_name(version);
         environment.add_path(version_crate_name.join("bin"));

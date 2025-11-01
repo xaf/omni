@@ -27,6 +27,7 @@ use crate::internal::cache::github_release::GithubReleaseAsset;
 use crate::internal::cache::github_release::GithubReleasesSelector;
 use crate::internal::cache::up_environments::UpEnvVar;
 use crate::internal::cache::up_environments::UpEnvironment;
+use crate::internal::cache::up_environments::UpVersionParams;
 use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::GithubReleaseOperationCache;
 use crate::internal::cache::GithubReleaseVersion;
@@ -839,10 +840,9 @@ impl UpConfigGithubRelease {
 
         progress_handler.progress("updating cache".to_string());
 
-        if let Err(err) = GithubReleaseOperationCache::get().add_installed(
-            &self.repository,
-            &version,
-        ) {
+        if let Err(err) =
+            GithubReleaseOperationCache::get().add_installed(&self.repository, &version)
+        {
             progress_handler.progress(format!("failed to update github release cache: {err}"));
             return;
         }
@@ -850,28 +850,19 @@ impl UpConfigGithubRelease {
         // Check the filesystem for SDK directories
         let install_path = github_release_tool_path(&self.repository, &version);
         let sdk_dirs = self.list_sdk_directories(&install_path);
-        let bin_path = if sdk_dirs.contains(&"bin".to_string()) {
-            "bin"
-        } else {
-            ""
-        };
+        let bin_path = if sdk_dirs.is_empty() { "" } else { "bin" };
+        let env_vars = self.compute_sdk_env_vars(&sdk_dirs, &version);
 
         // Update environment
-        environment.add_simple_version(
-            "ghrelease",
-            &self.repository,
-            &version,
-            bin_path,
-            self.dirs.clone(),
-        );
-
-        // Compute and set SDK-specific environment variables
-        if !sdk_dirs.is_empty() {
-            let env_vars = self.compute_sdk_env_vars(&sdk_dirs, &version);
-            for dir in self.dirs.iter() {
-                environment.add_version_env_vars(&self.repository, &version, dir, env_vars.clone());
-            }
-        }
+        environment.add_version(UpVersionParams {
+            backend: "ghrelease".to_string(),
+            tool: self.repository.clone(),
+            version: version.clone(),
+            bin_path: bin_path.to_string(),
+            dirs: self.dirs.clone(),
+            env_vars,
+            ..UpVersionParams::default()
+        });
 
         progress_handler.progress("updated cache".to_string());
     }
@@ -2048,9 +2039,7 @@ impl UpConfigGithubRelease {
                     Ok(entries) => entries
                         .filter_map(Result::ok)
                         .filter(|entry| entry.path().is_dir())
-                        .filter_map(|entry| {
-                            entry.file_name().to_str().map(|s| s.to_string())
-                        })
+                        .filter_map(|entry| entry.file_name().to_str().map(|s| s.to_string()))
                         .collect::<Vec<_>>(),
                     Err(_) => continue,
                 };
@@ -2071,19 +2060,28 @@ impl UpConfigGithubRelease {
             return Vec::new();
         }
 
-        match std::fs::read_dir(install_path) {
+        let entries = match std::fs::read_dir(install_path) {
             Ok(entries) => entries
                 .filter_map(Result::ok)
                 .filter(|entry| entry.path().is_dir())
-                .filter_map(|entry| {
-                    entry.file_name().to_str().map(|s| s.to_string())
-                })
+                .filter_map(|entry| entry.file_name().to_str().map(|s| s.to_string()))
                 .collect(),
             Err(_) => Vec::new(),
+        };
+
+        // Only return the list if it contains 'bin'
+        if entries.iter().any(|dir| dir == "bin") {
+            entries
+        } else {
+            Vec::new()
         }
     }
 
     fn compute_sdk_env_vars(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
+        if sdk_dirs.is_empty() {
+            return Vec::new();
+        }
+
         let mut env_vars = Vec::new();
         let install_path = github_release_tool_path(&self.repository, version);
 
