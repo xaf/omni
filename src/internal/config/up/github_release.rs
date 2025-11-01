@@ -2088,7 +2088,17 @@ impl UpConfigGithubRelease {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn compute_sdk_env_vars(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
+        self.compute_sdk_env_vars_impl(sdk_dirs, version)
+    }
+
+    #[cfg(not(test))]
     fn compute_sdk_env_vars(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
+        self.compute_sdk_env_vars_impl(sdk_dirs, version)
+    }
+
+    fn compute_sdk_env_vars_impl(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
         let install_path = github_release_tool_path(&self.repository, version);
         let mut env_vars = Vec::new();
 

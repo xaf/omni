@@ -2,8 +2,10 @@ use super::*;
 
 mod dynamic_env {
     use super::*;
+    use crate::internal::cache::up_environments::UpEnvVar;
     use crate::internal::cache::up_environments::UpEnvironment;
     use crate::internal::cache::up_environments::UpVersion;
+    use crate::internal::config::parser::EnvOperationEnum;
 
     fn create_test_up_version(
         tool: &str,
@@ -11,6 +13,17 @@ mod dynamic_env {
         version: &str,
         bin_path: &str,
         data_path: Option<String>,
+    ) -> UpVersion {
+        create_test_up_version_with_env(tool, backend, version, bin_path, data_path, Vec::new())
+    }
+
+    fn create_test_up_version_with_env(
+        tool: &str,
+        backend: &str,
+        version: &str,
+        bin_path: &str,
+        data_path: Option<String>,
+        env_vars: Vec<UpEnvVar>,
     ) -> UpVersion {
         UpVersion {
             tool: tool.to_string(),
@@ -21,6 +34,7 @@ mod dynamic_env {
             bin_path: bin_path.to_string(),
             dir: String::new(),
             data_path,
+            env_vars,
         }
     }
 
@@ -67,7 +81,53 @@ mod dynamic_env {
             let env_data = envsetter.get_env_data();
             let path_additions = env_data.lists.get("PATH").unwrap();
             assert_eq!(path_additions.len(), 1);
-            assert!(path_additions[0].value.ends_with("/gh/2.0.0"));
+            assert!(path_additions[0].value.ends_with("/gh/2.0.0/bin"));
+        }
+
+        #[test]
+        fn test_ghrelease_backend_with_bin_path_and_env_vars() {
+            // Test that env_vars passed in UpVersion are applied correctly
+            let env_vars = vec![
+                UpEnvVar {
+                    name: "CUSTOM_VAR".to_string(),
+                    operation: EnvOperationEnum::Set,
+                    value: Some("custom_value".to_string()),
+                },
+                UpEnvVar {
+                    name: "CUSTOM_PATH".to_string(),
+                    operation: EnvOperationEnum::Prepend,
+                    value: Some("/custom/path".to_string()),
+                },
+            ];
+
+            let versions = vec![create_test_up_version_with_env(
+                "tool-with-env",
+                "ghrelease",
+                "2.0.0",
+                "bin",
+                None,
+                env_vars,
+            )];
+            let up_env = create_test_environment_with_versions(versions);
+            let mut dynamic_env = create_test_dynamic_env();
+            let mut envsetter = DynamicEnvSetter::new();
+
+            dynamic_env.apply_versions(&up_env, &mut envsetter, "");
+
+            let env_data = envsetter.get_env_data();
+
+            // Check PATH is set correctly
+            let path_additions = env_data.lists.get("PATH").unwrap();
+            assert!(path_additions
+                .iter()
+                .any(|p| p.value.ends_with("/tool-with-env/2.0.0/bin")));
+
+            // Check custom env vars were applied
+            let custom_var = env_data.values.get("CUSTOM_VAR").unwrap();
+            assert_eq!(custom_var.curr.as_ref().unwrap(), "custom_value");
+
+            let custom_path = env_data.lists.get("CUSTOM_PATH").unwrap();
+            assert!(custom_path.iter().any(|p| p.value == "/custom/path"));
         }
 
         #[test]

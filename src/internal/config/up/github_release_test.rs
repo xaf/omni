@@ -564,3 +564,264 @@ mod up {
         });
     }
 }
+
+mod compute_sdk_env_vars {
+    use super::*;
+    use crate::internal::cache::up_environments::UpEnvVar;
+    use crate::internal::config::parser::EnvConfig;
+    use crate::internal::config::parser::EnvOperationConfig;
+    use crate::internal::config::parser::EnvOperationEnum;
+    use crate::internal::config::up::github_release::github_release_tool_path;
+
+    #[test]
+    fn test_no_sdk_dirs_no_custom_env() {
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: EnvConfig::default(),
+            ..UpConfigGithubRelease::default()
+        };
+
+        let env_vars = config.compute_sdk_env_vars(&[], "1.0.0");
+        assert_eq!(env_vars.len(), 0);
+    }
+
+    #[test]
+    fn test_sdk_lib_directory() {
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: EnvConfig::default(),
+            ..UpConfigGithubRelease::default()
+        };
+
+        let sdk_dirs = vec!["bin".to_string(), "lib".to_string()];
+        let env_vars = config.compute_sdk_env_vars(&sdk_dirs, "1.0.0");
+
+        // Should have platform-specific library path variable
+        assert_eq!(env_vars.len(), 1);
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(env_vars[0].name, "DYLD_LIBRARY_PATH");
+            assert_eq!(env_vars[0].operation, EnvOperationEnum::Prepend);
+            assert!(env_vars[0].value.as_ref().unwrap().contains("owner/repo"));
+            assert!(env_vars[0].value.as_ref().unwrap().ends_with("/1.0.0/lib"));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(env_vars[0].name, "LD_LIBRARY_PATH");
+            assert_eq!(env_vars[0].operation, EnvOperationEnum::Prepend);
+            assert!(env_vars[0].value.as_ref().unwrap().contains("owner/repo"));
+            assert!(env_vars[0].value.as_ref().unwrap().ends_with("/1.0.0/lib"));
+        }
+    }
+
+    #[test]
+    fn test_sdk_man_directory() {
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: EnvConfig::default(),
+            ..UpConfigGithubRelease::default()
+        };
+
+        let sdk_dirs = vec!["bin".to_string(), "man".to_string()];
+        let env_vars = config.compute_sdk_env_vars(&sdk_dirs, "1.0.0");
+
+        assert_eq!(env_vars.len(), 1);
+        assert_eq!(env_vars[0].name, "MANPATH");
+        assert_eq!(env_vars[0].operation, EnvOperationEnum::Prepend);
+        assert!(env_vars[0].value.as_ref().unwrap().contains("owner/repo"));
+        assert!(env_vars[0].value.as_ref().unwrap().ends_with("/1.0.0/man"));
+    }
+
+    #[test]
+    fn test_sdk_include_directory() {
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: EnvConfig::default(),
+            ..UpConfigGithubRelease::default()
+        };
+
+        let sdk_dirs = vec!["bin".to_string(), "include".to_string()];
+        let env_vars = config.compute_sdk_env_vars(&sdk_dirs, "1.0.0");
+
+        // Should have both C and C++ include paths
+        assert_eq!(env_vars.len(), 2);
+        assert_eq!(env_vars[0].name, "C_INCLUDE_PATH");
+        assert_eq!(env_vars[0].operation, EnvOperationEnum::Prepend);
+        assert!(env_vars[0].value.as_ref().unwrap().contains("owner/repo"));
+        assert!(env_vars[0].value.as_ref().unwrap().ends_with("/1.0.0/include"));
+
+        assert_eq!(env_vars[1].name, "CPLUS_INCLUDE_PATH");
+        assert_eq!(env_vars[1].operation, EnvOperationEnum::Prepend);
+        assert!(env_vars[1].value.as_ref().unwrap().contains("owner/repo"));
+        assert!(env_vars[1].value.as_ref().unwrap().ends_with("/1.0.0/include"));
+    }
+
+    #[test]
+    fn test_sdk_all_directories() {
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: EnvConfig::default(),
+            ..UpConfigGithubRelease::default()
+        };
+
+        let sdk_dirs = vec![
+            "bin".to_string(),
+            "lib".to_string(),
+            "man".to_string(),
+            "include".to_string(),
+        ];
+        let env_vars = config.compute_sdk_env_vars(&sdk_dirs, "1.0.0");
+
+        // Should have: lib (1), man (1), include (2) = 4 env vars
+        assert_eq!(env_vars.len(), 4);
+
+        // Check library path (platform-specific)
+        #[cfg(target_os = "macos")]
+        assert!(env_vars.iter().any(|e| e.name == "DYLD_LIBRARY_PATH"));
+        #[cfg(target_os = "linux")]
+        assert!(env_vars.iter().any(|e| e.name == "LD_LIBRARY_PATH"));
+
+        // Check man path
+        assert!(env_vars.iter().any(|e| e.name == "MANPATH"));
+
+        // Check include paths
+        assert!(env_vars.iter().any(|e| e.name == "C_INCLUDE_PATH"));
+        assert!(env_vars.iter().any(|e| e.name == "CPLUS_INCLUDE_PATH"));
+    }
+
+    #[test]
+    fn test_custom_env_static_value() {
+        let mut env_config = EnvConfig::default();
+        env_config.operations.push(EnvOperationConfig {
+            name: "CUSTOM_VAR".to_string(),
+            operation: EnvOperationEnum::Set,
+            value: Some("static_value".to_string()),
+        });
+
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: env_config,
+            ..UpConfigGithubRelease::default()
+        };
+
+        let env_vars = config.compute_sdk_env_vars(&[], "1.0.0");
+
+        assert_eq!(env_vars.len(), 1);
+        assert_eq!(env_vars[0].name, "CUSTOM_VAR");
+        assert_eq!(env_vars[0].operation, EnvOperationEnum::Set);
+        assert_eq!(env_vars[0].value.as_ref().unwrap(), "static_value");
+    }
+
+    #[test]
+    fn test_custom_env_with_install_dir_template() {
+        let mut env_config = EnvConfig::default();
+        env_config.operations.push(EnvOperationConfig {
+            name: "SDK_ROOT".to_string(),
+            operation: EnvOperationEnum::Set,
+            value: Some("{{ install_dir }}".to_string()),
+        });
+
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: env_config,
+            ..UpConfigGithubRelease::default()
+        };
+
+        let env_vars = config.compute_sdk_env_vars(&[], "1.0.0");
+
+        // Get the expected install path
+        let expected_path = github_release_tool_path("owner/repo", "1.0.0");
+
+        assert_eq!(env_vars.len(), 1);
+        assert_eq!(env_vars[0].name, "SDK_ROOT");
+        assert_eq!(env_vars[0].operation, EnvOperationEnum::Set);
+        // Verify the template was expanded to the actual install path
+        assert_eq!(
+            env_vars[0].value.as_ref().unwrap(),
+            &expected_path.to_string_lossy().to_string()
+        );
+    }
+
+    #[test]
+    fn test_custom_env_with_install_dir_template_in_path() {
+        let mut env_config = EnvConfig::default();
+        env_config.operations.push(EnvOperationConfig {
+            name: "CUSTOM_PATH".to_string(),
+            operation: EnvOperationEnum::Prepend,
+            value: Some("{{ install_dir }}/custom/bin".to_string()),
+        });
+
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: env_config,
+            ..UpConfigGithubRelease::default()
+        };
+
+        let env_vars = config.compute_sdk_env_vars(&[], "1.0.0");
+
+        // Get the expected install path
+        let expected_path = github_release_tool_path("owner/repo", "1.0.0");
+        let expected_value = format!("{}/custom/bin", expected_path.to_string_lossy());
+
+        assert_eq!(env_vars.len(), 1);
+        assert_eq!(env_vars[0].name, "CUSTOM_PATH");
+        assert_eq!(env_vars[0].operation, EnvOperationEnum::Prepend);
+        // Verify the template was expanded correctly
+        assert_eq!(env_vars[0].value.as_ref().unwrap(), &expected_value);
+    }
+
+    #[test]
+    fn test_sdk_dirs_and_custom_env() {
+        let mut env_config = EnvConfig::default();
+        env_config.operations.push(EnvOperationConfig {
+            name: "SDK_ROOT".to_string(),
+            operation: EnvOperationEnum::Set,
+            value: Some("{{ install_dir }}".to_string()),
+        });
+        env_config.operations.push(EnvOperationConfig {
+            name: "CUSTOM_VAR".to_string(),
+            operation: EnvOperationEnum::Set,
+            value: Some("custom_static_value".to_string()),
+        });
+
+        let config = UpConfigGithubRelease {
+            repository: "owner/repo".to_string(),
+            env: env_config,
+            ..UpConfigGithubRelease::default()
+        };
+
+        let sdk_dirs = vec![
+            "bin".to_string(),
+            "lib".to_string(),
+            "include".to_string(),
+        ];
+        let env_vars = config.compute_sdk_env_vars(&sdk_dirs, "1.0.0");
+
+        // Get the expected install path
+        let expected_path = github_release_tool_path("owner/repo", "1.0.0");
+
+        // Should have: lib (1), include (2), custom env (2) = 5 env vars
+        assert_eq!(env_vars.len(), 5);
+
+        // Check SDK env vars
+        #[cfg(target_os = "macos")]
+        assert!(env_vars.iter().any(|e| e.name == "DYLD_LIBRARY_PATH"));
+        #[cfg(target_os = "linux")]
+        assert!(env_vars.iter().any(|e| e.name == "LD_LIBRARY_PATH"));
+        assert!(env_vars.iter().any(|e| e.name == "C_INCLUDE_PATH"));
+        assert!(env_vars.iter().any(|e| e.name == "CPLUS_INCLUDE_PATH"));
+
+        // Check custom env vars
+        let sdk_root = env_vars.iter().find(|e| e.name == "SDK_ROOT").unwrap();
+        assert_eq!(sdk_root.operation, EnvOperationEnum::Set);
+        // Verify the template was expanded to the actual install path
+        assert_eq!(
+            sdk_root.value.as_ref().unwrap(),
+            &expected_path.to_string_lossy().to_string()
+        );
+
+        let custom_var = env_vars.iter().find(|e| e.name == "CUSTOM_VAR").unwrap();
+        assert_eq!(custom_var.operation, EnvOperationEnum::Set);
+        assert_eq!(custom_var.value.as_ref().unwrap(), "custom_static_value");
+    }
+}
