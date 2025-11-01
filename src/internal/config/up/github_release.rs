@@ -45,6 +45,7 @@ use crate::internal::config::up::utils::VersionParser;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::check_allowed;
+use crate::internal::config::utils::is_executable;
 use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::data_home;
@@ -1872,36 +1873,13 @@ impl UpConfigGithubRelease {
             }
         }
 
-        // Locate the binary file(s) in the extracted directory, recursively
-        // and move them to the workdir data path
-        for entry in walkdir::WalkDir::new(tmp_dir.path())
-            .into_iter()
-            .filter_map(|entry| {
-                let entry = entry.ok()?;
-                let entry_path = entry.path();
-                if entry_path.is_file() {
-                    let metadata = entry.metadata().ok()?;
-                    let is_executable = metadata.permissions().mode() & 0o111 != 0;
-                    if is_executable {
-                        Some(entry)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-        {
-            let source_path = entry.path();
-            let binary_name = source_path
-                .file_name()
-                .unwrap_or(source_path.as_os_str())
-                .to_string_lossy()
-                .to_string();
+        // Check if the extracted content is an SDK-like structure (has bin/ + lib/src/pkg/etc)
+        let sdk_dir = self.detect_sdk_structure(tmp_dir.path());
 
-            progress_handler.progress(format!("found binary {}", binary_name.light_yellow()));
-
-            let target_path = install_path.join(&binary_name);
+        if let Some(sdk_root) = sdk_dir {
+            // This is an SDK, copy the entire directory structure
+            progress_handler
+                .progress("detected SDK structure, installing full directory".to_string());
 
             // Make sure the target directory exists
             if !install_path.exists() {
@@ -1912,29 +1890,77 @@ impl UpConfigGithubRelease {
                 })?;
             }
 
-            // Copy the binary to the install path
-            let copy = std::fs::copy(source_path, &target_path);
-            if copy.is_err() || !target_path.exists() {
-                let err = if let Err(err) = copy {
-                    err
-                } else {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "target file not found after copy".to_string(),
-                    )
-                };
-                let errmsg = format!("failed to copy {binary_name}: {err}");
-                progress_handler.error_with_message(errmsg.clone());
-
-                // Force delete the install path if we fail to copy
-                // the binary to avoid leaving a partial installation
-                // behind
-                let _ = force_remove_dir_all(&install_path);
-
-                return Err(UpError::Exec(errmsg));
-            }
+            // Copy the entire SDK directory
+            self.copy_sdk_directory(&sdk_root, &install_path, progress_handler)?;
 
             binary_found = true;
+        } else {
+            // Not an SDK, use the existing binary extraction logic
+            // Locate the binary file(s) in the extracted directory, recursively
+            // and move them to the workdir data path
+            for entry in walkdir::WalkDir::new(tmp_dir.path())
+                .into_iter()
+                .filter_map(|entry| {
+                    let entry = entry.ok()?;
+                    let entry_path = entry.path();
+                    if entry_path.is_file() {
+                        let metadata = entry.metadata().ok()?;
+                        let is_executable = metadata.permissions().mode() & 0o111 != 0;
+                        if is_executable {
+                            Some(entry)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+            {
+                let source_path = entry.path();
+                let binary_name = source_path
+                    .file_name()
+                    .unwrap_or(source_path.as_os_str())
+                    .to_string_lossy()
+                    .to_string();
+
+                progress_handler.progress(format!("found binary {}", binary_name.light_yellow()));
+
+                let target_path = install_path.join(&binary_name);
+
+                // Make sure the target directory exists
+                if !install_path.exists() {
+                    std::fs::create_dir_all(&install_path).map_err(|err| {
+                        let errmsg =
+                            format!("failed to create {}: {}", install_path.display(), err);
+                        progress_handler.error_with_message(errmsg.clone());
+                        UpError::Exec(errmsg)
+                    })?;
+                }
+
+                // Copy the binary to the install path
+                let copy = std::fs::copy(source_path, &target_path);
+                if copy.is_err() || !target_path.exists() {
+                    let err = if let Err(err) = copy {
+                        err
+                    } else {
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "target file not found after copy".to_string(),
+                        )
+                    };
+                    let errmsg = format!("failed to copy {binary_name}: {err}");
+                    progress_handler.error_with_message(errmsg.clone());
+
+                    // Force delete the install path if we fail to copy
+                    // the binary to avoid leaving a partial installation
+                    // behind
+                    let _ = force_remove_dir_all(&install_path);
+
+                    return Err(UpError::Exec(errmsg));
+                }
+
+                binary_found = true;
+            }
         }
 
         if !binary_found {
@@ -1957,6 +1983,129 @@ impl UpConfigGithubRelease {
             Some(handled) => handled.clone(),
             None => GithubReleaseHandled::Unhandled,
         }
+    }
+
+    /// Detects if the extracted archive contains an SDK-like structure
+    /// Returns the path to the SDK root directory if detected
+    fn detect_sdk_structure(&self, extract_path: &Path) -> Option<PathBuf> {
+        // Look for a directory that contains bin/ and at least one SDK directory
+        let sdk_dirs = ["lib", "src", "pkg", "include", "targets", "share"];
+
+        // Use glob to find all bin/ directories recursively
+        let pattern = format!("{}//**/bin", extract_path.display());
+
+        let bin_dirs = match glob::glob(&pattern) {
+            Ok(paths) => paths.filter_map(Result::ok).collect::<Vec<_>>(),
+            Err(_) => return None,
+        };
+
+        // Check each bin/ directory to see if its parent is an SDK root
+        for bin_dir in bin_dirs {
+            // Check if there's at least one executable in the bin/ directory
+            let has_executable = match std::fs::read_dir(&bin_dir) {
+                Ok(entries) => entries
+                    .filter_map(Result::ok)
+                    .any(|entry| is_executable(&entry.path())),
+                Err(_) => continue,
+            };
+
+            if !has_executable {
+                continue;
+            }
+
+            // Get the parent directory (potential SDK root)
+            let sdk_root = match bin_dir.parent() {
+                Some(parent) => parent,
+                None => continue,
+            };
+
+            // Check if at least one SDK directory exists alongside bin/
+            let has_sdk_dir = sdk_dirs.iter().any(|dir| {
+                let sdk_path = sdk_root.join(dir);
+                sdk_path.exists() && sdk_path.is_dir()
+            });
+
+            if has_sdk_dir {
+                return Some(sdk_root.to_path_buf());
+            }
+        }
+
+        None
+    }
+
+    /// Recursively copies an SDK directory structure to the install path
+    fn copy_sdk_directory(
+        &self,
+        src: &Path,
+        dst: &Path,
+        progress_handler: &dyn ProgressHandler,
+    ) -> Result<(), UpError> {
+        // Create the destination directory
+        std::fs::create_dir_all(dst).map_err(|err| {
+            let errmsg = format!("failed to create {}: {}", dst.display(), err);
+            progress_handler.error_with_message(errmsg.clone());
+            UpError::Exec(errmsg)
+        })?;
+
+        // Iterate through the source directory
+        for entry in std::fs::read_dir(src).map_err(|err| {
+            let errmsg = format!("failed to read {}: {}", src.display(), err);
+            progress_handler.error_with_message(errmsg.clone());
+            UpError::Exec(errmsg)
+        })? {
+            let entry = entry.map_err(|err| {
+                let errmsg = format!("failed to read directory entry: {}", err);
+                progress_handler.error_with_message(errmsg.clone());
+                UpError::Exec(errmsg)
+            })?;
+
+            let src_path = entry.path();
+            let file_name = entry.file_name();
+            let dst_path = dst.join(&file_name);
+
+            if src_path.is_dir() {
+                // Recursively copy subdirectories
+                self.copy_sdk_directory(&src_path, &dst_path, progress_handler)?;
+            } else {
+                // Copy the file
+                std::fs::copy(&src_path, &dst_path).map_err(|err| {
+                    let errmsg = format!(
+                        "failed to copy {} to {}: {}",
+                        src_path.display(),
+                        dst_path.display(),
+                        err
+                    );
+                    progress_handler.error_with_message(errmsg.clone());
+                    UpError::Exec(errmsg)
+                })?;
+
+                // Preserve executable permissions
+                #[cfg(unix)]
+                {
+                    let metadata = std::fs::metadata(&src_path).map_err(|err| {
+                        let errmsg = format!(
+                            "failed to read metadata for {}: {}",
+                            src_path.display(),
+                            err
+                        );
+                        progress_handler.error_with_message(errmsg.clone());
+                        UpError::Exec(errmsg)
+                    })?;
+                    let permissions = metadata.permissions();
+                    std::fs::set_permissions(&dst_path, permissions).map_err(|err| {
+                        let errmsg = format!(
+                            "failed to set permissions for {}: {}",
+                            dst_path.display(),
+                            err
+                        );
+                        progress_handler.error_with_message(errmsg.clone());
+                        UpError::Exec(errmsg)
+                    })?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn is_gh(&self) -> bool {
