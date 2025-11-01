@@ -2096,6 +2096,54 @@ impl UpConfigGithubRelease {
         let mut context = config_template_context(".");
         context.insert("install_dir", &install_path.to_string_lossy().to_string());
 
+        // If SDK dirs were detected, add standard env vars for them
+        if !sdk_dirs.is_empty() {
+            // Generic SDK directory handling
+            for dir in sdk_dirs {
+                match dir.as_str() {
+                    "lib" => {
+                        let lib_path = install_path.join("lib").to_string_lossy().to_string();
+                        #[cfg(target_os = "macos")]
+                        env_vars.push(UpEnvVar {
+                            name: "DYLD_LIBRARY_PATH".to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(lib_path.clone()),
+                        });
+                        #[cfg(target_os = "linux")]
+                        env_vars.push(UpEnvVar {
+                            name: "LD_LIBRARY_PATH".to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(lib_path),
+                        });
+                    }
+                    "man" => {
+                        env_vars.push(UpEnvVar {
+                            name: "MANPATH".to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(install_path.join("man").to_string_lossy().to_string()),
+                        });
+                    }
+                    "include" => {
+                        let include_path =
+                            install_path.join("include").to_string_lossy().to_string();
+                        env_vars.push(UpEnvVar {
+                            name: "C_INCLUDE_PATH".to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(include_path.clone()),
+                        });
+                        env_vars.push(UpEnvVar {
+                            name: "CPLUS_INCLUDE_PATH".to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(include_path),
+                        });
+                    }
+                    _ => {
+                        // Ignore other directories
+                    }
+                }
+            }
+        }
+
         // Add user-defined env vars first (with template expansion)
         for env_op in self.env.operations.iter() {
             let value =
@@ -2119,55 +2167,6 @@ impl UpConfigGithubRelease {
                 operation: env_op.operation,
                 value,
             });
-        }
-
-        // If no SDK dirs detected, return only user-defined env vars
-        if sdk_dirs.is_empty() {
-            return env_vars;
-        }
-
-        // Generic SDK directory handling
-        for dir in sdk_dirs {
-            match dir.as_str() {
-                "lib" => {
-                    let lib_path = install_path.join("lib").to_string_lossy().to_string();
-                    #[cfg(target_os = "macos")]
-                    env_vars.push(UpEnvVar {
-                        name: "DYLD_LIBRARY_PATH".to_string(),
-                        operation: EnvOperationEnum::Prepend,
-                        value: Some(lib_path.clone()),
-                    });
-                    #[cfg(target_os = "linux")]
-                    env_vars.push(UpEnvVar {
-                        name: "LD_LIBRARY_PATH".to_string(),
-                        operation: EnvOperationEnum::Prepend,
-                        value: Some(lib_path),
-                    });
-                }
-                "man" => {
-                    env_vars.push(UpEnvVar {
-                        name: "MANPATH".to_string(),
-                        operation: EnvOperationEnum::Prepend,
-                        value: Some(install_path.join("man").to_string_lossy().to_string()),
-                    });
-                }
-                "include" => {
-                    let include_path = install_path.join("include").to_string_lossy().to_string();
-                    env_vars.push(UpEnvVar {
-                        name: "C_INCLUDE_PATH".to_string(),
-                        operation: EnvOperationEnum::Prepend,
-                        value: Some(include_path.clone()),
-                    });
-                    env_vars.push(UpEnvVar {
-                        name: "CPLUS_INCLUDE_PATH".to_string(),
-                        operation: EnvOperationEnum::Prepend,
-                        value: Some(include_path),
-                    });
-                }
-                _ => {
-                    // Ignore other directories
-                }
-            }
         }
 
         env_vars
