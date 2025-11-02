@@ -244,7 +244,7 @@ mod github_release_operation_cache {
             let releases1 = GithubReleases {
                 releases: vec![GithubReleaseVersion {
                     tag_name: "v1.0.0".to_string(),
-                    name: Some("Release 1.0.0".to_string(),),
+                    name: Some("Release 1.0.0".to_string()),
                     draft: false,
                     prerelease: false,
                     immutable: false,
