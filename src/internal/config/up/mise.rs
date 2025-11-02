@@ -17,6 +17,7 @@ use walkdir::WalkDir;
 
 use crate::internal::cache::mise_operation::MisePluginVersions;
 use crate::internal::cache::up_environments::UpEnvironment;
+use crate::internal::cache::up_environments::UpVersionParams;
 use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::CacheManagerError;
 use crate::internal::cache::MiseOperationCache;
@@ -1387,15 +1388,16 @@ impl UpConfigMise {
         }
 
         // Update environment
-        environment.add_version(
-            "", // mise is the default backend
-            fqtn.tool(),
-            fqtn.plugin_name(),
-            &normalized_name,
-            &version,
-            &bin_path,
-            self.dirs.clone(),
-        );
+        environment.add_version(UpVersionParams {
+            backend: "", // mise is the default backend
+            tool: fqtn.tool(),
+            plugin_name: fqtn.plugin_name(),
+            normalized_name: &normalized_name,
+            version: &version,
+            bin_path: &bin_path,
+            dirs: self.dirs.clone(),
+            ..UpVersionParams::default()
+        });
 
         progress_handler.progress("updated cache".to_string());
     }

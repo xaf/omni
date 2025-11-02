@@ -54,7 +54,7 @@ impl Empty for EnvConfig {
 }
 
 impl EnvConfig {
-    pub(super) fn from_config_value(
+    pub fn from_config_value(
         config_value: Option<ConfigValue>,
         error_handler: &ConfigErrorHandler,
     ) -> Self {

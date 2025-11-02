@@ -25,8 +25,11 @@ use crate::internal::build::current_arch;
 use crate::internal::build::current_os;
 use crate::internal::cache::github_release::GithubReleaseAsset;
 use crate::internal::cache::github_release::GithubReleasesSelector;
+use crate::internal::cache::up_environments::UpEnvVar;
 use crate::internal::cache::up_environments::UpEnvironment;
+use crate::internal::cache::up_environments::UpVersionParams;
 use crate::internal::cache::utils as cache_utils;
+use crate::internal::cache::utils::Empty;
 use crate::internal::cache::GithubReleaseOperationCache;
 use crate::internal::cache::GithubReleaseVersion;
 use crate::internal::cache::GithubReleases;
@@ -34,7 +37,11 @@ use crate::internal::config;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::parser::ConfigErrorKind;
+use crate::internal::config::parser::EnvConfig;
+use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::parser::GithubAuthConfig;
+use crate::internal::config::template::config_template_context;
+use crate::internal::config::template::tera_render_error_message;
 use crate::internal::config::up::utils::cleanup_path;
 use crate::internal::config::up::utils::directory::safe_rename;
 use crate::internal::config::up::utils::force_remove_dir_all;
@@ -45,12 +52,18 @@ use crate::internal::config::up::utils::VersionParser;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::check_allowed;
+use crate::internal::config::utils::is_executable;
 use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::data_home;
 use crate::internal::user_interface::StringColor;
 
 const GITHUB_API_URL: &str = "https://api.github.com";
+
+#[cfg(target_os = "macos")]
+const LIBRARY_PATH_ENV_VAR: &str = "DYLD_LIBRARY_PATH";
+#[cfg(target_os = "linux")]
+const LIBRARY_PATH_ENV_VAR: &str = "LD_LIBRARY_PATH";
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
@@ -588,6 +601,10 @@ pub struct UpConfigGithubRelease {
     )]
     pub auth: GithubAuthConfig,
 
+    /// Environment variables to set when using this release
+    #[serde(default, skip_serializing_if = "EnvConfig::is_empty")]
+    pub env: EnvConfig,
+
     /// A list of directories to make the release available for
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub dirs: BTreeSet<String>,
@@ -615,6 +632,7 @@ impl Default for UpConfigGithubRelease {
             api_url: None,
             checksum: GithubReleaseChecksumConfig::default(),
             auth: GithubAuthConfig::default(),
+            env: EnvConfig::default(),
             dirs: BTreeSet::new(),
             actual_version: OnceCell::new(),
             was_handled: OnceCell::new(),
@@ -794,6 +812,8 @@ impl UpConfigGithubRelease {
             table.get("auth").cloned(),
             &error_handler.with_key("auth"),
         );
+        let env =
+            EnvConfig::from_config_value(table.get("env").cloned(), &error_handler.with_key("env"));
 
         let dirs = config_value
             .get_as_str_array("dir", &error_handler.with_key("dir"))
@@ -813,6 +833,7 @@ impl UpConfigGithubRelease {
             skip_arch_matching,
             prefer_dist,
             api_url,
+            env,
             dirs,
             checksum,
             auth,
@@ -843,14 +864,22 @@ impl UpConfigGithubRelease {
             return;
         }
 
+        // Check the filesystem for SDK directories
+        let install_path = github_release_tool_path(&self.repository, &version);
+        let sdk_dirs = self.list_sdk_directories(&install_path);
+        let bin_path = if sdk_dirs.is_empty() { "" } else { "bin" };
+        let env_vars = self.compute_sdk_env_vars(&sdk_dirs, &version);
+
         // Update environment
-        environment.add_simple_version(
-            "ghrelease",
-            &self.repository,
-            &version,
-            "",
-            self.dirs.clone(),
-        );
+        environment.add_version(UpVersionParams {
+            backend: "ghrelease",
+            tool: &self.repository,
+            version: &version,
+            bin_path,
+            dirs: self.dirs.clone(),
+            env_vars,
+            ..UpVersionParams::default()
+        });
 
         progress_handler.progress("updated cache".to_string());
     }
@@ -1156,7 +1185,6 @@ impl UpConfigGithubRelease {
             GithubAuthConfig::Skip(false) => unreachable!("skip: false is not expected"),
             GithubAuthConfig::Token(token) => return Some(token),
             GithubAuthConfig::TokenEnvVar(env_var) => {
-                eprintln!("using {env_var} for auth token");
                 let token = std::env::var(env_var).ok()?;
                 return Some(token);
             }
@@ -1872,69 +1900,91 @@ impl UpConfigGithubRelease {
             }
         }
 
-        // Locate the binary file(s) in the extracted directory, recursively
-        // and move them to the workdir data path
-        for entry in walkdir::WalkDir::new(tmp_dir.path())
-            .into_iter()
-            .filter_map(|entry| {
-                let entry = entry.ok()?;
-                let entry_path = entry.path();
-                if entry_path.is_file() {
-                    let metadata = entry.metadata().ok()?;
-                    let is_executable = metadata.permissions().mode() & 0o111 != 0;
-                    if is_executable {
-                        Some(entry)
+        // Check if the extracted content is an SDK-like structure (has bin/ + lib/src/pkg/etc)
+        let sdk_detection = self.detect_sdk_structure(tmp_dir.path());
+
+        if let Some((sdk_root, dirs)) = sdk_detection {
+            // This is an SDK, move/copy the entire directory structure
+            progress_handler.progress(format!(
+                "detected SDK structure, installing full directory ({})",
+                dirs.join(", ")
+            ));
+
+            // Move the entire SDK directory using safe_rename (falls back to copy if needed)
+            safe_rename(&sdk_root, &install_path).map_err(|err| {
+                let errmsg = format!("failed to move SDK directory: {err}");
+                progress_handler.error_with_message(errmsg.clone());
+                UpError::Exec(errmsg)
+            })?;
+
+            binary_found = true;
+        } else {
+            // Not an SDK, use the existing binary extraction logic
+            // Locate the binary file(s) in the extracted directory, recursively
+            // and move them to the workdir data path
+            for entry in walkdir::WalkDir::new(tmp_dir.path())
+                .into_iter()
+                .filter_map(|entry| {
+                    let entry = entry.ok()?;
+                    let entry_path = entry.path();
+                    if entry_path.is_file() {
+                        let metadata = entry.metadata().ok()?;
+                        let is_executable = metadata.permissions().mode() & 0o111 != 0;
+                        if is_executable {
+                            Some(entry)
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
-                } else {
-                    None
+                })
+            {
+                let source_path = entry.path();
+                let binary_name = source_path
+                    .file_name()
+                    .unwrap_or(source_path.as_os_str())
+                    .to_string_lossy()
+                    .to_string();
+
+                progress_handler.progress(format!("found binary {}", binary_name.light_yellow()));
+
+                let target_path = install_path.join(&binary_name);
+
+                // Make sure the target directory exists
+                if !install_path.exists() {
+                    std::fs::create_dir_all(&install_path).map_err(|err| {
+                        let errmsg =
+                            format!("failed to create {}: {}", install_path.display(), err);
+                        progress_handler.error_with_message(errmsg.clone());
+                        UpError::Exec(errmsg)
+                    })?;
                 }
-            })
-        {
-            let source_path = entry.path();
-            let binary_name = source_path
-                .file_name()
-                .unwrap_or(source_path.as_os_str())
-                .to_string_lossy()
-                .to_string();
 
-            progress_handler.progress(format!("found binary {}", binary_name.light_yellow()));
-
-            let target_path = install_path.join(&binary_name);
-
-            // Make sure the target directory exists
-            if !install_path.exists() {
-                std::fs::create_dir_all(&install_path).map_err(|err| {
-                    let errmsg = format!("failed to create {}: {}", install_path.display(), err);
+                // Copy the binary to the install path
+                let copy = std::fs::copy(source_path, &target_path);
+                if copy.is_err() || !target_path.exists() {
+                    let err = if let Err(err) = copy {
+                        err
+                    } else {
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "target file not found after copy".to_string(),
+                        )
+                    };
+                    let errmsg = format!("failed to copy {binary_name}: {err}");
                     progress_handler.error_with_message(errmsg.clone());
-                    UpError::Exec(errmsg)
-                })?;
+
+                    // Force delete the install path if we fail to copy
+                    // the binary to avoid leaving a partial installation
+                    // behind
+                    let _ = force_remove_dir_all(&install_path);
+
+                    return Err(UpError::Exec(errmsg));
+                }
+
+                binary_found = true;
             }
-
-            // Copy the binary to the install path
-            let copy = std::fs::copy(source_path, &target_path);
-            if copy.is_err() || !target_path.exists() {
-                let err = if let Err(err) = copy {
-                    err
-                } else {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "target file not found after copy".to_string(),
-                    )
-                };
-                let errmsg = format!("failed to copy {binary_name}: {err}");
-                progress_handler.error_with_message(errmsg.clone());
-
-                // Force delete the install path if we fail to copy
-                // the binary to avoid leaving a partial installation
-                // behind
-                let _ = force_remove_dir_all(&install_path);
-
-                return Err(UpError::Exec(errmsg));
-            }
-
-            binary_found = true;
         }
 
         if !binary_found {
@@ -1959,8 +2009,174 @@ impl UpConfigGithubRelease {
         }
     }
 
+    /// Detects if the extracted archive contains an SDK-like structure
+    /// Returns the path to the SDK root directory and list of all directories in it
+    fn detect_sdk_structure(&self, extract_path: &Path) -> Option<(PathBuf, Vec<String>)> {
+        // Look for a directory that contains bin/ and at least one SDK directory
+        let known_sdk_dirs = ["lib", "src", "pkg", "include", "targets", "share"];
+
+        // Use glob to find all bin/ directories recursively
+        let pattern = format!("{}/**/bin", extract_path.display());
+
+        let bin_dirs = match glob::glob(&pattern) {
+            Ok(paths) => paths.filter_map(Result::ok).collect::<Vec<_>>(),
+            Err(_) => return None,
+        };
+
+        // Check each bin/ directory to see if its parent is an SDK root
+        for bin_dir in bin_dirs {
+            // Check if there's at least one executable in the bin/ directory
+            let has_executable = match std::fs::read_dir(&bin_dir) {
+                Ok(entries) => entries
+                    .filter_map(Result::ok)
+                    .any(|entry| is_executable(&entry.path())),
+                Err(_) => continue,
+            };
+
+            if !has_executable {
+                continue;
+            }
+
+            // Get the parent directory (potential SDK root)
+            let sdk_root = match bin_dir.parent() {
+                Some(parent) => parent,
+                None => continue,
+            };
+
+            // Check if at least one known SDK directory exists alongside bin/
+            let has_sdk_dir = known_sdk_dirs.iter().any(|dir| {
+                let sdk_path = sdk_root.join(dir);
+                sdk_path.exists() && sdk_path.is_dir()
+            });
+
+            if has_sdk_dir {
+                // List ALL directories in the SDK root
+                let all_dirs = match std::fs::read_dir(sdk_root) {
+                    Ok(entries) => entries
+                        .filter_map(Result::ok)
+                        .filter(|entry| entry.path().is_dir())
+                        .filter_map(|entry| entry.file_name().to_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>(),
+                    Err(_) => continue,
+                };
+
+                return Some((sdk_root.to_path_buf(), all_dirs));
+            }
+        }
+
+        None
+    }
+
     fn is_gh(&self) -> bool {
         self.api_url.is_none() && self.repository.to_lowercase() == "cli/cli"
+    }
+
+    fn list_sdk_directories(&self, install_path: &PathBuf) -> Vec<String> {
+        if !install_path.exists() || !install_path.is_dir() {
+            return Vec::new();
+        }
+
+        let entries = match std::fs::read_dir(install_path) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().is_dir())
+                .filter_map(|entry| entry.file_name().to_str().map(|s| s.to_string()))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+
+        // Only return the list if it contains 'bin'
+        if entries.iter().any(|dir| dir == "bin") {
+            entries
+        } else {
+            Vec::new()
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn compute_sdk_env_vars(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
+        self.compute_sdk_env_vars_impl(sdk_dirs, version)
+    }
+
+    #[cfg(not(test))]
+    fn compute_sdk_env_vars(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
+        self.compute_sdk_env_vars_impl(sdk_dirs, version)
+    }
+
+    fn compute_sdk_env_vars_impl(&self, sdk_dirs: &[String], version: &str) -> Vec<UpEnvVar> {
+        let install_path = github_release_tool_path(&self.repository, version);
+        let mut env_vars = Vec::new();
+
+        // Create tera context once for all env vars
+        let mut context = config_template_context(".");
+        context.insert("install_dir", &install_path.to_string_lossy().to_string());
+
+        // If SDK dirs were detected, add standard env vars for them
+        if !sdk_dirs.is_empty() {
+            // Generic SDK directory handling
+            for dir in sdk_dirs {
+                match dir.as_str() {
+                    "lib" => {
+                        env_vars.push(UpEnvVar {
+                            name: LIBRARY_PATH_ENV_VAR.to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(install_path.join("lib").to_string_lossy().to_string()),
+                        });
+                    }
+                    "man" => {
+                        env_vars.push(UpEnvVar {
+                            name: "MANPATH".to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(install_path.join("man").to_string_lossy().to_string()),
+                        });
+                    }
+                    "include" => {
+                        let include_path =
+                            install_path.join("include").to_string_lossy().to_string();
+                        env_vars.push(UpEnvVar {
+                            name: "C_INCLUDE_PATH".to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(include_path.clone()),
+                        });
+                        env_vars.push(UpEnvVar {
+                            name: "CPLUS_INCLUDE_PATH".to_string(),
+                            operation: EnvOperationEnum::Prepend,
+                            value: Some(include_path),
+                        });
+                    }
+                    _ => {
+                        // Ignore other directories
+                    }
+                }
+            }
+        }
+
+        // Add user-defined env vars first (with template expansion)
+        for env_op in self.env.operations.iter() {
+            let value =
+                env_op
+                    .value
+                    .as_ref()
+                    .map(|v| match tera::Tera::one_off(v, &context, false) {
+                        Ok(rendered) => rendered,
+                        Err(err) => {
+                            eprintln!(
+                                "Warning: Failed to expand template '{}': {}",
+                                v,
+                                tera_render_error_message(err)
+                            );
+                            v.to_string()
+                        }
+                    });
+
+            env_vars.push(UpEnvVar {
+                name: env_op.name.clone(),
+                operation: env_op.operation,
+                value,
+            });
+        }
+
+        env_vars
     }
 }
 

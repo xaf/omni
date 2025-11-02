@@ -394,33 +394,36 @@ mod up_environment {
         let mut env = UpEnvironment::new();
 
         // Add versions for different directories
-        env.add_version(
-            "backend1",
-            "tool1",
-            "plugin1",
-            "plugin-1",
-            "1.0.0",
-            "bin/path/1",
-            BTreeSet::from(["dir1".to_string()]),
-        );
-        env.add_version(
-            "backend2",
-            "tool2",
-            "plugin2",
-            "plugin-2",
-            "2.0.0",
-            "bin/path/2",
-            BTreeSet::from(["dir1/subdir".to_string()]),
-        );
-        env.add_version(
-            "backend3",
-            "tool3",
-            "plugin3",
-            "plugin-3",
-            "3.0.0",
-            "bin/path/3",
-            BTreeSet::from(["dir2".to_string()]),
-        );
+        env.add_version(UpVersionParams {
+            backend: "backend1",
+            tool: "tool1",
+            plugin_name: "plugin1",
+            normalized_name: "plugin-1",
+            version: "1.0.0",
+            bin_path: "bin/path/1",
+            dirs: BTreeSet::from(["dir1".to_string()]),
+            env_vars: Vec::new(),
+        });
+        env.add_version(UpVersionParams {
+            backend: "backend2",
+            tool: "tool2",
+            plugin_name: "plugin2",
+            normalized_name: "plugin-2",
+            version: "2.0.0",
+            bin_path: "bin/path/2",
+            dirs: BTreeSet::from(["dir1/subdir".to_string()]),
+            env_vars: Vec::new(),
+        });
+        env.add_version(UpVersionParams {
+            backend: "backend3",
+            tool: "tool3",
+            plugin_name: "plugin3",
+            normalized_name: "plugin-3",
+            version: "3.0.0",
+            bin_path: "bin/path/3",
+            dirs: BTreeSet::from(["dir2".to_string()]),
+            env_vars: Vec::new(),
+        });
 
         // Test dir1 versions
         let dir1_versions = env.versions_for_dir("dir1");
@@ -489,27 +492,29 @@ mod up_environment {
         let mut env = UpEnvironment::new();
 
         // Test adding version
-        assert!(env.add_version(
-            "backend1",
-            "tool1",
-            "plugin1",
-            "plugin-1",
-            "1.0.0",
-            "bin/path/1",
-            BTreeSet::from(["dir1".to_string()])
-        ));
+        assert!(env.add_version(UpVersionParams {
+            backend: "backend1",
+            tool: "tool1",
+            plugin_name: "plugin1",
+            normalized_name: "plugin-1",
+            version: "1.0.0",
+            bin_path: "bin/path/1",
+            dirs: BTreeSet::from(["dir1".to_string()]),
+            env_vars: Vec::new(),
+        }));
         assert_eq!(env.versions.len(), 1);
 
         // Test adding same version doesn't duplicate
-        assert!(!env.add_version(
-            "backend1",
-            "tool1",
-            "plugin1",
-            "plugin-1",
-            "1.0.0",
-            "bin/path/1",
-            BTreeSet::from(["dir1".to_string()])
-        ));
+        assert!(!env.add_version(UpVersionParams {
+            backend: "backend1",
+            tool: "tool1",
+            plugin_name: "plugin1",
+            normalized_name: "plugin-1",
+            version: "1.0.0",
+            bin_path: "bin/path/1",
+            dirs: BTreeSet::from(["dir1".to_string()]),
+            env_vars: Vec::new(),
+        }));
         assert_eq!(env.versions.len(), 1);
 
         // Test adding data path
@@ -523,15 +528,17 @@ mod up_version {
 
     #[test]
     fn test_new() {
-        let version = UpVersion::new(
-            "tool1",
-            "plugin1",
-            "plugin-1",
-            "backend1",
-            "1.0.0",
-            "bin/path/1",
-            "dir1",
-        );
+        let version = UpVersion {
+            tool: "tool1".to_string(),
+            plugin_name: "plugin1".to_string(),
+            normalized_name: "plugin-1".to_string(),
+            backend: "backend1".to_string(),
+            version: "1.0.0".to_string(),
+            bin_path: "bin/path/1".to_string(),
+            dir: "dir1".to_string(),
+            data_path: None,
+            env_vars: Vec::new(),
+        };
         assert_eq!(version.tool, "tool1");
         assert_eq!(version.plugin_name, "plugin1");
         assert_eq!(version.normalized_name, "plugin-1");
@@ -540,6 +547,7 @@ mod up_version {
         assert_eq!(version.bin_path, "bin/path/1");
         assert_eq!(version.dir, "dir1");
         assert!(version.data_path.is_none());
+        assert!(version.env_vars.is_empty());
     }
 }
 

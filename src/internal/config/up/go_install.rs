@@ -15,6 +15,7 @@ use time::PrimitiveDateTime;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
+use crate::internal::cache::up_environments::UpVersionParams;
 use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::GoInstallOperationCache;
 use crate::internal::cache::GoInstallVersions;
@@ -730,7 +731,14 @@ impl UpConfigGoInstall {
         }
 
         // Update environment
-        environment.add_simple_version("go-install", &self.path, version, "bin", self.dirs.clone());
+        environment.add_version(UpVersionParams {
+            backend: "go-install",
+            tool: &self.path,
+            version,
+            bin_path: "bin",
+            dirs: self.dirs.clone(),
+            ..UpVersionParams::default()
+        });
 
         progress_handler.progress("updated cache".to_string());
     }
