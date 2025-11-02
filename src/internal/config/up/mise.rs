@@ -199,11 +199,11 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
         return Ok(());
     };
 
-    let gh_release = UpConfigGithubRelease::new_with_version(
+    let gh_release = UpConfigGithubRelease::new_immutable_with_version(
         "jdx/mise",
         &global_config().up_command.mise_version,
         true, // We force the upgrade here, since we want to make sure we get the
-              // latest version of mise that satisfies the version constraint
+              // the latest version of mise that satisfies the version constraint
     );
 
     // We create a fake environment since we do not want to add this
@@ -216,7 +216,12 @@ fn install_mise(options: &UpOptions, progress_handler: &UpProgressHandler) -> Re
 
     // Check that the mise binary is installed
     let install_path = gh_release.install_path()?;
-    let install_bin = install_path.join("mise");
+    let install_bin_path = install_path.join("bin");
+    let install_bin = if install_bin_path.is_dir() {
+        install_bin_path.join("mise")
+    } else {
+        install_path.join("mise")
+    };
     if !install_bin.exists() || !is_executable(&install_bin) {
         let errmsg = "failed to install mise: binary not found".to_string();
         if fail_on_error {

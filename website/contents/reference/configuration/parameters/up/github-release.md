@@ -42,6 +42,7 @@ This supports authenticated requests using [the `gh` command line interface](htt
 | `prerelease` | boolean | Whether to download a prerelease version or only match stable releases; this will also apply to versions with prerelease specification, e.g. `1.2.3-alpha` *(default: `false`)* |
 | `build` | boolean | Whether to download a version with build specification, e.g. `1.2.3+build` *(default: `false`)* |
 | `binary` | boolean | Whether to download an asset that is not archived and consider it a binary file *(default: `true`)* |
+| `immutable` | boolean | Whether to only match releases marked as immutable by GitHub. Immutable releases provide enhanced supply chain security by preventing modifications after publication. When set to `true`, only releases marked as immutable will be considered; when set to `false`, both immutable and non-immutable releases are accepted *(default: `false`)* |
 | `asset_name` | string | The name of the asset to download from the release. All assets matching this pattern _and_ the current platform and architecture (unless skipped) will be downloaded. It can take glob patterns, e.g. `*.tar.gz` or `special-asset-*`. It can take multiple patterns at once, one per line, and accepts positive and negative (starting by `!`) patterns. The first matching pattern returns (whether negative or positive). If not set, will be similar as being set to `*` |
 | `skip_os_matching` | boolean | Whether to skip the OS matching when downloading assets. If set to `true`, this will download all assets regardless of the OS *(default: `false`)* |
 | `skip_arch_matching` | boolean | Whether to skip the architecture matching when downloading assets. If set to `true`, this will download all assets regardless of the architecture *(default: `false`)* |
@@ -91,6 +92,33 @@ In order to simplify setting environment variables for tools installed via GitHu
 |----------|-------------|---------|
 | `install_dir` | The installation directory path for this release | `/Users/user/.local/share/omni/ghreleases/owner/repo/v1.2.3` |
 
+## Supply chain verification
+
+Omni provides multiple layers of verification to ensure the integrity and authenticity of downloaded GitHub releases:
+
+### Checksum verification
+
+Omni can verify the integrity of downloaded assets by computing and comparing checksums. When enabled (which is the default), omni will automatically look for checksum files in the release assets (such as `checksums.txt`, `SHA256SUMS`, etc.) and use them to verify downloaded files.
+
+For enhanced security, you can provide a checksum value directly in the configuration using the `checksum.value` parameter. This is more secure than relying on checksum files from the release itself, as those files could theoretically be altered by an attacker who compromised the release. By providing the checksum in your configuration, you ensure it comes from a trusted source.
+
+See the [checksum configuration](#checksum-configuration) section for details on configuration options.
+
+### Immutable release verification
+
+When a GitHub release is marked as [immutable](https://github.blog/news-insights/product-news/github-immutable-releases-are-generally-available/), omni will automatically verify the cryptographic signature of downloaded assets using `gh release verify-asset` (if [the `gh` command line interface](https://cli.github.com/) is available).
+
+The cryptographic verification ensures:
+- The asset was published by the repository owner
+- The asset has not been modified since publication
+- The asset's signature is valid
+
+If the `gh` CLI is not available, a warning will be displayed but the installation will continue. If verification fails when `gh` is available, the installation will be aborted to protect against tampered releases.
+
+:::info
+The `immutable` parameter controls which releases are considered during version matching (when `true`, only immutable releases), while the verification described here applies to any release that GitHub marks as immutable. To take full advantage of immutable release verification, it is recommended to set `immutable` to `true` whenever a repository provides immutable releases.
+:::
+
 ## Examples
 
 ```yaml
@@ -138,6 +166,13 @@ up:
       repository: xaf/omni
       version: 1
       prerelease: true
+
+  # Will only install releases marked as immutable by GitHub
+  # for enhanced supply chain security
+  - github-release:
+      repository: xaf/omni
+      version: latest
+      immutable: true
 
   # Will install all the specified releases
   - github-release:

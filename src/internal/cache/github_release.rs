@@ -97,11 +97,13 @@ impl GithubReleaseOperationCache {
         &self,
         repository: &str,
         version: &str,
+        prerelease: bool,
+        immutable: bool,
     ) -> Result<bool, CacheManagerError> {
         let db = CacheManager::get();
         let inserted = db.execute(
             include_str!("database/sql/github_release_operation_add_install.sql"),
-            params![repository, version],
+            params![repository, version, prerelease, immutable],
         )?;
         Ok(inserted > 0)
     }
@@ -151,6 +153,8 @@ impl GithubReleaseOperationCache {
 pub struct GithubReleaseInstalled {
     pub repository: String,
     pub version: String,
+    pub prerelease: bool,
+    pub immutable: bool,
 }
 
 impl FromRow for GithubReleaseInstalled {
@@ -158,6 +162,8 @@ impl FromRow for GithubReleaseInstalled {
         Ok(Self {
             repository: row.get("repository")?,
             version: row.get("version")?,
+            prerelease: row.get("prerelease")?,
+            immutable: row.get("immutable")?,
         })
     }
 }
@@ -168,6 +174,7 @@ pub struct GithubReleasesSelector {
     pub prerelease: bool,
     pub build: bool,
     pub binary: bool,
+    pub immutable: bool,
     pub asset_name_matchers: Vec<AssetNameMatcher>,
     pub skip_arch_matching: bool,
     pub skip_os_matching: bool,
@@ -192,6 +199,11 @@ impl GithubReleasesSelector {
 
     pub fn build(mut self, build: bool) -> Self {
         self.build = build;
+        self
+    }
+
+    pub fn immutable(mut self, immutable: bool) -> Self {
+        self.immutable = immutable;
         self
     }
 
@@ -550,6 +562,11 @@ impl GithubReleases {
                     return None;
                 }
 
+                // Discard non-immutable releases if immutable is required
+                if selector.immutable && !release.immutable {
+                    return None;
+                }
+
                 // Parse the version
                 let release_version = release.version();
 
@@ -574,6 +591,7 @@ impl GithubReleases {
                     name: release.name.clone(),
                     draft: release.draft,
                     prerelease: release.prerelease,
+                    immutable: release.immutable,
                     assets,
                 };
 
@@ -608,6 +626,8 @@ pub struct GithubReleaseVersion {
     pub draft: bool,
     #[serde(default)]
     pub prerelease: bool,
+    #[serde(default)]
+    pub immutable: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assets: Vec<GithubReleaseAsset>,
 }
