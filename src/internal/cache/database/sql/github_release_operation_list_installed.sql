@@ -1,6 +1,8 @@
 -- List all the installed github releases
 SELECT
     repository,
-    version
+    version,
+    prerelease,
+    immutable
 FROM
     github_release_installed;

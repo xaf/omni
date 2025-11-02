@@ -52,7 +52,7 @@ mod github_release_operation_cache {
 
             // Test adding installed version
             assert!(cache
-                .add_installed(repository, version)
+                .add_installed(repository, version, false, false)
                 .expect("Failed to add installed version"));
 
             // Test listing installed versions
@@ -63,7 +63,7 @@ mod github_release_operation_cache {
 
             // Test adding duplicate installed version
             assert!(cache
-                .add_installed(repository, version)
+                .add_installed(repository, version, false, false)
                 .expect("Failed to add duplicate installed version"));
 
             // Verify no duplicates in list
@@ -94,7 +94,7 @@ mod github_release_operation_cache {
 
             // Add installed version
             cache
-                .add_installed(repository, version)
+                .add_installed(repository, version, false, false)
                 .expect("Failed to add installed version");
 
             // Now add required_by - should succeed
@@ -124,7 +124,7 @@ mod github_release_operation_cache {
 
             // Add installed version first
             cache
-                .add_installed(repository, version)
+                .add_installed(repository, version, false, false)
                 .expect("Failed to add installed version");
 
             // Add environments
@@ -176,10 +176,10 @@ mod github_release_operation_cache {
 
             // Add installations
             cache
-                .add_installed(repo1, version)
+                .add_installed(repo1, version, false, false)
                 .expect("Failed to add repo1 installation");
             cache
-                .add_installed(repo2, version)
+                .add_installed(repo2, version, false, false)
                 .expect("Failed to add repo2 installation");
 
             let conn = get_conn();
@@ -305,7 +305,7 @@ mod github_release_operation_cache {
             // Add multiple versions
             for version in &versions {
                 assert!(cache
-                    .add_installed(repository, version)
+                    .add_installed(repository, version, false, false)
                     .expect("Failed to add installed version"));
             }
 
@@ -344,7 +344,7 @@ mod github_release_operation_cache {
             for version in &versions {
                 // Add installation
                 assert!(cache
-                    .add_installed(repository, version)
+                    .add_installed(repository, version, false, false)
                     .expect("Failed to add installed version"));
 
                 // Add requirement
@@ -409,7 +409,7 @@ mod github_release_operation_cache {
 
                 // Add installation
                 cache
-                    .add_installed(test.repository, test.version)
+                    .add_installed(test.repository, test.version, false, false)
                     .unwrap_or_else(|_| {
                         panic!("Failed to add installed version for {}", test.repository)
                     });

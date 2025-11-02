@@ -37,5 +37,9 @@ pub fn upgrade_database(conn: &Connection) -> Result<(), CacheManagerError> {
         conn.execute_batch(include_str!("sql/upgrade_v2_to_v3.sql"))?;
     }
 
+    if current_version < 4 {
+        conn.execute_batch(include_str!("sql/upgrade_v3_to_v4.sql"))?;
+    }
+
     Ok(())
 }

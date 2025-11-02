@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -105,6 +106,19 @@ cfg_if::cfg_if! {
 
 pub fn github_release_tool_path(repository: &str, version: &str) -> PathBuf {
     github_releases_bin_path().join(repository).join(version)
+}
+
+#[derive(Debug, Clone)]
+struct InstalledVersionInfo {
+    version: String,
+    prerelease: bool,
+    immutable: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ReleaseMetadata {
+    prerelease: bool,
+    immutable: bool,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -620,6 +634,9 @@ pub struct UpConfigGithubRelease {
     actual_version: OnceCell<String>,
 
     #[serde(default, skip)]
+    actual_metadata: RefCell<Option<ReleaseMetadata>>,
+
+    #[serde(default, skip)]
     was_handled: OnceCell<GithubReleaseHandled>,
 }
 
@@ -643,6 +660,7 @@ impl Default for UpConfigGithubRelease {
             env: EnvConfig::default(),
             dirs: BTreeSet::new(),
             actual_version: OnceCell::new(),
+            actual_metadata: RefCell::new(None),
             was_handled: OnceCell::new(),
         }
     }
@@ -885,9 +903,20 @@ impl UpConfigGithubRelease {
 
         progress_handler.progress("updating cache".to_string());
 
-        if let Err(err) =
-            GithubReleaseOperationCache::get().add_installed(&self.repository, &version)
-        {
+        // Get release properties from the actual metadata, or default to false
+        let (prerelease, immutable) = self
+            .actual_metadata
+            .borrow()
+            .as_ref()
+            .map(|m| (m.prerelease, m.immutable))
+            .unwrap_or((false, false));
+
+        if let Err(err) = GithubReleaseOperationCache::get().add_installed(
+            &self.repository,
+            &version,
+            prerelease,
+            immutable,
+        ) {
             progress_handler.progress(format!("failed to update github release cache: {err}"));
             return;
         }
@@ -1041,13 +1070,20 @@ impl UpConfigGithubRelease {
 
             let installed_versions = self.list_installed_versions(progress_handler)?;
             match self.resolve_version_from_str(&resolve_str, &installed_versions) {
-                Ok(installed_version) => {
+                Ok(installed_version_info) => {
                     progress_handler.progress(format!(
                         "found matching installed version {}",
-                        installed_version.light_yellow(),
+                        installed_version_info.version.light_yellow(),
                     ));
 
-                    version = installed_version;
+                    // Store metadata from installed version
+                    let metadata = ReleaseMetadata {
+                        prerelease: installed_version_info.prerelease,
+                        immutable: installed_version_info.immutable,
+                    };
+                    self.actual_metadata.replace(Some(metadata));
+
+                    version = installed_version_info.version;
                     download_release = Ok(false);
                 }
                 Err(_err) => {
@@ -1090,6 +1126,13 @@ impl UpConfigGithubRelease {
 
             version = release.version();
 
+            // Store metadata from release for cache update
+            let metadata = ReleaseMetadata {
+                prerelease: release.prerelease,
+                immutable: release.immutable,
+            };
+            self.actual_metadata.replace(Some(metadata));
+
             // Try installing the release found
             download_release = self.download_release(options, &release, progress_handler);
             if download_release.is_err() && !options.fail_on_upgrade {
@@ -1098,14 +1141,23 @@ impl UpConfigGithubRelease {
                 // fit the requirement, in which case we can fallback to it
                 let installed_versions = self.list_installed_versions(progress_handler)?;
                 match self.resolve_version(&installed_versions) {
-                    Ok(installed_version) => {
+                    Ok(installed_version_info) => {
                         progress_handler.progress(format!(
                             "falling back to {} {}",
                             self.repository,
-                            installed_version.light_yellow(),
+                            installed_version_info.version.light_yellow(),
                         ));
 
-                        version = installed_version;
+                        // Update metadata to reflect the installed version we're falling back to
+                        let metadata = ReleaseMetadata {
+                            prerelease: installed_version_info.prerelease,
+                            immutable: installed_version_info.immutable,
+                        };
+                        // Note: actual_metadata might already be set from the release we tried to download
+                        // We replace it with the installed version's metadata since that's what we'll actually use
+                        self.actual_metadata.replace(Some(metadata));
+
+                        version = installed_version_info.version;
                         download_release = Ok(false);
                     }
                     Err(_err) => {}
@@ -1471,7 +1523,7 @@ impl UpConfigGithubRelease {
     fn list_installed_versions(
         &self,
         _progress_handler: &dyn ProgressHandler,
-    ) -> Result<Vec<String>, UpError> {
+    ) -> Result<Vec<InstalledVersionInfo>, UpError> {
         let release_path = github_releases_bin_path().join(&self.repository);
 
         if !release_path.exists() {
@@ -1494,6 +1546,43 @@ impl UpConfigGithubRelease {
             })
             .collect();
 
+        // Get metadata from database for this repository and filter based on requirements
+        let cache = GithubReleaseOperationCache::get();
+        let db_installed: HashMap<String, (bool, bool)> = cache
+            .list_installed()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|i| i.repository == self.repository)
+            .map(|i| (i.version, (i.prerelease, i.immutable)))
+            .collect();
+
+        // Filter versions based on prerelease and immutable requirements
+        let installed_versions: Vec<_> = installed_versions
+            .into_iter()
+            .filter_map(|version| {
+                // Get metadata from database, or assume defaults for legacy installations
+                let (prerelease, immutable) = db_installed
+                    .get(&version)
+                    .copied()
+                    .unwrap_or((false, false));
+
+                // If immutable is required, filter out non-immutable releases
+                if self.immutable && !immutable {
+                    return None;
+                }
+                // If prerelease is not allowed, filter out prereleases
+                if !self.prerelease && prerelease {
+                    return None;
+                }
+
+                Some(InstalledVersionInfo {
+                    version,
+                    prerelease,
+                    immutable,
+                })
+            })
+            .collect();
+
         // If we have a config hash, we should filter out the versions that
         // do not match it as they won't be the same as the expected version;
         // if we DO NOT have a config hash, we should filter out the versions
@@ -1503,7 +1592,10 @@ impl UpConfigGithubRelease {
             let ends_with = format!("~{hash}");
             installed_versions
                 .into_iter()
-                .filter_map(|version| Some(version.strip_suffix(&ends_with)?.to_string()))
+                .filter_map(|mut info| {
+                    info.version = info.version.strip_suffix(&ends_with)?.to_string();
+                    Some(info)
+                })
                 .collect()
         } else {
             // We want to remove all versions that end with ~ followed
@@ -1513,23 +1605,23 @@ impl UpConfigGithubRelease {
 
             installed_versions
                 .into_iter()
-                .filter(|version| {
+                .filter(|info| {
                     // If the version has less characters than the hash
                     // length, we should keep it as it is not a hash
-                    let len = version.len();
+                    let len = info.version.len();
                     if len < 9 {
                         return true;
                     }
 
                     // Check for the `~` character, which should be 9 characters
                     // from the end of the string
-                    let tilde = &version[len - 9..len - 8];
+                    let tilde = &info.version[len - 9..len - 8];
                     if tilde != "~" {
                         return true;
                     }
 
                     // Now check all characters after the tilde are hex digits
-                    let hash = &version[len - 8..];
+                    let hash = &info.version[len - 8..];
                     !hash.chars().all(|c| c.is_ascii_hexdigit())
                 })
                 .collect()
@@ -1538,7 +1630,7 @@ impl UpConfigGithubRelease {
         Ok(installed_versions)
     }
 
-    fn resolve_version(&self, versions: &[String]) -> Result<String, UpError> {
+    fn resolve_version(&self, versions: &[InstalledVersionInfo]) -> Result<InstalledVersionInfo, UpError> {
         let match_version = self.version.clone().unwrap_or_else(|| "latest".to_string());
         self.resolve_version_from_str(&match_version, versions)
     }
@@ -1546,14 +1638,19 @@ impl UpConfigGithubRelease {
     fn resolve_version_from_str(
         &self,
         match_version: &str,
-        versions: &[String],
-    ) -> Result<String, UpError> {
+        versions: &[InstalledVersionInfo],
+    ) -> Result<InstalledVersionInfo, UpError> {
         let mut matcher = VersionMatcher::new(match_version);
         matcher.prerelease(self.prerelease);
         matcher.build(self.build);
         matcher.prefix(true);
 
-        let version = versions
+        let version_strings: Vec<String> = versions
+            .iter()
+            .map(|info| info.version.clone())
+            .collect();
+
+        let matched_version_str = version_strings
             .iter()
             .filter_map(|version| VersionParser::parse(version))
             .sorted()
@@ -1564,9 +1661,21 @@ impl UpConfigGithubRelease {
                     "no matching release found for {} {}",
                     self.repository, match_version,
                 ))
+            })?
+            .to_string();
+
+        // Find the corresponding InstalledVersionInfo
+        let version_info = versions
+            .iter()
+            .find(|info| info.version == matched_version_str)
+            .ok_or_else(|| {
+                UpError::Exec(format!(
+                    "failed to find version info for {}",
+                    matched_version_str
+                ))
             })?;
 
-        Ok(version.to_string())
+        Ok(version_info.clone())
     }
 
     /// Returns a hash that represents the configuration that could

@@ -97,11 +97,13 @@ impl GithubReleaseOperationCache {
         &self,
         repository: &str,
         version: &str,
+        prerelease: bool,
+        immutable: bool,
     ) -> Result<bool, CacheManagerError> {
         let db = CacheManager::get();
         let inserted = db.execute(
             include_str!("database/sql/github_release_operation_add_install.sql"),
-            params![repository, version],
+            params![repository, version, prerelease, immutable],
         )?;
         Ok(inserted > 0)
     }
@@ -151,6 +153,8 @@ impl GithubReleaseOperationCache {
 pub struct GithubReleaseInstalled {
     pub repository: String,
     pub version: String,
+    pub prerelease: bool,
+    pub immutable: bool,
 }
 
 impl FromRow for GithubReleaseInstalled {
@@ -158,6 +162,8 @@ impl FromRow for GithubReleaseInstalled {
         Ok(Self {
             repository: row.get("repository")?,
             version: row.get("version")?,
+            prerelease: row.get("prerelease")?,
+            immutable: row.get("immutable")?,
         })
     }
 }
