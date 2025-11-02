@@ -658,6 +658,20 @@ impl UpConfigGithubRelease {
         }
     }
 
+    pub fn new_immutable_with_version(
+        repository: &str,
+        version: &str,
+        upgrade: bool,
+    ) -> Self {
+        Self {
+            repository: repository.to_string(),
+            version: Some(version.to_string()),
+            upgrade,
+            immutable: true,
+            ..UpConfigGithubRelease::default()
+        }
+    }
+
     pub fn from_config_value(
         config_value: Option<&ConfigValue>,
         error_handler: &ConfigErrorHandler,
@@ -1788,6 +1802,59 @@ impl UpConfigGithubRelease {
         Ok(())
     }
 
+    fn verify_immutable_release_asset(
+        &self,
+        asset_name: &str,
+        release_tag: &str,
+        progress_handler: &dyn ProgressHandler,
+    ) -> Result<(), UpError> {
+        // Check if gh CLI is available
+        if which::which("gh").is_err() {
+            progress_handler.progress(format!(
+                "skipping immutable verification for {} (gh CLI not available)",
+                asset_name.light_yellow()
+            ));
+            return Ok(());
+        }
+
+        progress_handler.progress(format!(
+            "verifying immutable asset {}",
+            asset_name.light_yellow()
+        ));
+
+        let mut gh_verify = ProcessCommand::new("gh");
+        gh_verify.arg("release");
+        gh_verify.arg("verify-asset");
+        gh_verify.arg(&self.repository);
+        gh_verify.arg(release_tag);
+        gh_verify.arg(asset_name);
+        gh_verify.stdout(std::process::Stdio::piped());
+        gh_verify.stderr(std::process::Stdio::piped());
+
+        let output = gh_verify.output().map_err(|err| {
+            let errmsg = format!("failed to run gh release verify-asset: {err}");
+            progress_handler.error_with_message(errmsg.clone());
+            UpError::Exec(errmsg)
+        })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let errmsg = format!(
+                "immutable asset verification failed for {}: {}",
+                asset_name, stderr.trim()
+            );
+            progress_handler.error_with_message(errmsg.clone());
+            return Err(UpError::Exec(errmsg));
+        }
+
+        progress_handler.progress(format!(
+            "immutable asset {} verified successfully",
+            asset_name.light_yellow()
+        ));
+
+        Ok(())
+    }
+
     fn download_release(
         &self,
         options: &UpOptions,
@@ -1840,6 +1907,11 @@ impl UpConfigGithubRelease {
 
             // Validate the checksum if required
             self.validate_checksum(asset, tmp_dir.path(), progress_handler)?;
+
+            // Verify immutable asset if the release is immutable
+            if release.immutable {
+                self.verify_immutable_release_asset(&asset_name, &release.tag_name, progress_handler)?;
+            }
 
             // Get the parsed asset name
             let (asset_type, target_dir) = asset.file_type().ok_or_else(|| {

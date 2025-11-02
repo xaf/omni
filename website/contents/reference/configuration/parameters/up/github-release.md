@@ -92,6 +92,33 @@ In order to simplify setting environment variables for tools installed via GitHu
 |----------|-------------|---------|
 | `install_dir` | The installation directory path for this release | `/Users/user/.local/share/omni/ghreleases/owner/repo/v1.2.3` |
 
+## Supply chain verification
+
+Omni provides multiple layers of verification to ensure the integrity and authenticity of downloaded GitHub releases:
+
+### Checksum verification
+
+Omni can verify the integrity of downloaded assets by computing and comparing checksums. When enabled (which is the default), omni will automatically look for checksum files in the release assets (such as `checksums.txt`, `SHA256SUMS`, etc.) and use them to verify downloaded files.
+
+For enhanced security, you can provide a checksum value directly in the configuration using the `checksum.value` parameter. This is more secure than relying on checksum files from the release itself, as those files could theoretically be altered by an attacker who compromised the release. By providing the checksum in your configuration, you ensure it comes from a trusted source.
+
+See the [checksum configuration](#checksum-configuration) section for details on configuration options.
+
+### Immutable release verification
+
+When a GitHub release is marked as [immutable](https://github.blog/news-insights/product-news/github-immutable-releases-are-generally-available/), omni will automatically verify the cryptographic signature of downloaded assets using `gh release verify-asset` (if [the `gh` command line interface](https://cli.github.com/) is available).
+
+The cryptographic verification ensures:
+- The asset was published by the repository owner
+- The asset has not been modified since publication
+- The asset's signature is valid
+
+If the `gh` CLI is not available, a warning will be displayed but the installation will continue. If verification fails when `gh` is available, the installation will be aborted to protect against tampered releases.
+
+:::info
+The `immutable` parameter controls which releases are considered during version matching (when `true`, only immutable releases), while the verification described here applies to any release that GitHub marks as immutable. To take full advantage of immutable release verification, it is recommended to set `immutable` to `true` whenever a repository provides immutable releases.
+:::
+
 ## Examples
 
 ```yaml
