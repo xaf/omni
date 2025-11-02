@@ -19,6 +19,7 @@ mod github_release_operation_cache {
                     name: Some("Release 1.0.0".to_string()),
                     draft: false,
                     prerelease: false,
+                    immutable: false,
                     assets: vec![],
                 }],
                 fetched_at: OffsetDateTime::now_utc(),
@@ -243,9 +244,10 @@ mod github_release_operation_cache {
             let releases1 = GithubReleases {
                 releases: vec![GithubReleaseVersion {
                     tag_name: "v1.0.0".to_string(),
-                    name: Some("Release 1.0.0".to_string()),
+                    name: Some("Release 1.0.0".to_string(),),
                     draft: false,
                     prerelease: false,
+                    immutable: false,
                     assets: vec![],
                 }],
                 fetched_at: OffsetDateTime::now_utc(),
@@ -264,6 +266,7 @@ mod github_release_operation_cache {
                         name: Some("Release 1.0.0".to_string()),
                         draft: false,
                         prerelease: false,
+                        immutable: false,
                         assets: vec![],
                     },
                     GithubReleaseVersion {
@@ -271,6 +274,7 @@ mod github_release_operation_cache {
                         name: Some("Release 1.1.0".to_string()),
                         draft: false,
                         prerelease: false,
+                        immutable: false,
                         assets: vec![],
                     },
                 ],

@@ -531,6 +531,13 @@ pub struct UpConfigGithubRelease {
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
     pub build: bool,
 
+    /// Whether to only install immutable releases. When set to true,
+    /// only releases marked as immutable by GitHub will be considered.
+    /// When set to false (default), both immutable and non-immutable
+    /// releases are accepted.
+    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    pub immutable: bool,
+
     /// Whether to install a file that is not currently in an
     /// archive. This is useful for tools that are being
     /// distributed as a single binary file outside of an archive.
@@ -624,6 +631,7 @@ impl Default for UpConfigGithubRelease {
             upgrade: false,
             prerelease: false,
             build: false,
+            immutable: false,
             binary: true,
             asset_name: vec![],
             skip_os_matching: false,
@@ -783,6 +791,11 @@ impl UpConfigGithubRelease {
             config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
         let binary =
             config_value.get_as_bool_or_default("binary", true, &error_handler.with_key("binary"));
+        let immutable = config_value.get_as_bool_or_default(
+            "immutable",
+            false,
+            &error_handler.with_key("immutable"),
+        );
         let asset_name = AssetNameMatcher::from_config_value_multi(
             table.get("asset_name"),
             &error_handler.with_key("asset_name"),
@@ -828,6 +841,7 @@ impl UpConfigGithubRelease {
             prerelease,
             build,
             binary,
+            immutable,
             asset_name,
             skip_os_matching,
             skip_arch_matching,
@@ -1419,6 +1433,7 @@ impl UpConfigGithubRelease {
                 GithubReleasesSelector::new(match_version)
                     .prerelease(self.prerelease)
                     .build(self.build)
+                    .immutable(self.immutable)
                     .binary(self.binary)
                     .asset_name_matchers(self.asset_name.clone())
                     .skip_os_matching(self.skip_os_matching)

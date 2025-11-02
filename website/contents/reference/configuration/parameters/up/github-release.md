@@ -42,6 +42,7 @@ This supports authenticated requests using [the `gh` command line interface](htt
 | `prerelease` | boolean | Whether to download a prerelease version or only match stable releases; this will also apply to versions with prerelease specification, e.g. `1.2.3-alpha` *(default: `false`)* |
 | `build` | boolean | Whether to download a version with build specification, e.g. `1.2.3+build` *(default: `false`)* |
 | `binary` | boolean | Whether to download an asset that is not archived and consider it a binary file *(default: `true`)* |
+| `immutable` | boolean | Whether to only match releases marked as immutable by GitHub. Immutable releases provide enhanced supply chain security by preventing modifications after publication. When set to `true`, only releases marked as immutable will be considered; when set to `false`, both immutable and non-immutable releases are accepted *(default: `false`)* |
 | `asset_name` | string | The name of the asset to download from the release. All assets matching this pattern _and_ the current platform and architecture (unless skipped) will be downloaded. It can take glob patterns, e.g. `*.tar.gz` or `special-asset-*`. It can take multiple patterns at once, one per line, and accepts positive and negative (starting by `!`) patterns. The first matching pattern returns (whether negative or positive). If not set, will be similar as being set to `*` |
 | `skip_os_matching` | boolean | Whether to skip the OS matching when downloading assets. If set to `true`, this will download all assets regardless of the OS *(default: `false`)* |
 | `skip_arch_matching` | boolean | Whether to skip the architecture matching when downloading assets. If set to `true`, this will download all assets regardless of the architecture *(default: `false`)* |
@@ -138,6 +139,13 @@ up:
       repository: xaf/omni
       version: 1
       prerelease: true
+
+  # Will only install releases marked as immutable by GitHub
+  # for enhanced supply chain security
+  - github-release:
+      repository: xaf/omni
+      version: latest
+      immutable: true
 
   # Will install all the specified releases
   - github-release:

@@ -168,6 +168,7 @@ pub struct GithubReleasesSelector {
     pub prerelease: bool,
     pub build: bool,
     pub binary: bool,
+    pub immutable: bool,
     pub asset_name_matchers: Vec<AssetNameMatcher>,
     pub skip_arch_matching: bool,
     pub skip_os_matching: bool,
@@ -192,6 +193,11 @@ impl GithubReleasesSelector {
 
     pub fn build(mut self, build: bool) -> Self {
         self.build = build;
+        self
+    }
+
+    pub fn immutable(mut self, immutable: bool) -> Self {
+        self.immutable = immutable;
         self
     }
 
@@ -550,6 +556,11 @@ impl GithubReleases {
                     return None;
                 }
 
+                // Discard non-immutable releases if immutable is required
+                if selector.immutable && !release.immutable {
+                    return None;
+                }
+
                 // Parse the version
                 let release_version = release.version();
 
@@ -574,6 +585,7 @@ impl GithubReleases {
                     name: release.name.clone(),
                     draft: release.draft,
                     prerelease: release.prerelease,
+                    immutable: release.immutable,
                     assets,
                 };
 
@@ -608,6 +620,8 @@ pub struct GithubReleaseVersion {
     pub draft: bool,
     #[serde(default)]
     pub prerelease: bool,
+    #[serde(default)]
+    pub immutable: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assets: Vec<GithubReleaseAsset>,
 }
