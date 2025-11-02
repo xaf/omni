@@ -26,6 +26,7 @@ use crate::internal::config::up::MiseToolUpVersion;
 use crate::internal::config::up::UpConfigMise;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
+use crate::internal::config::utils::is_executable;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::current_dir;
 use crate::internal::env::tmpdir_cleanup_prefix;
@@ -202,9 +203,14 @@ impl UvBin {
 
         // Check that the uv binary is installed
         let install_path = gh_release.install_path()?;
-        let install_bin = install_path.join("uv");
+        let install_bin_path = install_path.join("bin");
+        let install_bin = if install_bin_path.is_dir() {
+            install_bin_path.join("uv")
+        } else {
+            install_path.join("uv")
+        };
 
-        if !install_bin.exists() {
+        if !install_bin.exists() || !is_executable(&install_bin) {
             return Err(UpError::Exec(
                 "failed to install uv: binary not found".to_string(),
             ));

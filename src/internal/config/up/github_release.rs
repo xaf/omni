@@ -676,11 +676,7 @@ impl UpConfigGithubRelease {
         }
     }
 
-    pub fn new_immutable_with_version(
-        repository: &str,
-        version: &str,
-        upgrade: bool,
-    ) -> Self {
+    pub fn new_immutable_with_version(repository: &str, version: &str, upgrade: bool) -> Self {
         Self {
             repository: repository.to_string(),
             version: Some(version.to_string()),
@@ -1630,7 +1626,10 @@ impl UpConfigGithubRelease {
         Ok(installed_versions)
     }
 
-    fn resolve_version(&self, versions: &[InstalledVersionInfo]) -> Result<InstalledVersionInfo, UpError> {
+    fn resolve_version(
+        &self,
+        versions: &[InstalledVersionInfo],
+    ) -> Result<InstalledVersionInfo, UpError> {
         let match_version = self.version.clone().unwrap_or_else(|| "latest".to_string());
         self.resolve_version_from_str(&match_version, versions)
     }
@@ -1645,10 +1644,8 @@ impl UpConfigGithubRelease {
         matcher.build(self.build);
         matcher.prefix(true);
 
-        let version_strings: Vec<String> = versions
-            .iter()
-            .map(|info| info.version.clone())
-            .collect();
+        let version_strings: Vec<String> =
+            versions.iter().map(|info| info.version.clone()).collect();
 
         let matched_version_str = version_strings
             .iter()
@@ -1913,10 +1910,25 @@ impl UpConfigGithubRelease {
 
     fn verify_immutable_release_asset(
         &self,
-        asset_name: &str,
+        asset_path: &Path,
         release_tag: &str,
         progress_handler: &dyn ProgressHandler,
     ) -> Result<(), UpError> {
+        // Extract the asset name for display
+        let asset_name = asset_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+
+        // Only support immutable validation for github.com (not GitHub Enterprise)
+        if self.api_url.is_some() {
+            progress_handler.progress(format!(
+                "skipping immutable verification for {} (only supported for github.com)",
+                asset_name.light_yellow()
+            ));
+            return Ok(());
+        }
+
         // Check if gh CLI is available
         if which::which("gh").is_err() {
             progress_handler.progress(format!(
@@ -1934,9 +1946,10 @@ impl UpConfigGithubRelease {
         let mut gh_verify = ProcessCommand::new("gh");
         gh_verify.arg("release");
         gh_verify.arg("verify-asset");
+        gh_verify.arg("--repo");
         gh_verify.arg(&self.repository);
         gh_verify.arg(release_tag);
-        gh_verify.arg(asset_name);
+        gh_verify.arg(asset_path);
         gh_verify.stdout(std::process::Stdio::piped());
         gh_verify.stderr(std::process::Stdio::piped());
 
@@ -1950,7 +1963,8 @@ impl UpConfigGithubRelease {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let errmsg = format!(
                 "immutable asset verification failed for {}: {}",
-                asset_name, stderr.trim()
+                asset_name,
+                stderr.trim()
             );
             progress_handler.error_with_message(errmsg.clone());
             return Err(UpError::Exec(errmsg));
@@ -2019,7 +2033,11 @@ impl UpConfigGithubRelease {
 
             // Verify immutable asset if the release is immutable
             if release.immutable {
-                self.verify_immutable_release_asset(&asset_name, &release.tag_name, progress_handler)?;
+                self.verify_immutable_release_asset(
+                    &asset_path,
+                    &release.tag_name,
+                    progress_handler,
+                )?;
             }
 
             // Get the parsed asset name
