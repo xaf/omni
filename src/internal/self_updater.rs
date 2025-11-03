@@ -12,8 +12,6 @@ use semver::Version;
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 
-use crate::internal::build::current_arch;
-use crate::internal::build::current_os;
 use crate::internal::config::config;
 use crate::internal::config::up::github_release::UpConfigGithubRelease;
 use crate::internal::config::up::utils::run_progress;
@@ -147,8 +145,6 @@ pub fn self_update(explicit: bool) {
 #[derive(Debug, Deserialize)]
 struct OmniRelease {
     version: String,
-    #[allow(dead_code)]
-    binaries: Vec<OmniReleaseBinary>,
 }
 
 impl OmniRelease {
@@ -209,13 +205,6 @@ impl OmniRelease {
             }
             Err(err) => Err(format!("failed to get binary version: {err:?}")),
         }
-    }
-
-    #[allow(dead_code)]
-    fn compatible_binary(&self) -> Option<&OmniReleaseBinary> {
-        self.binaries
-            .iter()
-            .find(|&binary| binary.os == current_os() && binary.arch == current_arch())
     }
 
     /// Check if we have write permissions for the current exe and for the directory
@@ -500,11 +489,3 @@ impl OmniRelease {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct OmniReleaseBinary {
-    os: String,
-    arch: String,
-    url: String,
-    sha256: String,
-}
