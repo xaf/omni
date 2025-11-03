@@ -109,8 +109,8 @@ lazy_static! {
     };
 }
 
-pub fn self_update(force: bool) {
-    if !force {
+pub fn self_update(explicit: bool) {
+    if !explicit {
         // Check if OMNI_SKIP_SELF_UPDATE is set
         if let Some(skip_self_update) = std::env::var_os("OMNI_SKIP_SELF_UPDATE") {
             if !skip_self_update.to_str().unwrap().is_empty() {
@@ -128,7 +128,7 @@ pub fn self_update(force: bool) {
         // If installed with brew, but not updatable, we can
         // just return, as there are no cases where we would
         // want to update
-        if force {
+        if explicit {
             omni_info!("omni is installed using a versioned formula");
             omni_info!(format!(
                 "please use {} to install a more recent version",
@@ -140,7 +140,7 @@ pub fn self_update(force: bool) {
     }
 
     if let Some(omni_release) = OmniRelease::latest() {
-        omni_release.check_and_update();
+        omni_release.check_and_update(explicit);
     }
 }
 
@@ -254,7 +254,7 @@ impl OmniRelease {
         true
     }
 
-    fn check_and_update(&self) {
+    fn check_and_update(&self, explicit: bool) {
         let config = config(".");
 
         let desc = format!("{} update:", "omni".light_cyan()).light_blue();
@@ -359,7 +359,14 @@ impl OmniRelease {
             progress_handler
                 .success_with_message(format!("updated to version {}", self.version).light_green());
 
-            // Replace current process with the new binary
+            // If this was an explicit self-update request, just exit cleanly
+            // No need to re-execute - the update is complete
+            if explicit {
+                return;
+            }
+
+            // For background updates (during omni up, etc.), replace current process
+            // with the new binary to ensure subsequent operations use the updated version
             let err = ProcessCommand::new(std::env::current_exe().unwrap())
                 .args(std::env::args().skip(1))
                 // We want to force the update, since by replacing the current
