@@ -478,13 +478,12 @@ impl OmniRelease {
             .resolve_release(&releases)
             .map_err(|err| io::Error::other(format!("failed to resolve release: {err}")))?;
 
-        // Download, verify, and extract using GithubRelease infrastructure
-        // This gives us immutable verification, checksum validation, and flexible asset matching
+        // Download, verify, and extract
         let tmp_dir = github_release
             .download_and_extract_to_temp(&release, progress_handler)
             .map_err(|err| io::Error::other(format!("failed to download release: {err}")))?;
 
-        // Find the omni binary in the extracted content using glob
+        // Find the omni binary in the extracted content
         let search_pattern = format!("{}/*/omni", tmp_dir.path().display());
         let new_binary = glob::glob(&search_pattern)
             .map_err(|err| io::Error::other(format!("invalid glob pattern: {err}")))?
