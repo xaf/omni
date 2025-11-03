@@ -1,8 +1,5 @@
-use std::fs::OpenOptions;
 use std::io;
 use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -13,18 +10,18 @@ use lazy_static::lazy_static;
 use semver::Prerelease;
 use semver::Version;
 use serde::Deserialize;
-use sha2::Digest;
-use sha2::Sha256;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::build::current_arch;
 use crate::internal::build::current_os;
 use crate::internal::config::config;
+use crate::internal::config::up::github_release::UpConfigGithubRelease;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::PrintProgressHandler;
 use crate::internal::config::up::utils::ProgressHandler;
 use crate::internal::config::up::utils::RunConfig;
 use crate::internal::config::up::utils::SpinnerProgressHandler;
+use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::env::current_exe;
 use crate::internal::env::homebrew_prefix;
 use crate::internal::env::homebrew_repository;
@@ -152,6 +149,7 @@ pub fn self_update(force: bool) {
 #[derive(Debug, Deserialize)]
 struct OmniRelease {
     version: String,
+    #[allow(dead_code)]
     binaries: Vec<OmniReleaseBinary>,
 }
 
@@ -215,6 +213,7 @@ impl OmniRelease {
         }
     }
 
+    #[allow(dead_code)]
     fn compatible_binary(&self) -> Option<&OmniReleaseBinary> {
         self.binaries
             .iter()
@@ -460,69 +459,41 @@ impl OmniRelease {
     }
 
     fn download(&self, progress_handler: &dyn ProgressHandler) -> io::Result<bool> {
-        let binary = self.compatible_binary();
-        if binary.is_none() {
-            return Err(io::Error::other(format!(
-                "no compatible binary found for {} {}",
-                current_os(),
-                current_arch(),
-            )));
+        // Create a GithubRelease configured for omni repository at the specified version
+        let mut github_release = UpConfigGithubRelease::default();
+        github_release.repository = "XaF/omni".to_string();
+        github_release.version = Some(self.version.clone());
+
+        // Create an UpProgressHandler for calling GithubRelease methods
+        let up_progress_handler = UpProgressHandler::new(None);
+        up_progress_handler.init("self-update".to_string());
+
+        // Fetch releases from GitHub
+        progress_handler.progress("fetching releases from GitHub".to_string());
+        let options = crate::internal::config::up::UpOptions::default();
+        let releases = github_release
+            .list_releases(&options, &up_progress_handler)
+            .map_err(|err| io::Error::other(format!("failed to list releases: {err}")))?;
+
+        // Resolve the specific version release
+        let release = github_release
+            .resolve_release(&releases)
+            .map_err(|err| io::Error::other(format!("failed to resolve release: {err}")))?;
+
+        // Download, verify, and extract using GithubRelease infrastructure
+        // This gives us immutable verification, checksum validation, and flexible asset matching
+        let tmp_dir = github_release
+            .download_and_extract_to_temp(&release, progress_handler)
+            .map_err(|err| io::Error::other(format!("failed to download release: {err}")))?;
+
+        // Find the omni binary in the extracted content
+        let new_binary = tmp_dir.path().join("omni");
+        if !new_binary.exists() {
+            return Err(io::Error::other("omni binary not found in release"));
         }
-        let binary = binary.unwrap();
-
-        // Prepare a temporary directory to download the assets
-        progress_handler.progress("preparing download".to_string());
-        let tmp_dir = tempfile::Builder::new().prefix("omni_update.").tempdir()?;
-
-        // Prepare the path to the tar.gz
-        let archive_name = Path::new(binary.url.as_str()).file_name();
-        if archive_name.is_none() {
-            return Err(io::Error::other("failed to get archive name"));
-        }
-        let archive_name = archive_name.unwrap();
-        let tarball_path = tmp_dir.path().join(archive_name);
-
-        // Download tar.gz to the temp directory
-        progress_handler.progress(format!("downloading: {}", binary.url));
-        let response = reqwest::blocking::get(binary.url.as_str());
-        if response.is_err() {
-            return Err(io::Error::other(format!(
-                "failed to download: {response:?}"
-            )));
-        }
-        let mut response = response.unwrap();
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(tarball_path.as_path())?;
-        io::copy(&mut response, &mut file)?;
-
-        // Check the sha256
-        progress_handler.progress("checking archive integrity (sha256)".to_string());
-        let mut hasher = Sha256::new();
-        let mut tarball_file = std::fs::File::open(&tarball_path)?;
-        std::io::copy(&mut tarball_file, &mut hasher)?;
-        let sha256 = format!("{:x}", hasher.finalize());
-        if sha256 != binary.sha256 {
-            // Hashes don't match, something went wrong
-            return Err(io::Error::other(format!(
-                "hashes don't match: expected {}, got {}",
-                binary.sha256, sha256
-            )));
-        }
-
-        // Extract the archive in the temp directory
-        progress_handler.progress("extracting binary".to_string());
-        tarball_file.seek(SeekFrom::Start(0))?;
-        let tar = flate2::read::GzDecoder::new(tarball_file);
-        let mut archive = tar::Archive::new(tar);
-        archive.unpack(tmp_dir.path())?;
 
         // Replace current binary with new binary
         progress_handler.progress("updating in-place".to_string());
-        let new_binary = tmp_dir.path().join("omni");
         self_replace::self_replace(new_binary)?;
 
         progress_handler.progress("done".to_string());
@@ -531,6 +502,7 @@ impl OmniRelease {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OmniReleaseBinary {
     os: String,
     arch: String,
