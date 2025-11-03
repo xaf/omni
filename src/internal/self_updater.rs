@@ -17,15 +17,13 @@ use crate::internal::build::current_os;
 use crate::internal::config::config;
 use crate::internal::config::up::github_release::UpConfigGithubRelease;
 use crate::internal::config::up::utils::run_progress;
-use crate::internal::config::up::utils::PrintProgressHandler;
 use crate::internal::config::up::utils::ProgressHandler;
 use crate::internal::config::up::utils::RunConfig;
-use crate::internal::config::up::utils::SpinnerProgressHandler;
 use crate::internal::config::up::utils::UpProgressHandler;
+use crate::internal::config::utils::is_executable;
 use crate::internal::env::current_exe;
 use crate::internal::env::homebrew_prefix;
 use crate::internal::env::homebrew_repository;
-use crate::internal::env::shell_is_interactive;
 use crate::internal::user_interface::colors::StringColor;
 use crate::internal::ConfigLoader;
 use crate::internal::ConfigValue;
@@ -260,11 +258,8 @@ impl OmniRelease {
         let config = config(".");
 
         let desc = format!("{} update:", "omni".light_cyan()).light_blue();
-        let progress_handler: Box<dyn ProgressHandler> = if shell_is_interactive() {
-            Box::new(SpinnerProgressHandler::new(desc, None))
-        } else {
-            Box::new(PrintProgressHandler::new(desc, None))
-        };
+        let progress_handler = UpProgressHandler::new(None);
+        progress_handler.init(desc);
 
         progress_handler.progress("Checking for updates".to_string());
 
@@ -334,9 +329,9 @@ impl OmniRelease {
         }
 
         let updated = if *INSTALLED_WITH_BREW {
-            self.brew_upgrade(progress_handler.as_ref())
+            self.brew_upgrade(&progress_handler)
         } else {
-            self.download(progress_handler.as_ref())
+            self.download(&progress_handler)
         };
 
         let updated = match updated {
@@ -411,7 +406,7 @@ impl OmniRelease {
         self_update
     }
 
-    fn brew_upgrade(&self, progress_handler: &dyn ProgressHandler) -> io::Result<bool> {
+    fn brew_upgrade(&self, progress_handler: &UpProgressHandler) -> io::Result<bool> {
         progress_handler.progress("updating with homebrew".to_string());
 
         // We need to make sure first that the tap is up-to-date;
@@ -458,21 +453,17 @@ impl OmniRelease {
         Ok(true)
     }
 
-    fn download(&self, progress_handler: &dyn ProgressHandler) -> io::Result<bool> {
+    fn download(&self, progress_handler: &UpProgressHandler) -> io::Result<bool> {
         // Create a GithubRelease configured for omni repository at the specified version
         let mut github_release = UpConfigGithubRelease::default();
-        github_release.repository = "XaF/omni".to_string();
+        github_release.repository = "xaf/omni".to_string();
         github_release.version = Some(self.version.clone());
-
-        // Create an UpProgressHandler for calling GithubRelease methods
-        let up_progress_handler = UpProgressHandler::new(None);
-        up_progress_handler.init("self-update".to_string());
 
         // Fetch releases from GitHub
         progress_handler.progress("fetching releases from GitHub".to_string());
         let options = crate::internal::config::up::UpOptions::default();
         let releases = github_release
-            .list_releases(&options, &up_progress_handler)
+            .list_releases(&options, progress_handler)
             .map_err(|err| io::Error::other(format!("failed to list releases: {err}")))?;
 
         // Resolve the specific version release
@@ -486,11 +477,13 @@ impl OmniRelease {
             .download_and_extract_to_temp(&release, progress_handler)
             .map_err(|err| io::Error::other(format!("failed to download release: {err}")))?;
 
-        // Find the omni binary in the extracted content
-        let new_binary = tmp_dir.path().join("omni");
-        if !new_binary.exists() {
-            return Err(io::Error::other("omni binary not found in release"));
-        }
+        // Find the omni binary in the extracted content using glob
+        let search_pattern = format!("{}/*/omni", tmp_dir.path().display());
+        let new_binary = glob::glob(&search_pattern)
+            .map_err(|err| io::Error::other(format!("invalid glob pattern: {err}")))?
+            .filter_map(|entry| entry.ok())
+            .find(|path| path.is_file() && is_executable(path))
+            .ok_or_else(|| io::Error::other("omni binary not found in release"))?;
 
         // Replace current binary with new binary
         progress_handler.progress("updating in-place".to_string());
