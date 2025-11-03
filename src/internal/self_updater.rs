@@ -154,7 +154,7 @@ struct OmniRelease {
 impl OmniRelease {
     fn latest() -> Option<Self> {
         let json_url =
-            "https://raw.githubusercontent.com/XaF/homebrew-omni/main/Formula/resources/omni.json";
+            "https://raw.githubusercontent.com/xaf/homebrew-omni/main/Formula/resources/omni.json";
 
         let response = reqwest::blocking::get(json_url);
         if let Err(_err) = response {
