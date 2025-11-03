@@ -18,6 +18,7 @@ use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::ProgressHandler;
 use crate::internal::config::up::utils::RunConfig;
 use crate::internal::config::up::utils::UpProgressHandler;
+use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::is_executable;
 use crate::internal::env::current_exe;
 use crate::internal::env::homebrew_prefix;
@@ -457,7 +458,7 @@ impl OmniRelease {
 
         // Fetch releases from GitHub
         progress_handler.progress("fetching releases from GitHub".to_string());
-        let options = crate::internal::config::up::UpOptions::default();
+        let options = UpOptions::default();
         let releases = github_release
             .list_releases(&options, progress_handler)
             .map_err(|err| io::Error::other(format!("failed to list releases: {err}")))?;
@@ -488,4 +489,3 @@ impl OmniRelease {
         Ok(true)
     }
 }
-
