@@ -4,6 +4,8 @@ use time::format_description;
 use time::OffsetDateTime;
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=OMNI_RELEASE_VERSION");
+
     let pkg_version = env!("CARGO_PKG_VERSION");
     let version = if pkg_version != "0.0.0-git" {
         pkg_version.to_string()
