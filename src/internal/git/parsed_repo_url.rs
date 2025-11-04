@@ -291,9 +291,23 @@ impl ParsedRepoUrl {
                     }
                 }),
             ),
+            // Bitbucket Server: /projects/<owner>/repos/<repo>/commits/<ref> - check for fragment in raw URL
+            (
+                r"^/projects/(?P<owner>[^/]+)/repos/(?P<name>[^/]+)/commits/(?P<ref>[^?#]+)",
+                "bitbucket_server_commits",
+                Some(|url: &Url| {
+                    // Extract path from fragment if present
+                    let path = url.fragment().map(|f| f.to_string());
+                    if path.is_some() {
+                        Some((None, path))
+                    } else {
+                        None
+                    }
+                }),
+            ),
             // Bitbucket Server: /projects/<owner>/repos/<repo>/browse/<path> with ?at=<ref>
             (
-                r"^/projects/(?P<owner>[^/]+)/repos/(?P<name>[^/]+)/(browse|raw)/(?P<path>[^?]+)",
+                r"^/projects/(?P<owner>[^/]+)/repos/(?P<name>[^/]+)/(browse|raw)/(?P<path>[^?#]+)",
                 "bitbucket_server",
                 Some(|url: &Url| {
                     url.query_pairs().find(|(k, _)| k == "at").map(|(_, v)| {
@@ -461,28 +475,27 @@ impl ParsedRepoUrl {
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default();
 
-                // If this pattern requires query parameter checking, do it now
+                // Extract ref and path from regex captures first
+                let mut git_ref = caps.name("ref").map(|m| strip_refs_heads(m.as_str()));
+                let mut path = caps.name("path").map(|m| m.as_str().to_string());
+
+                // If this pattern has query parameter checking, override with query params if present
                 if let Some(check_fn) = query_check_fn {
                     let parsed_url = match Url::parse(raw_url) {
                         Ok(url) => url,
-                        Err(_) => continue,
+                        Err(_) => {
+                            // URL parsing failed, use regex captures
+                            return Some(build_result(git_ref, path, owner, name));
+                        }
                     };
 
                     if let Some((query_ref, query_path)) = check_fn(&parsed_url) {
-                        // For Bitbucket Server, path comes from URL path, ref from query
-                        let path_from_url = caps.name("path").map(|m| m.as_str().to_string());
-                        let final_path = query_path.or(path_from_url);
-
-                        return Some(build_result(query_ref, final_path, owner, name));
-                    } else {
-                        // Query check failed, try next pattern
-                        continue;
+                        // Override with query parameters if found
+                        git_ref = query_ref.or(git_ref);
+                        path = query_path.or(path);
                     }
+                    // If query check returns None, we still use the regex captures
                 }
-
-                // Extract ref and path from regex captures
-                let git_ref = caps.name("ref").map(|m| strip_refs_heads(m.as_str()));
-                let path = caps.name("path").map(|m| m.as_str().to_string());
 
                 return Some(build_result(git_ref, path, owner, name));
             }

@@ -536,6 +536,17 @@ mod branch_path_extraction {
 
     // Bitbucket Server patterns
     #[test]
+    fn bitbucket_server_browse_without_query() {
+        _test_branch_path_extraction(
+            "https://bitbucket.example.com/projects/proj1/repos/repo1/browse/src/main.rs",
+            Some("proj1"),
+            "repo1",
+            None,
+            Some("src/main.rs"),
+        );
+    }
+
+    #[test]
     fn bitbucket_server_browse_with_query() {
         _test_branch_path_extraction(
             "https://bitbucket.example.com/projects/proj1/repos/repo1/browse/src/lib.rs?at=refs%2Fheads%2Ffeature-x",
@@ -554,6 +565,17 @@ mod branch_path_extraction {
             "repo1",
             Some("main"),
             Some("README.md"),
+        );
+    }
+
+    #[test]
+    fn bitbucket_server_commits_with_fragment() {
+        _test_branch_path_extraction(
+            "https://bitbucket.example.com/projects/proj1/repos/repo1/commits/abc123def456#readme.md",
+            Some("proj1"),
+            "repo1",
+            Some("abc123def456"),
+            Some("readme.md"),
         );
     }
 
