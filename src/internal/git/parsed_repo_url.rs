@@ -177,24 +177,18 @@ impl ParsedRepoUrl {
         if git_url.host() == Some("raw.githubusercontent.com") {
             result.host = Some("github.com".to_string()); // Change host to github.com
 
-            let raw_patterns = vec![
-                // /<owner>/<repo>/(refs/heads/)?<ref>/<path>
-                r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/(refs/heads/)?(?P<ref>[^/]+)/(?P<path>.+)$",
-            ];
-
-            for pattern_str in raw_patterns {
-                if let Some(re) = Regex::new(pattern_str).ok() {
-                    if let Some(caps) = re.captures(original_path) {
-                        result.owner = caps.name("owner").map(|m| m.as_str().to_string());
-                        result.name = caps.name("name").map(|m| m.as_str().to_string()).unwrap_or_default();
-                        result.branch = caps.name("ref").map(|m| strip_refs_heads(m.as_str()));
-                        result.path = caps.name("path").map(|m| m.as_str().to_string());
-                        return Some(result);
-                    }
+            // Pattern: /<owner>/<repo>/(refs/heads/)?<ref>/<path>
+            if let Some(re) = Regex::new(r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/(refs/heads/)?(?P<ref>[^/]+)/(?P<path>.+)$").ok() {
+                if let Some(caps) = re.captures(original_path) {
+                    result.owner = caps.name("owner").map(|m| m.as_str().to_string());
+                    result.name = caps.name("name").map(|m| m.as_str().to_string()).unwrap_or_default();
+                    result.branch = caps.name("ref").map(|m| strip_refs_heads(m.as_str()));
+                    result.path = caps.name("path").map(|m| m.as_str().to_string());
+                    return Some(result);
                 }
             }
 
-            // If raw.githubusercontent.com patterns don't match, return None
+            // If raw.githubusercontent.com pattern doesn't match, return None
             return None;
         }
 
