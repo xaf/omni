@@ -178,7 +178,7 @@ impl ParsedRepoUrl {
             result.host = Some("github.com".to_string()); // Change host to github.com
 
             // Pattern: /<owner>/<repo>/(refs/heads/)?<ref>/<path>
-            if let Some(re) = Regex::new(r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/(refs/heads/)?(?P<ref>[^/]+)/(?P<path>.+)$").ok() {
+            if let Ok(re) = Regex::new(r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/(refs/heads/)?(?P<ref>[^/]+)/(?P<path>.+)$") {
                 if let Some(caps) = re.captures(original_path) {
                     result.owner = caps.name("owner").map(|m| m.as_str().to_string());
                     result.name = caps.name("name").map(|m| m.as_str().to_string()).unwrap_or_default();
