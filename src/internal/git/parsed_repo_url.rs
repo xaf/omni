@@ -219,13 +219,12 @@ impl ParsedRepoUrl {
             }
         };
 
+        // Type alias for query parameter checker function
+        type QueryParamChecker = fn(&Url) -> Option<(Option<String>, Option<String>)>;
+
         // Regex patterns ordered from most to least specific
         // Format: (regex_pattern, description, check_query_params_fn)
-        let patterns: Vec<(
-            &str,
-            &str,
-            Option<fn(&Url) -> Option<(Option<String>, Option<String>)>>,
-        )> = vec![
+        let patterns: Vec<(&str, &str, Option<QueryParamChecker>)> = vec![
             // Google Cloud Source: /<owner>/<repo>/+/<ref>:<path> (colon separator)
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/\+/(?P<ref>[^:]+):(?P<path>.+)$",
