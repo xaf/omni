@@ -147,6 +147,11 @@ impl CdCommand {
             return Some(format!("{}", wd_path.display()));
         }
 
+        // Check if this is a git URL (contains :// or starts with http/https)
+        if wd.contains("://") || wd.starts_with("http://") || wd.starts_with("https://") {
+            return self.handle_git_url(wd, args);
+        }
+
         let only_worktree = !args.include_packages;
         let allow_interactive = !args.locate;
 
@@ -165,6 +170,55 @@ impl CdCommand {
         }
 
         None
+    }
+
+    fn handle_git_url(&self, url: &str, args: &CdCommandArgs) -> Option<String> {
+        use crate::internal::git::utils::safe_git_url_parse;
+
+        // Parse the git URL
+        let parsed_url = match safe_git_url_parse(url) {
+            Ok(parsed) => parsed,
+            Err(_) => return None,
+        };
+
+        // Build a search string from the parsed URL (owner/repo or just repo)
+        let search_str = if let Some(owner) = &parsed_url.owner {
+            format!("{}/{}", owner, parsed_url.name)
+        } else {
+            parsed_url.name.clone()
+        };
+
+        // Find the repository using existing logic
+        let only_worktree = !args.include_packages;
+        let allow_interactive = !args.locate;
+
+        // Use find_repo which combines quick and slow search
+        let repo_path = ORG_LOADER.find_repo(&search_str, only_worktree, false, allow_interactive)?;
+
+        // TODO: Check if the current branch matches the requested branch from parsed_url.branch
+        // and show a warning if they don't match
+
+        // If we found the repo, potentially append the path from the URL
+        let mut final_path = repo_path;
+        if let Some(path) = parsed_url.path {
+            let full_path = final_path.join(&path);
+
+            // If path doesn't exist or is a file, try using the parent directory
+            if !full_path.exists() || full_path.is_file() {
+                if let Some(parent) = full_path.parent() {
+                    final_path = parent.to_path_buf();
+                }
+            } else {
+                final_path = full_path;
+            }
+
+            // If final path is not a directory, return None (let parent handle error)
+            if !final_path.is_dir() {
+                return None;
+            }
+        }
+
+        Some(format!("{}", final_path.display()))
     }
 
     fn find_sandbox(name: &str) -> Option<String> {
@@ -207,7 +261,11 @@ impl BuiltinCommand for CdCommand {
                 "\n",
                 "If no work directory is specified, change to the git directory of the main org as ",
                 "specified by \x1B[3mOMNI_ORG\x1B[0m, if specified, or errors out if not ",
-                "specified.",
+                "specified.\n",
+                "\n",
+                "This command also supports a number of git URL formats. When a URL is provided, the command ",
+                "will find the corresponding local repository and navigate to the specified path if ",
+                "included in the URL.",
             )
             .to_string(),
         )
