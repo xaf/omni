@@ -18,8 +18,10 @@ pub struct ParsedRepoUrl {
     pub name: String,
     pub git_suffix: bool,
     pub print_scheme: bool,
-    pub branch: Option<String>, // TODO: rename to ref in a future refactor
+    pub git_ref: Option<String>,
     pub path: Option<String>,
+    pub line_from: Option<u32>,
+    pub line_to: Option<u32>,
 }
 
 impl ParsedRepoUrl {
@@ -43,8 +45,10 @@ impl ParsedRepoUrl {
         }
 
         // Fall back to generic parsing logic
-        let branch = None;
+        let git_ref = None;
         let path = None;
+        let line_from = None;
+        let line_to = None;
         let cleaned_path = url.path().to_string();
 
         let (mut owner, mut name) = if let Ok(p) = url.provider_info::<AzureDevOpsProvider>() {
@@ -128,8 +132,10 @@ impl ParsedRepoUrl {
             name,
             git_suffix,
             print_scheme,
-            branch,
+            git_ref,
             path,
+            line_from,
+            line_to,
         }
     }
 
@@ -169,8 +175,10 @@ impl ParsedRepoUrl {
             name: String::new(),
             git_suffix: git_url.path().ends_with(".git"),
             print_scheme: git_url.print_scheme(),
-            branch: None,
+            git_ref: None,
             path: None,
+            line_from: None,
+            line_to: None,
         };
 
         // Special preprocessing for raw.githubusercontent.com
@@ -182,8 +190,9 @@ impl ParsedRepoUrl {
                 if let Some(caps) = re.captures(original_path) {
                     result.owner = caps.name("owner").map(|m| m.as_str().to_string());
                     result.name = caps.name("name").map(|m| m.as_str().to_string()).unwrap_or_default();
-                    result.branch = caps.name("ref").map(|m| strip_refs_heads(m.as_str()));
+                    result.git_ref = caps.name("ref").map(|m| strip_refs_heads(m.as_str()));
                     result.path = caps.name("path").map(|m| m.as_str().to_string());
+                    // raw.githubusercontent.com doesn't include line numbers
                     return Some(result);
                 }
             }
@@ -193,10 +202,12 @@ impl ParsedRepoUrl {
         }
 
         // Helper to construct ParsedRepoUrl from extracted components
-        let build_result = |branch: Option<String>,
+        let build_result = |git_ref: Option<String>,
                             path: Option<String>,
                             owner: Option<String>,
-                            mut name: String|
+                            mut name: String,
+                            line_from: Option<u32>,
+                            line_to: Option<u32>|
          -> Self {
             // Strip .git suffix from name
             if let Some(stripped) = name.strip_suffix(".git") {
@@ -214,22 +225,26 @@ impl ParsedRepoUrl {
                 name,
                 git_suffix: git_url.path().ends_with(".git"),
                 print_scheme: git_url.print_scheme(),
-                branch,
+                git_ref,
                 path,
+                line_from,
+                line_to,
             }
         };
 
-        // Type alias for query parameter checker function
-        type QueryParamChecker = fn(&Url) -> Option<(Option<String>, Option<String>)>;
+        // Type alias for post-processor function
+        // Takes: (url, regex_captures)
+        // Returns: (git_ref, path, line_from, line_to)
+        type PostProcessor = fn(&Url, &regex::Captures) -> (Option<String>, Option<String>, Option<u32>, Option<u32>);
 
         // Regex patterns ordered from most to least specific
-        // Format: (regex_pattern, description, check_query_params_fn)
-        let patterns: Vec<(&str, &str, Option<QueryParamChecker>)> = vec![
+        // Format: (regex_pattern, description, post_processor_fn)
+        let patterns: Vec<(&str, &str, Option<PostProcessor>)> = vec![
             // Google Cloud Source: /<owner>/<repo>/+/<ref>:<path> (colon separator)
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/\+/(?P<ref>[^:]+):(?P<path>.+)$",
                 "google_cloud_colon",
-                None,
+                None, // Google Cloud doesn't support line numbers in URLs
             ),
             // Google Cloud Source: /<owner>/<repo>/+/<ref>/<path> or /+/<ref>
             (
@@ -270,51 +285,19 @@ impl ParsedRepoUrl {
             (
                 r"^/(?P<owner>[^/]+/[^/]+)/_git/(?P<name>[^/?]+)",
                 "azure_devops",
-                Some(|url: &Url| {
-                    let mut git_ref = None;
-                    let mut path = None;
-                    for (key, value) in url.query_pairs() {
-                        match key.as_ref() {
-                            "version" if value.starts_with("GB") => {
-                                git_ref = Some(value[2..].to_string());
-                            }
-                            "path" => {
-                                path = Some(value.strip_prefix('/').unwrap_or(&value).to_string());
-                            }
-                            _ => {}
-                        }
-                    }
-                    if git_ref.is_some() || path.is_some() {
-                        Some((git_ref, path))
-                    } else {
-                        None
-                    }
-                }),
+                Some(post_process_azure_devops),
             ),
             // Bitbucket Server: /projects/<owner>/repos/<repo>/commits/<ref> - check for fragment in raw URL
             (
                 r"^/projects/(?P<owner>[^/]+)/repos/(?P<name>[^/]+)/commits/(?P<ref>[^?#]+)",
                 "bitbucket_server_commits",
-                Some(|url: &Url| {
-                    // Extract path from fragment if present
-                    let path = url.fragment().map(|f| f.to_string());
-                    if path.is_some() {
-                        Some((None, path))
-                    } else {
-                        None
-                    }
-                }),
+                Some(post_process_bitbucket_server_commits),
             ),
             // Bitbucket Server: /projects/<owner>/repos/<repo>/browse/<path> with ?at=<ref>
             (
                 r"^/projects/(?P<owner>[^/]+)/repos/(?P<name>[^/]+)/(browse|raw)/(?P<path>[^?#]+)",
                 "bitbucket_server",
-                Some(|url: &Url| {
-                    url.query_pairs().find(|(k, _)| k == "at").map(|(_, v)| {
-                        let git_ref = v.strip_prefix("refs/heads/").unwrap_or(&v).to_string();
-                        (Some(git_ref), None) // path is in the URL path, not query
-                    })
-                }),
+                Some(post_process_bitbucket_server),
             ),
             // SourceForge: /p/<owner>/<repo>/ci/<ref>/tree/<path>
             (
@@ -331,122 +314,122 @@ impl ParsedRepoUrl {
             (
                 r"^/(?P<group1>[^/]+)/(?P<group2>[^/]+)/(?P<name>[^/]+)/src/branch/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitea_src_branch_subgroup",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<group1>[^/]+)/(?P<group2>[^/]+)/(?P<name>[^/]+)/src/commit/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitea_src_commit_subgroup",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<group1>[^/]+)/(?P<group2>[^/]+)/(?P<name>[^/]+)/raw/branch/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitea_raw_branch_subgroup",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             // Gitea standard: /owner/repo/...
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/src/branch/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitea_src_branch",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/src/commit/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitea_src_commit",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/raw/branch/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitea_raw_branch",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/raw/commit/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitea_raw_commit",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             // GitLab patterns with /-/ separator and subgroups: /group1/group2.../repo/-/...
             (
                 r"^/(?P<group1>[^/]+)/(?P<group2>[^/]+)/(?P<name>[^/]+)/-/tree/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitlab_tree_subgroup",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<group1>[^/]+)/(?P<group2>[^/]+)/(?P<name>[^/]+)/-/blob/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitlab_blob_subgroup",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<group1>[^/]+)/(?P<group2>[^/]+)/(?P<name>[^/]+)/-/raw/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitlab_raw_subgroup",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<group1>[^/]+)/(?P<group2>[^/]+)/(?P<name>[^/]+)/-/commit/(?P<ref>[^/]+)$",
                 "gitlab_commit_subgroup",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             // GitLab standard: /owner/repo/-/...
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/-/tree/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitlab_tree",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/-/blob/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitlab_blob",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/-/raw/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "gitlab_raw",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/-/commit/(?P<ref>[^/]+)$",
                 "gitlab_commit",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/-/commits/(?P<ref>[^/]+)$",
                 "gitlab_commits",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             // GitHub standard patterns
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/tree/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "github_tree",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/blob/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "github_blob",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/commit/(?P<ref>[^/]+)$",
                 "github_commit",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/commits/(?P<ref>[^/]+)$",
                 "github_commits",
-                None,
+                Some(post_process_github_gitlab_gitea),
             ),
             // Bitbucket Cloud (least specific)
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/src/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "bitbucket_src",
-                None,
+                Some(post_process_bitbucket_cloud),
             ),
             (
                 r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/raw/(?P<ref>[^/]+)(/(?P<path>.+))?$",
                 "bitbucket_raw",
-                None,
+                Some(post_process_bitbucket_cloud),
             ),
         ];
 
         // Try each pattern in order
-        for (pattern_str, _desc, query_check_fn) in patterns {
+        for (pattern_str, _desc, post_processor_fn) in patterns {
             let re = match Regex::new(pattern_str) {
                 Ok(r) => r,
                 Err(_) => continue,
@@ -478,26 +461,28 @@ impl ParsedRepoUrl {
                 // Extract ref and path from regex captures first
                 let mut git_ref = caps.name("ref").map(|m| strip_refs_heads(m.as_str()));
                 let mut path = caps.name("path").map(|m| m.as_str().to_string());
+                let mut line_from = None;
+                let mut line_to = None;
 
-                // If this pattern has query parameter checking, override with query params if present
-                if let Some(check_fn) = query_check_fn {
+                // If this pattern has a post-processor, run it
+                if let Some(post_proc) = post_processor_fn {
                     let parsed_url = match Url::parse(raw_url) {
                         Ok(url) => url,
                         Err(_) => {
                             // URL parsing failed, use regex captures
-                            return Some(build_result(git_ref, path, owner, name));
+                            return Some(build_result(git_ref, path, owner, name, None, None));
                         }
                     };
 
-                    if let Some((query_ref, query_path)) = check_fn(&parsed_url) {
-                        // Override with query parameters if found
-                        git_ref = query_ref.or(git_ref);
-                        path = query_path.or(path);
-                    }
-                    // If query check returns None, we still use the regex captures
+                    let (proc_ref, proc_path, proc_line_from, proc_line_to) = post_proc(&parsed_url, &caps);
+                    // Override with post-processor results if present
+                    git_ref = proc_ref.or(git_ref);
+                    path = proc_path.or(path);
+                    line_from = proc_line_from;
+                    line_to = proc_line_to;
                 }
 
-                return Some(build_result(git_ref, path, owner, name));
+                return Some(build_result(git_ref, path, owner, name, line_from, line_to));
             }
         }
 
@@ -524,6 +509,170 @@ impl From<git_url_parse::GitUrlParseError> for GitUrlError {
     fn from(err: git_url_parse::GitUrlParseError) -> Self {
         GitUrlError::GitUrlParse(err.to_string())
     }
+}
+
+// Line extraction functions for different git hosting providers
+fn extract_lines_github_style(url: &Url, _path: &Option<String>) -> (Option<u32>, Option<u32>) {
+    let fragment = match url.fragment() {
+        Some(f) => f,
+        None => return (None, None),
+    };
+
+    let re = match Regex::new(r"^L(?P<from>\d+)(-L?(?P<to>\d+))?$") {
+        Ok(r) => r,
+        Err(_) => return (None, None),
+    };
+
+    let caps = match re.captures(fragment) {
+        Some(c) => c,
+        None => return (None, None),
+    };
+
+    let from = match caps.name("from").and_then(|m| m.as_str().parse::<u32>().ok()) {
+        Some(f) => f,
+        None => return (None, None),
+    };
+
+    let to = caps
+        .name("to")
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+        .unwrap_or(from);
+
+    (Some(from), Some(to))
+}
+
+fn extract_lines_bitbucket_cloud(url: &Url, _path: &Option<String>) -> (Option<u32>, Option<u32>) {
+    let fragment = match url.fragment() {
+        Some(f) => f,
+        None => return (None, None),
+    };
+
+    let re = match Regex::new(r"^lines-(?P<from>\d+)(:(?P<to>\d+))?$") {
+        Ok(r) => r,
+        Err(_) => return (None, None),
+    };
+
+    let caps = match re.captures(fragment) {
+        Some(c) => c,
+        None => return (None, None),
+    };
+
+    let from = match caps.name("from").and_then(|m| m.as_str().parse::<u32>().ok()) {
+        Some(f) => f,
+        None => return (None, None),
+    };
+
+    let to = caps
+        .name("to")
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+        .unwrap_or(from);
+
+    (Some(from), Some(to))
+}
+
+fn extract_lines_bitbucket_server(
+    url: &Url,
+    path_from_url: &Option<String>,
+) -> (Option<u32>, Option<u32>) {
+    // Only extract if we already have a path from the URL (fragment is for lines, not path)
+    if path_from_url.is_none() {
+        return (None, None);
+    }
+
+    let fragment = match url.fragment() {
+        Some(f) => f,
+        None => return (None, None),
+    };
+
+    let re = match Regex::new(r"^(?P<from>\d+)(-(?P<to>\d+))?$") {
+        Ok(r) => r,
+        Err(_) => return (None, None),
+    };
+
+    let caps = match re.captures(fragment) {
+        Some(c) => c,
+        None => return (None, None),
+    };
+
+    let from = match caps.name("from").and_then(|m| m.as_str().parse::<u32>().ok()) {
+        Some(f) => f,
+        None => return (None, None),
+    };
+
+    let to = caps
+        .name("to")
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+        .unwrap_or(from);
+
+    (Some(from), Some(to))
+}
+
+// Post-processor functions for specific URL patterns
+fn post_process_azure_devops(
+    url: &Url,
+    _caps: &regex::Captures,
+) -> (Option<String>, Option<String>, Option<u32>, Option<u32>) {
+    let mut git_ref = None;
+    let mut path = None;
+    let mut line_from = None;
+    let mut line_to = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "version" if value.starts_with("GB") => {
+                git_ref = Some(value[2..].to_string());
+            }
+            "path" => {
+                path = Some(value.strip_prefix('/').unwrap_or(&value).to_string());
+            }
+            "line" => {
+                line_from = value.parse::<u32>().ok();
+            }
+            "lineEnd" => {
+                line_to = value.parse::<u32>().ok();
+            }
+            _ => {}
+        }
+    }
+    (git_ref, path, line_from, line_to)
+}
+
+fn post_process_bitbucket_server_commits(
+    url: &Url,
+    _caps: &regex::Captures,
+) -> (Option<String>, Option<String>, Option<u32>, Option<u32>) {
+    // Extract path from fragment if present
+    let path = url.fragment().map(|f| f.to_string());
+    (None, path, None, None)
+}
+
+fn post_process_bitbucket_server(
+    url: &Url,
+    _caps: &regex::Captures,
+) -> (Option<String>, Option<String>, Option<u32>, Option<u32>) {
+    let git_ref = url
+        .query_pairs()
+        .find(|(k, _)| k == "at")
+        .map(|(_, v)| v.strip_prefix("refs/heads/").unwrap_or(&v).to_string());
+    // Extract line numbers using Bitbucket Server format
+    let path = _caps.name("path").map(|m| m.as_str().to_string());
+    let (line_from, line_to) = extract_lines_bitbucket_server(url, &path);
+    (git_ref, None, line_from, line_to) // path is already in regex
+}
+
+fn post_process_github_gitlab_gitea(
+    url: &Url,
+    _caps: &regex::Captures,
+) -> (Option<String>, Option<String>, Option<u32>, Option<u32>) {
+    let (line_from, line_to) = extract_lines_github_style(url, &None);
+    (None, None, line_from, line_to)
+}
+
+fn post_process_bitbucket_cloud(
+    url: &Url,
+    _caps: &regex::Captures,
+) -> (Option<String>, Option<String>, Option<u32>, Option<u32>) {
+    let (line_from, line_to) = extract_lines_bitbucket_cloud(url, &None);
+    (None, None, line_from, line_to)
 }
 
 #[cfg(test)]
