@@ -3,7 +3,6 @@ use git_url_parse::types::provider::AzureDevOpsProvider;
 use git_url_parse::types::provider::GenericProvider;
 use git_url_parse::types::provider::GitLabProvider;
 use git_url_parse::GitUrl;
-use percent_encoding;
 use regex::Regex;
 use url::Url;
 
