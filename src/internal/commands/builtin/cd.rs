@@ -252,30 +252,7 @@ impl CdCommand {
         let mut final_path = repo_path;
         if let Some(path) = parsed_url.path {
             let full_path = final_path.join(&path);
-
-            if args.edit {
-                // For edit mode, keep the file path if it's a file
-                if full_path.exists() {
-                    final_path = full_path;
-                } else {
-                    // Path doesn't exist
-                    return None;
-                }
-            } else {
-                // For cd mode, use parent directory if it's a file
-                if !full_path.exists() || full_path.is_file() {
-                    if let Some(parent) = full_path.parent() {
-                        final_path = parent.to_path_buf();
-                    }
-                } else {
-                    final_path = full_path;
-                }
-
-                // If final path is not a directory, return None (let parent handle error)
-                if !final_path.is_dir() {
-                    return None;
-                }
-            }
+            final_path = full_path;
         }
 
         Some(WorkdirLocation {

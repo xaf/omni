@@ -27,14 +27,17 @@ function omni() {
 
 			local disposition="success"
 			case "${cmd}" in
-				*'# exec:always')
+				*' # exec:always')
 					disposition="always"
+					cmd="${cmd%% # exec:always}"
 					;;
-				*'# exec:error')
+				*' # exec:error')
 					disposition="error"
+					cmd="${cmd%% # exec:error}"
 					;;
-				*'# exec:success')
+				*' # exec:success')
 					disposition="success"
+					cmd="${cmd%% # exec:success}"
 					;;
 				*)
 					;;

@@ -31,12 +31,15 @@ function omni
 
             set disposition success
             switch $cmd
-                case '*# exec:always'
+                case '* # exec:always'
                     set disposition always
-                case '*# exec:error'
+                    set cmd (string replace -r ' # exec:always$' '' -- $cmd)
+                case '* # exec:error'
                     set disposition error
-                case '*# exec:success'
+                    set cmd (string replace -r ' # exec:error$' '' -- $cmd)
+                case '* # exec:success'
                     set disposition success
+                    set cmd (string replace -r ' # exec:success$' '' -- $cmd)
             end
 
             switch $disposition
