@@ -1183,7 +1183,7 @@ impl UpConfigGithubRelease {
         download_release
     }
 
-    fn list_releases(
+    pub fn list_releases(
         &self,
         options: &UpOptions,
         progress_handler: &UpProgressHandler,
@@ -1471,7 +1471,7 @@ impl UpConfigGithubRelease {
         Ok(releases)
     }
 
-    fn resolve_release(&self, releases: &GithubReleases) -> Result<GithubReleaseVersion, UpError> {
+    pub fn resolve_release(&self, releases: &GithubReleases) -> Result<GithubReleaseVersion, UpError> {
         let match_version = self.version.clone().unwrap_or_else(|| "latest".to_string());
         self.resolve_release_from_str(&match_version, releases)
     }
@@ -1978,22 +1978,14 @@ impl UpConfigGithubRelease {
         Ok(())
     }
 
-    fn download_release(
+    /// Downloads, verifies, and extracts a GitHub release to a temporary directory.
+    /// Returns the TempDir handle which will auto-cleanup when dropped.
+    pub fn download_and_extract_to_temp(
         &self,
-        options: &UpOptions,
         release: &GithubReleaseVersion,
         progress_handler: &dyn ProgressHandler,
-    ) -> Result<bool, UpError> {
+    ) -> Result<tempfile::TempDir, UpError> {
         let version = release.version();
-        let install_path = self.release_version_path(&self.version_with_config(&version));
-
-        if options.read_cache && install_path.exists() && install_path.is_dir() {
-            progress_handler.progress(
-                format!("downloaded {} {} (cached)", self.repository, version).light_black(),
-            );
-
-            return Ok(false);
-        }
 
         // Make a temporary directory to download the release
         let tmp_dir = tempfile::Builder::new()
@@ -2006,7 +1998,6 @@ impl UpConfigGithubRelease {
 
         // Go over each of the assets that matched the current platform
         // and download them all
-        let mut binary_found = false;
         for asset in &release.assets {
             // Raise an error if the checksum is required but no asset was
             // found to validate the checksum against
@@ -2114,9 +2105,33 @@ impl UpConfigGithubRelease {
             }
         }
 
+        Ok(tmp_dir)
+    }
+
+    fn download_release(
+        &self,
+        options: &UpOptions,
+        release: &GithubReleaseVersion,
+        progress_handler: &dyn ProgressHandler,
+    ) -> Result<bool, UpError> {
+        let version = release.version();
+        let install_path = self.release_version_path(&self.version_with_config(&version));
+
+        if options.read_cache && install_path.exists() && install_path.is_dir() {
+            progress_handler.progress(
+                format!("downloaded {} {} (cached)", self.repository, version).light_black(),
+            );
+
+            return Ok(false);
+        }
+
+        // Download, verify, and extract to a temporary directory
+        let tmp_dir = self.download_and_extract_to_temp(release, progress_handler)?;
+
         // Check if the extracted content is an SDK-like structure (has bin/ + lib/src/pkg/etc)
         let sdk_detection = self.detect_sdk_structure(tmp_dir.path());
 
+        let mut binary_found = false;
         if let Some((sdk_root, dirs)) = sdk_detection {
             // This is an SDK, move/copy the entire directory structure
             progress_handler.progress(format!(

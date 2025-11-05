@@ -8,7 +8,7 @@ edition = "2021"
 homepage = "https://omnicli.dev"
 license = "LGPL-2.1"
 readme = "README.md"
-repository = "https://github.com/XaF/omni"
+repository = "https://github.com/xaf/omni"
 exclude = [
     ".github/*",
     "website/*",

@@ -43,7 +43,7 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    if: github.repository_owner == 'XaF'
+    if: github.repository_owner == 'xaf'
 
     permissions:
       contents: read
