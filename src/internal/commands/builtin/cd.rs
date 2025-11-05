@@ -195,7 +195,7 @@ impl CdCommand {
         // Use find_repo which combines quick and slow search
         let repo_path = ORG_LOADER.find_repo(&search_str, only_worktree, false, allow_interactive)?;
 
-        // TODO: Check if the current branch matches the requested branch from parsed_url.branch
+        // TODO: Check if the current branch matches the requested branch from parsed_url.git_ref
         // and show a warning if they don't match
 
         // If we found the repo, potentially append the path from the URL

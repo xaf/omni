@@ -3,6 +3,7 @@ use git_url_parse::types::provider::AzureDevOpsProvider;
 use git_url_parse::types::provider::GenericProvider;
 use git_url_parse::types::provider::GitLabProvider;
 use git_url_parse::GitUrl;
+use percent_encoding;
 use regex::Regex;
 use url::Url;
 
@@ -640,9 +641,40 @@ fn post_process_bitbucket_server_commits(
     url: &Url,
     _caps: &regex::Captures,
 ) -> (Option<String>, Option<String>, Option<u32>, Option<u32>) {
-    // Extract path from fragment if present
-    let path = url.fragment().map(|f| f.to_string());
-    (None, path, None, None)
+    // Extract path and line number from fragment if present
+    // Format: #path/to/file.py?f=239 or #path/to/file.py?t=239
+    let fragment = match url.fragment() {
+        Some(f) => f,
+        None => return (None, None, None, None),
+    };
+
+    // Parse the fragment as a URL by constructing a temporary URL
+    let temp_url_str = format!("http://localhost/{}", fragment);
+    let temp_url = match Url::parse(&temp_url_str) {
+        Ok(u) => u,
+        Err(_) => return (None, Some(fragment.to_string()), None, None),
+    };
+
+    // Extract path (strip leading /) and URL decode it
+    let path = temp_url.path().strip_prefix('/').map(|p| {
+        percent_encoding::percent_decode_str(p)
+            .decode_utf8_lossy()
+            .to_string()
+    });
+
+    // Parse query parameters for line number (f= or t=)
+    let mut line_num = None;
+    for (key, value) in temp_url.query_pairs() {
+        match key.as_ref() {
+            "f" | "t" => {
+                line_num = value.parse::<u32>().ok();
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    (None, path, line_num, line_num)
 }
 
 fn post_process_bitbucket_server(

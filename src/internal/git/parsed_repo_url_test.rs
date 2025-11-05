@@ -857,4 +857,30 @@ mod web_url_extraction {
             None,
         );
     }
+
+    #[test]
+    fn bitbucket_server_commits_with_fragment_and_line_f() {
+        assert_web_url_extraction(
+            "https://bitbucket.example.com/projects/proj1/repos/repo1/commits/abc123def456#src%2Fhelpers.py?f=239",
+            Some("proj1"),
+            "repo1",
+            Some("abc123def456"),
+            Some("src/helpers.py"),
+            Some(239),
+            Some(239),
+        );
+    }
+
+    #[test]
+    fn bitbucket_server_commits_with_fragment_and_line_t() {
+        assert_web_url_extraction(
+            "https://bitbucket.example.com/projects/proj1/repos/repo1/commits/def456abc123#path/to/file.py?t=150",
+            Some("proj1"),
+            "repo1",
+            Some("def456abc123"),
+            Some("path/to/file.py"),
+            Some(150),
+            Some(150),
+        );
+    }
 }
