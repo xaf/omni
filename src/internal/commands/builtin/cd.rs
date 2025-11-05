@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::exit;
 
@@ -25,14 +26,27 @@ use crate::omni_error;
 #[derive(Debug, Clone)]
 struct CdCommandArgs {
     locate: bool,
+    edit: bool,
     include_packages: bool,
     workdir: Option<String>,
+}
+
+#[derive(Debug)]
+struct WorkdirLocation {
+    path: String,
+    line_from: Option<u32>,
+    line_to: Option<u32>,
 }
 
 impl From<BTreeMap<String, ParseArgsValue>> for CdCommandArgs {
     fn from(args: BTreeMap<String, ParseArgsValue>) -> Self {
         let locate = matches!(
             args.get("locate"),
+            Some(ParseArgsValue::SingleBoolean(Some(true)))
+        );
+
+        let edit = matches!(
+            args.get("edit"),
             Some(ParseArgsValue::SingleBoolean(Some(true)))
         );
 
@@ -59,6 +73,7 @@ impl From<BTreeMap<String, ParseArgsValue>> for CdCommandArgs {
 
         Self {
             locate,
+            edit,
             include_packages,
             workdir,
         }
@@ -88,6 +103,11 @@ impl CdCommand {
             exit(0);
         }
 
+        if args.edit {
+            self.open_in_editor(&path_str, None, None);
+            exit(0);
+        }
+
         let path_escaped = escape(std::borrow::Cow::Borrowed(path_str.as_str()));
         match omni_cmd_on_success(format!("cd {path_escaped}").as_str()) {
             Ok(_) => {}
@@ -100,13 +120,18 @@ impl CdCommand {
     }
 
     fn cd_workdir(&self, wd: &str, args: &CdCommandArgs) {
-        if let Some(path_str) = self.cd_workdir_find(wd, args) {
+        if let Some(location) = self.cd_workdir_find(wd, args) {
             if args.locate {
-                println!("{path_str}");
+                println!("{}", location.path);
                 exit(0);
             }
 
-            let path_escaped = escape(std::borrow::Cow::Borrowed(path_str.as_str()));
+            if args.edit {
+                self.open_in_editor(&location.path, location.line_from, location.line_to);
+                exit(0);
+            }
+
+            let path_escaped = escape(std::borrow::Cow::Borrowed(location.path.as_str()));
             match omni_cmd_on_success(format!("cd {path_escaped}").as_str()) {
                 Ok(_) => {}
                 Err(e) => {
@@ -125,11 +150,15 @@ impl CdCommand {
         exit(1);
     }
 
-    fn cd_workdir_find(&self, wd: &str, args: &CdCommandArgs) -> Option<String> {
+    fn cd_workdir_find(&self, wd: &str, args: &CdCommandArgs) -> Option<WorkdirLocation> {
         // Handle the special case of `...` to go to the work directory root
         if wd == "..." {
             let wd = workdir(".");
-            return wd.root().map(|wd_root| wd_root.to_string());
+            return wd.root().map(|wd_root| WorkdirLocation {
+                path: wd_root.to_string(),
+                line_from: None,
+                line_to: None,
+            });
         }
 
         // Delegate to the shell if this is a path
@@ -139,12 +168,20 @@ impl CdCommand {
             || wd == "~"
             || wd == "-"
         {
-            return Some(wd.to_string());
+            return Some(WorkdirLocation {
+                path: wd.to_string(),
+                line_from: None,
+                line_to: None,
+            });
         }
 
         // Check if the requested wd is actually a path that exists from the current directory
         if let Ok(wd_path) = std::fs::canonicalize(wd) {
-            return Some(format!("{}", wd_path.display()));
+            return Some(WorkdirLocation {
+                path: format!("{}", wd_path.display()),
+                line_from: None,
+                line_to: None,
+            });
         }
 
         // Check if this is a git URL (contains :// or starts with http/https)
@@ -153,26 +190,38 @@ impl CdCommand {
         }
 
         let only_worktree = !args.include_packages;
-        let allow_interactive = !args.locate;
+        let allow_interactive = !args.locate && !args.edit;
 
         if let Some(wd_path) = ORG_LOADER.find_repo_quick(wd, only_worktree, false) {
-            return Some(format!("{}", wd_path.display()));
+            return Some(WorkdirLocation {
+                path: format!("{}", wd_path.display()),
+                line_from: None,
+                line_to: None,
+            });
         }
 
         if let Some(sandbox_path) = Self::find_sandbox(wd) {
-            return Some(sandbox_path);
+            return Some(WorkdirLocation {
+                path: sandbox_path,
+                line_from: None,
+                line_to: None,
+            });
         }
 
         if let Some(wd_path) =
             ORG_LOADER.find_repo_slow(wd, only_worktree, false, allow_interactive)
         {
-            return Some(format!("{}", wd_path.display()));
+            return Some(WorkdirLocation {
+                path: format!("{}", wd_path.display()),
+                line_from: None,
+                line_to: None,
+            });
         }
 
         None
     }
 
-    fn handle_git_url(&self, url: &str, args: &CdCommandArgs) -> Option<String> {
+    fn handle_git_url(&self, url: &str, args: &CdCommandArgs) -> Option<WorkdirLocation> {
         use crate::internal::git::utils::safe_git_url_parse;
 
         // Parse the git URL
@@ -190,10 +239,11 @@ impl CdCommand {
 
         // Find the repository using existing logic
         let only_worktree = !args.include_packages;
-        let allow_interactive = !args.locate;
+        let allow_interactive = !args.locate && !args.edit;
 
         // Use find_repo which combines quick and slow search
-        let repo_path = ORG_LOADER.find_repo(&search_str, only_worktree, false, allow_interactive)?;
+        let repo_path =
+            ORG_LOADER.find_repo(&search_str, only_worktree, false, allow_interactive)?;
 
         // TODO: Check if the current branch matches the requested branch from parsed_url.git_ref
         // and show a warning if they don't match
@@ -203,22 +253,36 @@ impl CdCommand {
         if let Some(path) = parsed_url.path {
             let full_path = final_path.join(&path);
 
-            // If path doesn't exist or is a file, try using the parent directory
-            if !full_path.exists() || full_path.is_file() {
-                if let Some(parent) = full_path.parent() {
-                    final_path = parent.to_path_buf();
+            if args.edit {
+                // For edit mode, keep the file path if it's a file
+                if full_path.exists() {
+                    final_path = full_path;
+                } else {
+                    // Path doesn't exist
+                    return None;
                 }
             } else {
-                final_path = full_path;
-            }
+                // For cd mode, use parent directory if it's a file
+                if !full_path.exists() || full_path.is_file() {
+                    if let Some(parent) = full_path.parent() {
+                        final_path = parent.to_path_buf();
+                    }
+                } else {
+                    final_path = full_path;
+                }
 
-            // If final path is not a directory, return None (let parent handle error)
-            if !final_path.is_dir() {
-                return None;
+                // If final path is not a directory, return None (let parent handle error)
+                if !final_path.is_dir() {
+                    return None;
+                }
             }
         }
 
-        Some(format!("{}", final_path.display()))
+        Some(WorkdirLocation {
+            path: format!("{}", final_path.display()),
+            line_from: parsed_url.line_from,
+            line_to: parsed_url.line_to,
+        })
     }
 
     fn find_sandbox(name: &str) -> Option<String> {
@@ -234,6 +298,95 @@ impl CdCommand {
             Ok(path) => Some(path.to_string_lossy().to_string()),
             Err(_) => Some(candidate.to_string_lossy().to_string()),
         }
+    }
+
+    fn find_editor() -> Option<String> {
+        // Try VISUAL first
+        if let Ok(visual) = std::env::var("VISUAL") {
+            if !visual.is_empty() {
+                return Some(visual);
+            }
+        }
+
+        // Then try EDITOR
+        if let Ok(editor) = std::env::var("EDITOR") {
+            if !editor.is_empty() {
+                return Some(editor);
+            }
+        }
+
+        // Try vim
+        if let Ok(vim) = which::which("vim") {
+            return Some(vim.to_string_lossy().to_string());
+        }
+
+        // Try nano
+        if let Ok(nano) = which::which("nano") {
+            return Some(nano.to_string_lossy().to_string());
+        }
+
+        None
+    }
+
+    fn open_in_editor(&self, path: &str, line_from: Option<u32>, _line_to: Option<u32>) {
+        let editor = match Self::find_editor() {
+            Some(e) => e,
+            None => {
+                omni_error!(
+                    "no editor found - please set the VISUAL or EDITOR environment variables."
+                );
+                exit(1);
+            }
+        };
+
+        // Build the command with line number if provided
+        let mut cmd = std::process::Command::new(&editor);
+
+        // Editor binary name
+        let editor_path = PathBuf::from(&editor);
+        let bin_name = editor_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&editor);
+
+        // Handle line number syntax for common editors
+        match bin_name {
+            "code" | "code-insiders" | "cursor" => {
+                // VSCode uses --goto for line numbers
+                if let Some(line) = line_from {
+                    cmd.arg("--goto");
+                    cmd.arg(format!("{}:{}", path, line));
+                } else {
+                    cmd.arg(path);
+                }
+            }
+            "subl" | "sublime_text" => {
+                // Sublime Text uses :line:col syntax
+                if let Some(line) = line_from {
+                    cmd.arg(format!("{}:{}", path, line));
+                } else {
+                    cmd.arg(path);
+                }
+            }
+            "vim" | "nvim" | "nano" | "emacs" => {
+                // These editors use +line syntax
+                if let Some(line) = line_from {
+                    cmd.arg(format!("+{}", line));
+                }
+                cmd.arg(path);
+            }
+            _ => {
+                // Generic case: just pass the path
+                cmd.arg(path);
+            }
+        }
+
+        // Replace the current process with the editor
+        let err = cmd.exec();
+
+        // exec() only returns if there's an error
+        omni_error!(format!("Failed to execute editor '{}': {}", editor, err));
+        exit(1);
     }
 }
 
@@ -286,6 +439,22 @@ impl BuiltinCommand for CdCommand {
                         .to_string()
                     ),
                     arg_type: SyntaxOptArgType::Flag,
+                    conflicts_with: vec!["--edit".to_string()],
+                    ..Default::default()
+                },
+                SyntaxOptArg {
+                    names: vec!["-e".to_string(), "--edit".to_string()],
+                    desc: Some(
+                        concat!(
+                            "If provided, will open the work directory in the editor specified by ",
+                            "\x1B[3mVISUAL\x1B[0m or \x1B[3mEDITOR\x1B[0m environment variables, ",
+                            "or fallback to vim or nano if available. When this flag is passed, ",
+                            "interactions are also disabled.",
+                        )
+                        .to_string()
+                    ),
+                    arg_type: SyntaxOptArgType::Flag,
+                    conflicts_with: vec!["--locate".to_string()],
                     ..Default::default()
                 },
                 SyntaxOptArg {
@@ -345,7 +514,7 @@ impl BuiltinCommand for CdCommand {
                 .expect("should have args to parse"),
         );
 
-        if omni_cmd_file().is_none() && !args.locate {
+        if omni_cmd_file().is_none() && !args.locate && !args.edit {
             omni_error!("not available without the shell integration");
             exit(1);
         }
