@@ -245,8 +245,10 @@ impl CdCommand {
         let repo_path =
             ORG_LOADER.find_repo(&search_str, only_worktree, false, allow_interactive)?;
 
-        // TODO: Check if the current branch matches the requested branch from parsed_url.git_ref
-        // and show a warning if they don't match
+        // Check if the current ref matches the requested ref
+        if let Some(requested_ref) = &parsed_url.git_ref {
+            Self::check_git_ref(&repo_path, requested_ref);
+        }
 
         // If we found the repo, potentially append the path from the URL
         let mut final_path = repo_path;
@@ -275,6 +277,77 @@ impl CdCommand {
             Ok(path) => Some(path.to_string_lossy().to_string()),
             Err(_) => Some(candidate.to_string_lossy().to_string()),
         }
+    }
+
+    fn check_git_ref(repo_path: &PathBuf, requested_ref: &str) {
+        use git2::Repository;
+
+        let repo = match Repository::open(repo_path) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+
+        let head = match repo.head() {
+            Ok(h) => h,
+            Err(_) => return,
+        };
+
+        let current_ref_name = if head.is_branch() {
+            head.shorthand().map(|s| s.to_string())
+        } else {
+            None
+        };
+
+        let current_commit = match head.peel_to_commit() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let requested_commit = match Self::resolve_ref_to_commit(&repo, requested_ref) {
+            Some(c) => c,
+            None => {
+                eprintln!(
+                    "{}",
+                    format!(
+                        "warning: could not resolve reference {} in repository",
+                        requested_ref.yellow()
+                    )
+                    .light_yellow()
+                );
+                return;
+            }
+        };
+
+        if current_commit.id() != requested_commit.id() {
+            let current_ref_display = current_ref_name
+                .unwrap_or_else(|| current_commit.id().to_string());
+
+            eprintln!(
+                "{}",
+                format!(
+                    "warning: repository is on {} but URL references {}",
+                    current_ref_display.yellow(),
+                    requested_ref.yellow()
+                )
+                .light_yellow()
+            );
+        }
+    }
+
+    fn resolve_ref_to_commit<'a>(repo: &'a git2::Repository, ref_name: &str) -> Option<git2::Commit<'a>> {
+        if let Ok(obj) = repo.revparse_single(ref_name) {
+            if let Ok(commit) = obj.peel_to_commit() {
+                return Some(commit);
+            }
+        }
+
+        if let Ok(oid) = git2::Oid::from_str(ref_name) {
+            if let Ok(commit) = repo.find_commit(oid) {
+                return Some(commit);
+            }
+        }
+
+        None
     }
 
     fn find_editor() -> Option<String> {
