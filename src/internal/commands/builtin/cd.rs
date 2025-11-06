@@ -22,6 +22,7 @@ use crate::internal::git::ORG_LOADER;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
 use crate::omni_error;
+use crate::omni_warning;
 
 #[derive(Debug, Clone)]
 struct CdCommandArgs {
@@ -306,14 +307,10 @@ impl CdCommand {
         let requested_commit = match Self::resolve_ref_to_commit(&repo, requested_ref) {
             Some(c) => c,
             None => {
-                eprintln!(
-                    "{}",
-                    format!(
-                        "warning: could not resolve reference {} in repository",
-                        requested_ref.yellow()
-                    )
-                    .light_yellow()
-                );
+                omni_warning!(format!(
+                    "could not resolve reference {} in repository",
+                    requested_ref.yellow()
+                ));
                 return;
             }
         };
@@ -322,15 +319,11 @@ impl CdCommand {
             let current_ref_display = current_ref_name
                 .unwrap_or_else(|| current_commit.id().to_string());
 
-            eprintln!(
-                "{}",
-                format!(
-                    "warning: repository is on {} but URL references {}",
-                    current_ref_display.yellow(),
-                    requested_ref.yellow()
-                )
-                .light_yellow()
-            );
+            omni_warning!(format!(
+                "repository is on {} but URL references {}",
+                current_ref_display.yellow(),
+                requested_ref.yellow()
+            ));
         }
     }
 
