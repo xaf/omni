@@ -231,7 +231,7 @@ impl SandboxCommand {
         contents.push_str("  # - go\n");
         contents.push_str("  # - python\n");
 
-        fs::write(&config_path, contents).map_err(|err| {
+        fs::write(config_path, contents).map_err(|err| {
             format!(
                 "failed to write configuration file '{}': {}",
                 config_path.display(),
@@ -271,7 +271,7 @@ impl SandboxCommand {
 
     fn confirm_continue_with_existing(&self, reason: &str) -> Result<(), String> {
         if !shell_is_interactive() {
-            return Err(format!("{}", reason));
+            return Err(reason.to_string());
         }
 
         let question = requestty::Question::confirm("continue_existing")
