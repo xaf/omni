@@ -20,6 +20,7 @@ use crate::internal::config::SyntaxOptArgType;
 use crate::internal::env::omni_cmd_file;
 use crate::internal::env::shell_is_interactive;
 use crate::internal::git::ORG_LOADER;
+use crate::internal::git_env;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
 use crate::omni_error;
@@ -307,12 +308,17 @@ impl CdCommand {
             Err(_) => return true,
         };
 
+        let repo_id = git_env(repo_path.to_string_lossy().as_ref())
+            .id()
+            .unwrap_or_else(|| repo_path.display().to_string());
+
         let requested_commit = match Self::resolve_ref_to_commit(&repo, requested_ref) {
             Some(c) => c,
             None => {
                 let message = format!(
-                    "could not resolve reference {} in repository",
-                    requested_ref.yellow()
+                    "could not resolve reference {} in repository {}",
+                    requested_ref.yellow(),
+                    repo_id.yellow()
                 );
 
                 let can_prompt = allow_interactive && shell_is_interactive();
@@ -335,7 +341,8 @@ impl CdCommand {
                 current_ref_name.unwrap_or_else(|| current_commit.id().to_string());
 
             let message = format!(
-                "repository is on {} but URL references {}",
+                "repository {} is on {} but URL references {}",
+                repo_id.yellow(),
                 current_ref_display.yellow(),
                 requested_ref.yellow()
             );
