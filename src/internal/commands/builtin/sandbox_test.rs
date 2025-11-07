@@ -400,7 +400,7 @@ fn initialize_with_path_prompts_if_workdir_exists() {
                 preferred_prefix.as_deref(),
             )
             .expect_err("should fail in non-interactive environment");
-        assert!(err.contains("already contains a work directory"));
+        assert!(err.contains("is already a work directory"), "Actual error: {}", err);
     });
 }
 
@@ -435,7 +435,7 @@ fn initialize_with_path_prompts_if_git_repo_exists() {
                 preferred_prefix.as_deref(),
             )
             .expect_err("should fail in non-interactive environment");
-        assert!(err.contains("already contains a git repository"));
+        assert!(err.contains("is a git repository"), "Actual error: {}", err);
     });
 }
 

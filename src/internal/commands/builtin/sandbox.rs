@@ -30,7 +30,6 @@ use crate::internal::user_interface::StringColor;
 use crate::internal::workdir::add_trust;
 use crate::omni_error;
 use crate::omni_info;
-use crate::omni_warning;
 
 #[derive(Debug, Clone)]
 struct SandboxCommandArgs {
@@ -268,11 +267,10 @@ impl SandboxCommand {
             return Err(format!("{}", reason));
         }
 
-        omni_warning!(reason);
         let question = requestty::Question::confirm("continue_existing")
             .ask_if_answered(true)
             .on_esc(requestty::OnEsc::Terminate)
-            .message("Continue?")
+            .message(format!("{}. Continue?", reason))
             .default(false)
             .build();
 
@@ -421,8 +419,8 @@ impl SandboxCommand {
         allow_existing: bool,
         preferred_id_prefix: Option<&str>,
     ) -> Result<PathBuf, String> {
-        let exists = target.exists();
-        if exists {
+        let mut initialized = false;
+        if target.exists() {
             if !target.is_dir() {
                 return Err(format!(
                     "sandbox destination '{}' exists and is not a directory",
@@ -441,6 +439,7 @@ impl SandboxCommand {
                 self.confirm_continue_with_existing(
                     format!("{} is a git repository", target.display().light_cyan()).as_str(),
                 )?;
+                initialized = true;
             } else if target.join(".omni").join("id").exists() {
                 self.confirm_continue_with_existing(
                     format!(
@@ -449,6 +448,7 @@ impl SandboxCommand {
                     )
                     .as_str(),
                 )?;
+                initialized = true;
             }
         } else if let Err(err) = fs::create_dir_all(target) {
             return Err(format!(
@@ -461,7 +461,7 @@ impl SandboxCommand {
         self.write_config(target, dependencies)?;
 
         // Only initialize workdir if it doesn't already exist
-        if !exists {
+        if !initialized {
             let target_str = target
                 .to_str()
                 .ok_or_else(|| "failed to resolve sandbox path".to_string())?;
