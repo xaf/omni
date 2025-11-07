@@ -33,9 +33,12 @@ use crate::omni_info;
 
 #[derive(Debug, Clone, PartialEq)]
 enum SandboxInitResult {
-    Initialized, // New sandbox was created and initialized
-    Updated,     // Existing sandbox was updated (config modified)
-    NoChange,    // Existing sandbox, no modifications made
+    /// New sandbox was created and initialized
+    Initialized,
+    /// Existing sandbox was updated (config modified)
+    Updated,
+    /// Existing sandbox, no modifications made
+    NoChange,
 }
 
 #[derive(Debug, Clone)]
