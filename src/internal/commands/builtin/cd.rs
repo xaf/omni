@@ -191,7 +191,7 @@ impl CdCommand {
         }
 
         let only_worktree = !args.include_packages;
-        let allow_interactive = !args.locate && !args.edit;
+        let allow_interactive = !args.locate;
 
         if let Some(wd_path) = ORG_LOADER.find_repo_quick(wd, only_worktree, false) {
             return Some(WorkdirLocation {
@@ -240,7 +240,7 @@ impl CdCommand {
 
         // Find the repository using existing logic
         let only_worktree = !args.include_packages;
-        let allow_interactive = !args.locate && !args.edit;
+        let allow_interactive = !args.locate;
 
         // Use find_repo which combines quick and slow search
         let repo_path =
@@ -248,7 +248,9 @@ impl CdCommand {
 
         // Check if the current ref matches the requested ref
         if let Some(requested_ref) = &parsed_url.git_ref {
-            Self::check_git_ref(&repo_path, requested_ref);
+            if !Self::check_git_ref(&repo_path, requested_ref, allow_interactive) {
+                return None;
+            }
         }
 
         // If we found the repo, potentially append the path from the URL
@@ -280,17 +282,17 @@ impl CdCommand {
         }
     }
 
-    fn check_git_ref(repo_path: &PathBuf, requested_ref: &str) {
+    fn check_git_ref(repo_path: &PathBuf, requested_ref: &str, allow_interactive: bool) -> bool {
         use git2::Repository;
 
         let repo = match Repository::open(repo_path) {
             Ok(r) => r,
-            Err(_) => return,
+            Err(_) => return true,
         };
 
         let head = match repo.head() {
             Ok(h) => h,
-            Err(_) => return,
+            Err(_) => return true,
         };
 
         let current_ref_name = if head.is_branch() {
@@ -301,33 +303,76 @@ impl CdCommand {
 
         let current_commit = match head.peel_to_commit() {
             Ok(c) => c,
-            Err(_) => return,
+            Err(_) => return true,
         };
 
         let requested_commit = match Self::resolve_ref_to_commit(&repo, requested_ref) {
             Some(c) => c,
             None => {
-                omni_warning!(format!(
+                let message = format!(
                     "could not resolve reference {} in repository",
                     requested_ref.yellow()
-                ));
-                return;
+                );
+
+                if !allow_interactive {
+                    omni_error!(message);
+                    exit(1);
+                }
+
+                omni_warning!(message);
+                if !Self::prompt_proceed() {
+                    exit(1);
+                }
+
+                return true;
             }
         };
 
         if current_commit.id() != requested_commit.id() {
-            let current_ref_display = current_ref_name
-                .unwrap_or_else(|| current_commit.id().to_string());
+            let current_ref_display =
+                current_ref_name.unwrap_or_else(|| current_commit.id().to_string());
 
-            omni_warning!(format!(
+            let message = format!(
                 "repository is on {} but URL references {}",
                 current_ref_display.yellow(),
                 requested_ref.yellow()
-            ));
+            );
+
+            if !allow_interactive {
+                omni_error!(message);
+                exit(1);
+            }
+
+            omni_warning!(message);
+            if !Self::prompt_proceed() {
+                exit(1);
+            }
+        }
+
+        true
+    }
+
+    fn prompt_proceed() -> bool {
+        let question = requestty::Question::confirm("proceed_with_ref_mismatch")
+            .ask_if_answered(true)
+            .on_esc(requestty::OnEsc::Terminate)
+            .message("Continue?")
+            .default(true)
+            .build();
+
+        match requestty::prompt_one(question) {
+            Ok(answer) => match answer {
+                requestty::Answer::Bool(confirmed) => confirmed,
+                _ => false,
+            },
+            Err(_) => false,
         }
     }
 
-    fn resolve_ref_to_commit<'a>(repo: &'a git2::Repository, ref_name: &str) -> Option<git2::Commit<'a>> {
+    fn resolve_ref_to_commit<'a>(
+        repo: &'a git2::Repository,
+        ref_name: &str,
+    ) -> Option<git2::Commit<'a>> {
         if let Ok(obj) = repo.revparse_single(ref_name) {
             if let Ok(commit) = obj.peel_to_commit() {
                 return Some(commit);
