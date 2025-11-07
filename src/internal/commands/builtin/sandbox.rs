@@ -31,6 +31,13 @@ use crate::internal::workdir::add_trust;
 use crate::omni_error;
 use crate::omni_info;
 
+#[derive(Debug, Clone, PartialEq)]
+enum SandboxInitResult {
+    Initialized, // New sandbox was created and initialized
+    Updated,     // Existing sandbox was updated (config modified)
+    NoChange,    // Existing sandbox, no modifications made
+}
+
 #[derive(Debug, Clone)]
 struct SandboxCommandArgs {
     path: Option<PathBuf>,
@@ -198,20 +205,20 @@ impl SandboxCommand {
         None
     }
 
-    fn write_config(&self, target: &Path, dependencies: &[String]) -> Result<(), String> {
+    fn write_config(&self, target: &Path, dependencies: &[String]) -> Result<bool, String> {
         let config_path = target.join(".omni.yaml");
 
         match (config_path.exists(), dependencies.is_empty()) {
-            (true, true) => Ok(()),
+            (true, true) => Ok(false), // No changes
             (true, false) => {
                 if self.confirm_add_dependencies(&config_path) {
                     self.add_dependencies_to_config(&config_path, dependencies)
                 } else {
-                    Ok(())
+                    Ok(false) // User declined, no changes
                 }
             }
-            (false, true) => self.write_empty_config(&config_path),
-            (false, false) => self.add_dependencies_to_config(&config_path, dependencies),
+            (false, true) => self.write_empty_config(&config_path).map(|_| true), // Created new file
+            (false, false) => self.add_dependencies_to_config(&config_path, dependencies), // Created new file with deps
         }
     }
 
@@ -296,11 +303,12 @@ impl SandboxCommand {
         &self,
         config_path: &Path,
         dependencies: &[String],
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let config_path_str = config_path
             .to_str()
             .ok_or_else(|| "failed to convert config path to string".to_string())?;
 
+        let mut changes_made = false;
         ConfigLoader::edit_workdir_config_file(config_path_str.to_string(), |config_value| {
             // Ensure config_value is a table
             if !config_value.is_table() {
@@ -359,6 +367,7 @@ impl SandboxCommand {
                 .collect();
 
             if new_deps.is_empty() {
+                changes_made = false;
                 return false; // No new dependencies to add
             }
 
@@ -367,9 +376,12 @@ impl SandboxCommand {
                 up_array.push(dep_value);
             }
 
+            changes_made = true;
             true
         })
-        .map_err(|err| format!("failed to update configuration file: {:?}", err))
+        .map_err(|err| format!("failed to update configuration file: {:?}", err))?;
+
+        Ok(changes_made)
     }
 
     fn determine_target_path(
@@ -432,8 +444,8 @@ impl SandboxCommand {
         dependencies: &[String],
         allow_existing: bool,
         preferred_id_prefix: Option<&str>,
-    ) -> Result<PathBuf, String> {
-        let mut initialized = false;
+    ) -> Result<(PathBuf, SandboxInitResult), String> {
+        let mut already_initialized = false;
         if target.exists() {
             if !target.is_dir() {
                 return Err(format!(
@@ -453,7 +465,7 @@ impl SandboxCommand {
                 self.confirm_continue_with_existing(
                     format!("{} is a git repository", target.display().light_cyan()).as_str(),
                 )?;
-                initialized = true;
+                already_initialized = true;
             } else if target.join(".omni").join("id").exists() {
                 self.confirm_continue_with_existing(
                     format!(
@@ -462,7 +474,7 @@ impl SandboxCommand {
                     )
                     .as_str(),
                 )?;
-                initialized = true;
+                already_initialized = true;
             }
         } else if let Err(err) = fs::create_dir_all(target) {
             return Err(format!(
@@ -472,19 +484,31 @@ impl SandboxCommand {
             ));
         }
 
-        self.write_config(target, dependencies)?;
+        let config_changed = self.write_config(target, dependencies)?;
 
         // Only initialize workdir if it doesn't already exist
-        if !initialized {
+        let workdir_initialized = if !already_initialized {
             let target_str = target
                 .to_str()
                 .ok_or_else(|| "failed to resolve sandbox path".to_string())?;
 
             init_workdir(target_str, preferred_id_prefix)
                 .map_err(|err| format!("failed to initialize sandbox: {err}"))?;
-        }
+            true
+        } else {
+            false
+        };
 
-        Ok(target.to_path_buf())
+        // Determine the result based on what happened
+        let result = if workdir_initialized {
+            SandboxInitResult::Initialized
+        } else if config_changed {
+            SandboxInitResult::Updated
+        } else {
+            SandboxInitResult::NoChange
+        };
+
+        Ok((target.to_path_buf(), result))
     }
 }
 
@@ -593,25 +617,37 @@ impl BuiltinCommand for SandboxCommand {
                 }
             };
 
-        let init_result = self.initialize_at(
+        let (target, result) = match self.initialize_at(
             &target_path,
             &args.dependencies,
             allow_existing,
             preferred_id_prefix.as_deref(),
-        );
-
-        let target = match init_result {
-            Ok(target) => target,
+        ) {
+            Ok((target, result)) => (target, result),
             Err(err) => {
                 omni_error!(err);
                 exit(1);
             }
         };
 
-        omni_info!(format!(
-            "initialized at {}",
-            target.to_string_lossy().light_cyan()
-        ));
+        // Display appropriate message based on what happened
+        match result {
+            SandboxInitResult::Initialized => {
+                omni_info!(format!(
+                    "initialized at {}",
+                    target.to_string_lossy().light_cyan()
+                ));
+            }
+            SandboxInitResult::Updated => {
+                omni_info!(format!("updated {}", target.to_string_lossy().light_cyan()));
+            }
+            SandboxInitResult::NoChange => {
+                omni_info!(format!(
+                    "nothing to do for {}",
+                    target.to_string_lossy().light_cyan()
+                ));
+            }
+        }
 
         if let Err(err) = record_cd(&target) {
             omni_error!(err);
@@ -631,9 +667,12 @@ impl BuiltinCommand for SandboxCommand {
             exit(1);
         }
 
-        if let Err(err) = run_omni_up(&target) {
-            omni_error!(err);
-            exit(1);
+        // Run omni up if something changed or if it's a new initialization
+        if result != SandboxInitResult::NoChange {
+            if let Err(err) = run_omni_up(&target) {
+                omni_error!(err);
+                exit(1);
+            }
         }
 
         exit(0);
