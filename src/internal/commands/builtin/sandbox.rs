@@ -261,15 +261,13 @@ impl SandboxCommand {
         match requestty::prompt_one(question) {
             Ok(answer) => {
                 if let requestty::Answer::Bool(confirmed) = answer {
-                    return confirmed;
+                    confirmed
+                } else {
+                    false
                 }
             }
-            Err(_err) => {
-                return false;
-            }
+            Err(_err) => false,
         }
-
-        false
     }
 
     fn confirm_continue_with_existing(&self, reason: &str) -> Result<(), String> {
@@ -288,18 +286,16 @@ impl SandboxCommand {
             Ok(answer) => {
                 if let requestty::Answer::Bool(confirmed) = answer {
                     if confirmed {
-                        return Ok(());
+                        Ok(())
                     } else {
-                        return Err("user cancelled".to_string());
+                        Err("user cancelled".to_string())
                     }
+                } else {
+                    Err("user cancelled".to_string())
                 }
             }
-            Err(_err) => {
-                return Err("prompt failed".to_string());
-            }
+            Err(_err) => Err("prompt failed".to_string()),
         }
-
-        Err("user cancelled".to_string())
     }
 
     fn add_dependencies_to_config(
