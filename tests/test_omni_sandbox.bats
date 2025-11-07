@@ -14,6 +14,14 @@ setup() {
   export COLUMNS=1000
 }
 
+@test "[omni_sandbox=01] --name and --path are exclusive" {
+  run omni sandbox --name clash --path . 3>&-
+  echo "STATUS: $status"
+  echo "OUTPUT: $output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot be used with '--path"* ]]
+}
+
 @test "[omni_sandbox=02] omni sandbox --path creates nested directory and placeholders" {
   setup_omni_config sandbox="~/sandboxes"
 
@@ -74,8 +82,8 @@ setup() {
 
   [ -d "$sandbox_dir" ]
   [ -f "$sandbox_dir/.omni.yaml" ]
-  grep -q "  - go@1.22.0" "$sandbox_dir/.omni.yaml"
-  grep -q "  - terraform@1.6.1" "$sandbox_dir/.omni.yaml"
+  grep -q -- "- go@1.22.0" "$sandbox_dir/.omni.yaml"
+  grep -q -- "- terraform@1.6.1" "$sandbox_dir/.omni.yaml"
 
   echo "PWD: $(pwd)"
   [ "$(pwd)" = "$sandbox_dir" ]
@@ -109,13 +117,4 @@ setup() {
 
   cd "$HOME"
   check_commands
-}
-
-
-@test "[omni_sandbox=01] --name and --path are exclusive" {
-  run omni sandbox --name clash --path . 3>&-
-  echo "STATUS: $status"
-  echo "OUTPUT: $output"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"cannot be used with '--path"* ]]
 }

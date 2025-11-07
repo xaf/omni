@@ -303,6 +303,24 @@ impl ConfigLoader {
     where
         F: FnOnce(&mut ConfigValue) -> bool,
     {
+        Self::edit_config_file(file_path, ConfigScope::User, edit_fn)
+    }
+
+    pub fn edit_workdir_config_file<F>(file_path: String, edit_fn: F) -> io::Result<()>
+    where
+        F: FnOnce(&mut ConfigValue) -> bool,
+    {
+        Self::edit_config_file(file_path, ConfigScope::Workdir, edit_fn)
+    }
+
+    pub fn edit_config_file<F>(
+        file_path: String,
+        scope: ConfigScope,
+        edit_fn: F,
+    ) -> io::Result<()>
+    where
+        F: FnOnce(&mut ConfigValue) -> bool,
+    {
         // Check if the directory of the config file exists, otherwise create it recursively
         let file_pathbuf = PathBuf::from(file_path.clone());
         if let Some(parent) = file_pathbuf.parent() {
@@ -327,7 +345,7 @@ impl ConfigLoader {
         let mut config_loader = Self::new_empty();
         config_loader.import_config_file_with_strategy(
             &file_path,
-            ConfigScope::User,
+            scope,
             ConfigExtendStrategy::Raw,
         );
 

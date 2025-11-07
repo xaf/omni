@@ -16,7 +16,10 @@ cfg_if::cfg_if! {
             // Take the lock, we need to manage it ourselves because we want to
             // avoid side-effects of the environment variables being already set
             // for another test, which could impact this test
-            let _lock = RUN_WITH_ENV_LOCK.lock().expect("failed to lock");
+            // Recover from PoisonError by extracting the inner guard.
+            // This can happen if a previous test panicked while holding the lock.
+            // The mutex is still usable after a panic, but is marked as poisoned.
+            let _lock = RUN_WITH_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
             // We create a temporary directory which will host all file-system
             // related operations for the test environment
