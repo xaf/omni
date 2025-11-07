@@ -250,7 +250,7 @@ impl SandboxCommand {
             .on_esc(requestty::OnEsc::Terminate)
             .message(format!(
                 "{} already exists, add dependencies to it?",
-                abs_or_rel_path(config_path.to_str().unwrap_or("")).light_cyan(),
+                abs_or_rel_path(config_path.to_str().unwrap_or("<invalid path>")).light_cyan(),
             ))
             .default(true)
             .build();
