@@ -18,6 +18,7 @@ use crate::internal::config::CommandSyntax;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
 use crate::internal::env::omni_cmd_file;
+use crate::internal::env::shell_is_interactive;
 use crate::internal::git::ORG_LOADER;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
@@ -314,7 +315,8 @@ impl CdCommand {
                     requested_ref.yellow()
                 );
 
-                if !allow_interactive {
+                let can_prompt = allow_interactive && shell_is_interactive();
+                if !can_prompt {
                     omni_error!(message);
                     exit(1);
                 }
@@ -338,7 +340,8 @@ impl CdCommand {
                 requested_ref.yellow()
             );
 
-            if !allow_interactive {
+            let can_prompt = allow_interactive && shell_is_interactive();
+            if !can_prompt {
                 omni_error!(message);
                 exit(1);
             }
