@@ -633,6 +633,12 @@ fn post_process_azure_devops(
             _ => {}
         }
     }
+
+    // If line_from is set but line_to is not, set line_to to line_from for consistency
+    if line_from.is_some() && line_to.is_none() {
+        line_to = line_from;
+    }
+
     (git_ref, path, line_from, line_to)
 }
 

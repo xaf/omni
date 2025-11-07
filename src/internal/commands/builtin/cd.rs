@@ -426,7 +426,7 @@ impl CdCommand {
         None
     }
 
-    fn open_in_editor(&self, path: &str, line_from: Option<u32>, _line_to: Option<u32>) {
+    fn open_in_editor(&self, path: &str, line_from: Option<u32>, line_to: Option<u32>) {
         let editor = match Self::find_editor() {
             Some(e) => e,
             None => {
@@ -448,9 +448,11 @@ impl CdCommand {
             .unwrap_or(&editor);
 
         // Handle line number syntax for common editors
+        // Note: line_to is currently only used for vim/nvim visual selection
         match bin_name {
             "code" | "code-insiders" | "cursor" => {
                 // VSCode uses --goto for line numbers
+                // No native CLI support for line ranges, so we just go to line_from
                 if let Some(line) = line_from {
                     cmd.arg("--goto");
                     cmd.arg(format!("{}:{}", path, line));
@@ -460,14 +462,33 @@ impl CdCommand {
             }
             "subl" | "sublime_text" => {
                 // Sublime Text uses :line:col syntax
+                // No native CLI support for line ranges, so we just go to line_from
                 if let Some(line) = line_from {
                     cmd.arg(format!("{}:{}", path, line));
                 } else {
                     cmd.arg(path);
                 }
             }
-            "vim" | "nvim" | "nano" | "emacs" => {
-                // These editors use +line syntax
+            "vim" | "nvim" => {
+                // Vim/Neovim: use visual line selection if we have a range
+                if let (Some(from), Some(to)) = (line_from, line_to) {
+                    if from != to {
+                        // Select from line_from to line_to using visual line mode
+                        let lines_to_select = to.saturating_sub(from);
+                        cmd.arg(format!(
+                            "+call cursor({}, 1) | normal! V{}j",
+                            from, lines_to_select
+                        ));
+                    } else {
+                        cmd.arg(format!("+{}", from));
+                    }
+                } else if let Some(line) = line_from {
+                    cmd.arg(format!("+{}", line));
+                }
+                cmd.arg(path);
+            }
+            "nano" | "emacs" => {
+                // These editors use +line syntax but don't have easy CLI range selection
                 if let Some(line) = line_from {
                     cmd.arg(format!("+{}", line));
                 }

@@ -17,7 +17,7 @@ This command supports a wide variety of git URL formats, including web URLs from
 | Parameter       | Required | Value type | Description                                         |
 |-----------------|----------|------------|-----------------------------------------------------|
 | `--locate` | no | `null` | If provided, will only return the path to the repository instead of switching directory to it. When this flag is passed, interactions are also disabled, as it is assumed to be used for command line purposes. This will exit with 0 if the repository is found, 1 otherwise. |
-| `--edit` | no | `null` | If provided, will open the work directory or file in the editor specified by `VISUAL` or `EDITOR` environment variables, or fallback to vim or nano if available. When this flag is passed with a web URL containing a file path and line numbers, the editor will open at the specified location. Interactions are also disabled. |
+| `--edit` | no | `null` | If provided, will open the work directory or file in the editor specified by `VISUAL` or `EDITOR` environment variables, or fallback to vim or nano if available. When this flag is passed with a web URL containing a file path and line numbers, the editor will open at the specified location. |
 | `--[no-]include-packages` | no | `null` | If provided, overrides the default behavior of considering or not packages when calling the command. When using `--locate`, packages will by default be included, otherwise they won't. |
 | `repo` | no | string | The name of the repo to change directory to; this can be in the format of a full git URL, web URL (from GitHub, GitLab, Bitbucket, etc.), or `<org>/<repo>`, or just `<repo>`, in which case the repo will be searched for in all the organizations in the order in which they are defined, and then trying all the other repositories in the configured worktrees. |
 
@@ -74,7 +74,7 @@ omni cd --edit https://github.com/xaf/omni/blob/main/src/main.rs#L50
 
 # Using --edit with line ranges
 omni cd --edit https://github.com/xaf/omni/blob/main/src/main.rs#L50-L60
-# Opens src/main.rs at line 50 in your editor
+# Opens src/main.rs at line 50 (vim/nvim will visually select lines 50-60)
 ```
 
 ### Git reference checking

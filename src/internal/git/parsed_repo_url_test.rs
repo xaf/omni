@@ -854,7 +854,7 @@ mod web_url_extraction {
             Some("main"),
             Some("src/main.rs"),
             Some(42),
-            None,
+            Some(42),
         );
     }
 
