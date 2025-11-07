@@ -271,7 +271,7 @@ impl SandboxCommand {
             .ask_if_answered(true)
             .on_esc(requestty::OnEsc::Terminate)
             .message(format!("{}. Continue?", reason))
-            .default(false)
+            .default(true)
             .build();
 
         match requestty::prompt_one(question) {
@@ -327,33 +327,47 @@ impl SandboxCommand {
                 }
             };
 
-            // Collect existing dependencies as strings (current_deps)
+            // Collect existing dependencies as YAML strings for comparison
             let mut current_deps: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
             for item in up_array.iter() {
-                if let Some(dep_str) = item.as_str() {
-                    current_deps.insert(dep_str.to_string());
-                }
+                // Serialize each dependency to YAML for comparison
+                let dep_yaml = item.as_yaml();
+                current_deps.insert(dep_yaml);
             }
 
-            // Calculate new_dependencies = dependencies - current_deps
-            let new_dependencies: Vec<String> = dependencies
+            // Use filter_map to both check and parse in one pass
+            let new_deps: Vec<ConfigValue> = dependencies
                 .iter()
-                .filter(|dep| !current_deps.contains(*dep))
-                .cloned()
+                .filter_map(|dep| {
+                    // Parse the dependency as YAML to handle both simple strings and complex structures
+                    // like "go: latest" or just "go"
+                    let dep_value = ConfigValue::from_str(dep).unwrap_or_else(|_| {
+                        // If parsing fails, treat it as a simple string
+                        ConfigValue::from_str(&format!("\"{dep}\""))
+                            .expect("failed to create config value")
+                    });
+
+                    // Check if this dependency already exists by comparing YAML
+                    let dep_yaml = dep_value.as_yaml();
+                    if current_deps.contains(&dep_yaml) {
+                        None
+                    } else {
+                        Some(dep_value)
+                    }
+                })
                 .collect();
 
-            // Insert new_dependencies at the end of current_deps
-            let mut added_any = false;
-            for dependency in new_dependencies {
-                up_array.push(
-                    ConfigValue::from_str(&format!("\"{dependency}\""))
-                        .expect("failed to create config value"),
-                );
-                added_any = true;
+            if new_deps.is_empty() {
+                return false; // No new dependencies to add
             }
 
-            added_any
+            // Insert new dependencies at the end
+            for dep_value in new_deps {
+                up_array.push(dep_value);
+            }
+
+            true
         })
         .map_err(|err| format!("failed to update configuration file: {:?}", err))
     }
