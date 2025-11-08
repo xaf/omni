@@ -57,33 +57,37 @@ impl UpConfigPythonParams {
         let mut pip_disabled = false;
 
         if let Some(config_value) = config_value {
-            if let Some(config_value) = config_value.get_as_array("pip") {
-                for file_path in config_value {
-                    if let Some(file_path) = file_path.as_str_forced() {
-                        pip_files.push(file_path.to_string());
-                    } else {
-                        error_handler
-                            .with_expected("string")
-                            .with_actual(file_path)
-                            .error(ConfigErrorKind::InvalidValueType);
+            if let Some(pip) = config_value.get("pip") {
+                let error_handler = error_handler.with_key("pip");
+                if let Some(pip_array) = pip.as_array() {
+                    for (idx, file_path) in pip_array.iter().enumerate() {
+                        if let Some(file_path) = file_path.as_str_forced() {
+                            pip_files.push(file_path.to_string());
+                        } else {
+                            error_handler
+                                .with_index(idx)
+                                .with_expected("string")
+                                .with_actual(file_path)
+                                .error(ConfigErrorKind::InvalidValueType);
+                        }
                     }
-                }
-            } else if let Some(value) = config_value.get_as_bool_forced("pip") {
-                if value {
-                    pip_auto = true;
+                } else if let Some(value) = pip.as_bool_forced() {
+                    if value {
+                        pip_auto = true;
+                    } else {
+                        pip_disabled = true;
+                    }
+                } else if let Some(file_path) = pip.as_str_forced() {
+                    match file_path.as_str() {
+                        "auto" => pip_auto = true,
+                        _ => pip_files.push(file_path),
+                    }
                 } else {
-                    pip_disabled = true;
+                    error_handler
+                        .with_expected(vec!["string", "sequence", "boolean"])
+                        .with_actual(pip)
+                        .error(ConfigErrorKind::InvalidValueType);
                 }
-            } else if let Some(file_path) = config_value.get_as_str_forced("pip") {
-                match file_path.as_str() {
-                    "auto" => pip_auto = true,
-                    _ => pip_files.push(file_path),
-                }
-            } else {
-                error_handler
-                    .with_expected("string, array of strings, or boolean")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
             }
         }
 
