@@ -216,6 +216,12 @@ impl EnvOperationConfig {
                 } else {
                     Some(value.to_string())
                 }
+            } else if config_value.is_null()
+                && operation == EnvOperationEnum::Set
+                && value_type == "text"
+            {
+                // Allow null value for "set" operation with "text" type to unset the variable
+                None
             } else {
                 error_handler
                     .with_key("value")
@@ -390,17 +396,30 @@ impl Serialize for EnvOperationConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Copy, Default, Hash)]
 pub enum EnvOperationEnum {
+    /// Set the environment variable to the specified value.
+    /// If the value is `null`, then the variable is unset.
+    /// This is the default operation.
     #[default]
     #[serde(rename = "s", alias = "set")]
     Set,
+    /// Prepend the specified value to a list-style environment variable.
+    /// If the variable is not set, it will be created with the specified value.
     #[serde(rename = "p", alias = "prepend")]
     Prepend,
+    /// Append the specified value to a list-style environment variable.
+    /// If the variable is not set, it will be created with the specified value.
     #[serde(rename = "a", alias = "append")]
     Append,
+    /// Remove the specified value from a list-style environment variable.
+    /// If the variable is not set, this operation has no effect.
     #[serde(rename = "r", alias = "remove")]
     Remove,
+    /// Add the specified value as a prefix to the environment variable.
+    /// If the variable is not set, it will be created with the specified value.
     #[serde(rename = "pf", alias = "prefix")]
     Prefix,
+    /// Add the specified value as a suffix to the environment variable.
+    /// If the variable is not set, it will be created with the specified value.
     #[serde(rename = "sf", alias = "suffix")]
     Suffix,
 }
