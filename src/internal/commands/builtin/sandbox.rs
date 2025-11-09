@@ -330,7 +330,9 @@ impl SandboxCommand {
                 Some(array) => array,
                 None => {
                     // If 'up' exists but is not an array, we can't modify it
-                    omni_error!("the 'up' key in .omni.yaml is not an array and cannot be modified");
+                    omni_error!(
+                        "the 'up' key in .omni.yaml is not an array and cannot be modified"
+                    );
                     exit(1);
                 }
             };

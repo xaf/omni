@@ -186,10 +186,15 @@ impl ParsedRepoUrl {
             result.host = Some("github.com".to_string()); // Change host to github.com
 
             // Pattern: /<owner>/<repo>/(refs/heads/)?<ref>/<path>
-            if let Ok(re) = Regex::new(r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/(refs/heads/)?(?P<ref>[^/]+)/(?P<path>.+)$") {
+            if let Ok(re) = Regex::new(
+                r"^/(?P<owner>[^/]+)/(?P<name>[^/]+)/(refs/heads/)?(?P<ref>[^/]+)/(?P<path>.+)$",
+            ) {
                 if let Some(caps) = re.captures(original_path) {
                     result.owner = caps.name("owner").map(|m| m.as_str().to_string());
-                    result.name = caps.name("name").map(|m| m.as_str().to_string()).unwrap_or_default();
+                    result.name = caps
+                        .name("name")
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
                     result.git_ref = caps.name("ref").map(|m| strip_refs_heads(m.as_str()));
                     result.path = caps.name("path").map(|m| m.as_str().to_string());
                     // raw.githubusercontent.com doesn't include line numbers
@@ -235,7 +240,11 @@ impl ParsedRepoUrl {
         // Type alias for post-processor function
         // Takes: (url, regex_captures)
         // Returns: (git_ref, path, line_from, line_to)
-        type PostProcessor = fn(&Url, &regex::Captures) -> (Option<String>, Option<String>, Option<u32>, Option<u32>);
+        type PostProcessor = fn(
+            &Url,
+            &regex::Captures,
+        )
+            -> (Option<String>, Option<String>, Option<u32>, Option<u32>);
 
         // Regex patterns ordered from most to least specific
         // Format: (regex_pattern, description, post_processor_fn)
@@ -474,7 +483,8 @@ impl ParsedRepoUrl {
                         }
                     };
 
-                    let (proc_ref, proc_path, proc_line_from, proc_line_to) = post_proc(&parsed_url, &caps);
+                    let (proc_ref, proc_path, proc_line_from, proc_line_to) =
+                        post_proc(&parsed_url, &caps);
                     // Override with post-processor results if present
                     git_ref = proc_ref.or(git_ref);
                     path = proc_path.or(path);
@@ -528,7 +538,10 @@ fn extract_lines_github_style(url: &Url, _path: &Option<String>) -> (Option<u32>
         None => return (None, None),
     };
 
-    let from = match caps.name("from").and_then(|m| m.as_str().parse::<u32>().ok()) {
+    let from = match caps
+        .name("from")
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+    {
         Some(f) => f,
         None => return (None, None),
     };
@@ -557,7 +570,10 @@ fn extract_lines_bitbucket_cloud(url: &Url, _path: &Option<String>) -> (Option<u
         None => return (None, None),
     };
 
-    let from = match caps.name("from").and_then(|m| m.as_str().parse::<u32>().ok()) {
+    let from = match caps
+        .name("from")
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+    {
         Some(f) => f,
         None => return (None, None),
     };
@@ -594,7 +610,10 @@ fn extract_lines_bitbucket_server(
         None => return (None, None),
     };
 
-    let from = match caps.name("from").and_then(|m| m.as_str().parse::<u32>().ok()) {
+    let from = match caps
+        .name("from")
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+    {
         Some(f) => f,
         None => return (None, None),
     };

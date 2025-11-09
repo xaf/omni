@@ -296,147 +296,164 @@ fn initialize_with_path_creates_sandbox() {
 
 #[test]
 fn initialize_with_path_succeeds_if_omni_yaml_exists_with_dependencies() {
-    run_with_env(&[("OMNI_NONINTERACTIVE".to_string(), Some("1".to_string()))], || {
-        reset_config();
+    run_with_env(
+        &[("OMNI_NONINTERACTIVE".to_string(), Some("1".to_string()))],
+        || {
+            reset_config();
 
-        let command = SandboxCommand::new();
-        let dependencies = vec!["python".to_string()];
-        let sandbox_dir = sandbox_root().join("path_with_yaml");
-        fs::create_dir_all(&sandbox_dir).expect("create sandbox path");
-        fs::write(sandbox_dir.join(".omni.yaml"), "existing").expect("write .omni.yaml");
+            let command = SandboxCommand::new();
+            let dependencies = vec!["python".to_string()];
+            let sandbox_dir = sandbox_root().join("path_with_yaml");
+            fs::create_dir_all(&sandbox_dir).expect("create sandbox path");
+            fs::write(sandbox_dir.join(".omni.yaml"), "existing").expect("write .omni.yaml");
 
-        let args = SandboxCommandArgs {
-            path: Some(sandbox_dir.clone()),
-            name: None,
-            dependencies: dependencies.clone(),
-        };
+            let args = SandboxCommandArgs {
+                path: Some(sandbox_dir.clone()),
+                name: None,
+                dependencies: dependencies.clone(),
+            };
 
-        let (target_path, allow_existing, preferred_prefix) = command
-            .determine_target_path(&args)
-            .expect("determine target for path");
-        assert!(allow_existing);
+            let (target_path, allow_existing, preferred_prefix) = command
+                .determine_target_path(&args)
+                .expect("determine target for path");
+            assert!(allow_existing);
 
-        // With dependencies and existing .omni.yaml, it will prompt the user
-        // In test environment (non-interactive), the prompt will fail and the
-        // initialization will succeed without modifying the config
-        let result = command.initialize_at(
-            &target_path,
-            &dependencies,
-            allow_existing,
-            preferred_prefix.as_deref(),
-        );
-        assert!(result.is_ok(), "should succeed when .omni.yaml exists");
-    });
+            // With dependencies and existing .omni.yaml, it will prompt the user
+            // In test environment (non-interactive), the prompt will fail and the
+            // initialization will succeed without modifying the config
+            let result = command.initialize_at(
+                &target_path,
+                &dependencies,
+                allow_existing,
+                preferred_prefix.as_deref(),
+            );
+            assert!(result.is_ok(), "should succeed when .omni.yaml exists");
+        },
+    );
 }
 
 #[test]
 fn initialize_with_path_succeeds_if_omni_yaml_exists_with_allow_empty() {
-    run_with_env(&[("OMNI_NONINTERACTIVE".to_string(), Some("1".to_string()))], || {
-        reset_config();
+    run_with_env(
+        &[("OMNI_NONINTERACTIVE".to_string(), Some("1".to_string()))],
+        || {
+            reset_config();
 
-        let command = SandboxCommand::new();
-        let dependencies = vec![]; // --allow-empty means empty dependencies
-        let sandbox_dir = sandbox_root().join("path_with_yaml_empty");
-        fs::create_dir_all(&sandbox_dir).expect("create sandbox path");
-        let original_content = "existing: config";
-        fs::write(sandbox_dir.join(".omni.yaml"), original_content).expect("write .omni.yaml");
+            let command = SandboxCommand::new();
+            let dependencies = vec![]; // --allow-empty means empty dependencies
+            let sandbox_dir = sandbox_root().join("path_with_yaml_empty");
+            fs::create_dir_all(&sandbox_dir).expect("create sandbox path");
+            let original_content = "existing: config";
+            fs::write(sandbox_dir.join(".omni.yaml"), original_content).expect("write .omni.yaml");
 
-        let args = SandboxCommandArgs {
-            path: Some(sandbox_dir.clone()),
-            name: None,
-            dependencies: dependencies.clone(),
-        };
+            let args = SandboxCommandArgs {
+                path: Some(sandbox_dir.clone()),
+                name: None,
+                dependencies: dependencies.clone(),
+            };
 
-        let (target_path, allow_existing, preferred_prefix) = command
-            .determine_target_path(&args)
-            .expect("determine target for path");
-        assert!(allow_existing);
+            let (target_path, allow_existing, preferred_prefix) = command
+                .determine_target_path(&args)
+                .expect("determine target for path");
+            assert!(allow_existing);
 
-        // With --allow-empty (empty dependencies) and existing .omni.yaml,
-        // it should succeed and leave the file untouched
-        let result = command.initialize_at(
-            &target_path,
-            &dependencies,
-            allow_existing,
-            preferred_prefix.as_deref(),
-        );
-        assert!(result.is_ok(), "should succeed with --allow-empty");
+            // With --allow-empty (empty dependencies) and existing .omni.yaml,
+            // it should succeed and leave the file untouched
+            let result = command.initialize_at(
+                &target_path,
+                &dependencies,
+                allow_existing,
+                preferred_prefix.as_deref(),
+            );
+            assert!(result.is_ok(), "should succeed with --allow-empty");
 
-        // Verify the .omni.yaml file was not modified
-        let content = fs::read_to_string(sandbox_dir.join(".omni.yaml")).expect("read .omni.yaml");
-        assert_eq!(content, original_content, "config file should be unchanged");
-    });
+            // Verify the .omni.yaml file was not modified
+            let content =
+                fs::read_to_string(sandbox_dir.join(".omni.yaml")).expect("read .omni.yaml");
+            assert_eq!(content, original_content, "config file should be unchanged");
+        },
+    );
 }
 
 #[test]
 fn initialize_with_path_prompts_if_workdir_exists() {
-    run_with_env(&[("OMNI_NONINTERACTIVE".to_string(), Some("1".to_string()))], || {
-        reset_config();
+    run_with_env(
+        &[("OMNI_NONINTERACTIVE".to_string(), Some("1".to_string()))],
+        || {
+            reset_config();
 
-        let command = SandboxCommand::new();
-        let dependencies = vec!["python".to_string()];
-        let sandbox_dir = sandbox_root().join("path_with_workdir");
-        fs::create_dir_all(sandbox_dir.join(".omni")).expect("create .omni directory");
-        fs::write(sandbox_dir.join(".omni/id"), "existing:id").expect("write .omni/id");
+            let command = SandboxCommand::new();
+            let dependencies = vec!["python".to_string()];
+            let sandbox_dir = sandbox_root().join("path_with_workdir");
+            fs::create_dir_all(sandbox_dir.join(".omni")).expect("create .omni directory");
+            fs::write(sandbox_dir.join(".omni/id"), "existing:id").expect("write .omni/id");
 
-        let args = SandboxCommandArgs {
-            path: Some(sandbox_dir.clone()),
-            name: None,
-            dependencies: dependencies.clone(),
-        };
+            let args = SandboxCommandArgs {
+                path: Some(sandbox_dir.clone()),
+                name: None,
+                dependencies: dependencies.clone(),
+            };
 
-        let (target_path, allow_existing, preferred_prefix) = command
-            .determine_target_path(&args)
-            .expect("determine target for path");
-        assert!(allow_existing);
+            let (target_path, allow_existing, preferred_prefix) = command
+                .determine_target_path(&args)
+                .expect("determine target for path");
+            assert!(allow_existing);
 
-        // In test environment (non-interactive), shell_is_interactive() returns false
-        // so we don't prompt and return an error directly
-        let err = command
-            .initialize_at(
-                &target_path,
-                &dependencies,
-                allow_existing,
-                preferred_prefix.as_deref(),
-            )
-            .expect_err("should fail in non-interactive environment");
-        assert!(err.contains("is already a work directory"), "Actual error: {}", err);
-    });
+            // In test environment (non-interactive), shell_is_interactive() returns false
+            // so we don't prompt and return an error directly
+            let err = command
+                .initialize_at(
+                    &target_path,
+                    &dependencies,
+                    allow_existing,
+                    preferred_prefix.as_deref(),
+                )
+                .expect_err("should fail in non-interactive environment");
+            assert!(
+                err.contains("is already a work directory"),
+                "Actual error: {}",
+                err
+            );
+        },
+    );
 }
 
 #[test]
 fn initialize_with_path_prompts_if_git_repo_exists() {
-    run_with_env(&[("OMNI_NONINTERACTIVE".to_string(), Some("1".to_string()))], || {
-        reset_config();
+    run_with_env(
+        &[("OMNI_NONINTERACTIVE".to_string(), Some("1".to_string()))],
+        || {
+            reset_config();
 
-        let command = SandboxCommand::new();
-        let dependencies = vec!["python".to_string()];
-        let sandbox_dir = sandbox_root().join("path_with_git");
-        fs::create_dir_all(sandbox_dir.join(".git")).expect("create .git directory");
+            let command = SandboxCommand::new();
+            let dependencies = vec!["python".to_string()];
+            let sandbox_dir = sandbox_root().join("path_with_git");
+            fs::create_dir_all(sandbox_dir.join(".git")).expect("create .git directory");
 
-        let args = SandboxCommandArgs {
-            path: Some(sandbox_dir.clone()),
-            name: None,
-            dependencies: dependencies.clone(),
-        };
+            let args = SandboxCommandArgs {
+                path: Some(sandbox_dir.clone()),
+                name: None,
+                dependencies: dependencies.clone(),
+            };
 
-        let (target_path, allow_existing, preferred_prefix) = command
-            .determine_target_path(&args)
-            .expect("determine target for path");
-        assert!(allow_existing);
+            let (target_path, allow_existing, preferred_prefix) = command
+                .determine_target_path(&args)
+                .expect("determine target for path");
+            assert!(allow_existing);
 
-        // In test environment (non-interactive), shell_is_interactive() returns false
-        // so we don't prompt and return an error directly
-        let err = command
-            .initialize_at(
-                &target_path,
-                &dependencies,
-                allow_existing,
-                preferred_prefix.as_deref(),
-            )
-            .expect_err("should fail in non-interactive environment");
-        assert!(err.contains("is a git repository"), "Actual error: {}", err);
-    });
+            // In test environment (non-interactive), shell_is_interactive() returns false
+            // so we don't prompt and return an error directly
+            let err = command
+                .initialize_at(
+                    &target_path,
+                    &dependencies,
+                    allow_existing,
+                    preferred_prefix.as_deref(),
+                )
+                .expect_err("should fail in non-interactive environment");
+            assert!(err.contains("is a git repository"), "Actual error: {}", err);
+        },
+    );
 }
 
 #[test]

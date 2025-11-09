@@ -313,11 +313,7 @@ impl ConfigLoader {
         Self::edit_config_file(file_path, ConfigScope::Workdir, edit_fn)
     }
 
-    pub fn edit_config_file<F>(
-        file_path: String,
-        scope: ConfigScope,
-        edit_fn: F,
-    ) -> io::Result<()>
+    pub fn edit_config_file<F>(file_path: String, scope: ConfigScope, edit_fn: F) -> io::Result<()>
     where
         F: FnOnce(&mut ConfigValue) -> bool,
     {
