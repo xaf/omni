@@ -203,10 +203,19 @@ impl From<serde_yaml::Value> for Value {
                 }
             }
             serde_yaml::Value::String(s) => Value::String(s),
-            // These shouldn't happen at the primitive level
-            serde_yaml::Value::Sequence(_) => Value::Null,
-            serde_yaml::Value::Mapping(_) => Value::Null,
-            serde_yaml::Value::Tagged(_) => Value::Null,
+            serde_yaml::Value::Sequence(seq) => {
+                Value::Sequence(seq.into_iter().map(Value::from).collect())
+            }
+            serde_yaml::Value::Mapping(map) => {
+                let mut result = HashMap::new();
+                for (k, v) in map {
+                    if let serde_yaml::Value::String(key) = k {
+                        result.insert(key, Value::from(v));
+                    }
+                }
+                Value::Mapping(result)
+            }
+            serde_yaml::Value::Tagged(tagged) => Value::from(tagged.value),
         }
     }
 }
@@ -221,6 +230,16 @@ impl From<Value> for serde_yaml::Value {
             Value::UnsignedInteger(u) => serde_yaml::Value::Number(u.into()),
             Value::Float(f) => serde_yaml::Value::Number(f.into()),
             Value::String(s) => serde_yaml::Value::String(s),
+            Value::Sequence(seq) => {
+                serde_yaml::Value::Sequence(seq.into_iter().map(serde_yaml::Value::from).collect())
+            }
+            Value::Mapping(map) => {
+                let mut result = serde_yaml::Mapping::new();
+                for (k, v) in map {
+                    result.insert(serde_yaml::Value::String(k), serde_yaml::Value::from(v));
+                }
+                serde_yaml::Value::Mapping(result)
+            }
         }
     }
 }
@@ -249,9 +268,16 @@ impl From<serde_json::Value> for Value {
                 }
             }
             serde_json::Value::String(s) => Value::String(s),
-            // These shouldn't happen at the primitive level
-            serde_json::Value::Array(_) => Value::Null,
-            serde_json::Value::Object(_) => Value::Null,
+            serde_json::Value::Array(arr) => {
+                Value::Sequence(arr.into_iter().map(Value::from).collect())
+            }
+            serde_json::Value::Object(obj) => {
+                let mut result = HashMap::new();
+                for (k, v) in obj {
+                    result.insert(k, Value::from(v));
+                }
+                Value::Mapping(result)
+            }
         }
     }
 }
@@ -268,6 +294,16 @@ impl From<Value> for serde_json::Value {
                 .map(serde_json::Value::Number)
                 .unwrap_or(serde_json::Value::Null),
             Value::String(s) => serde_json::Value::String(s),
+            Value::Sequence(seq) => {
+                serde_json::Value::Array(seq.into_iter().map(serde_json::Value::from).collect())
+            }
+            Value::Mapping(map) => {
+                let mut result = serde_json::Map::new();
+                for (k, v) in map {
+                    result.insert(k, serde_json::Value::from(v));
+                }
+                serde_json::Value::Object(result)
+            }
         }
     }
 }

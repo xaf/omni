@@ -138,6 +138,46 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         &self.scope
     }
 
+    /// Unwrap the ConfigValue to a plain Value
+    ///
+    /// This recursively strips all source and scope information,
+    /// returning only the raw Value structure.
+    pub fn unwrap(&self) -> Value {
+        if let Some(data) = self.value.as_ref().map(|data| data.as_ref()) {
+            match data {
+                ConfigData::Value(v) => v.clone(),
+                ConfigData::Mapping(mapping) => {
+                    let mut result = HashMap::new();
+                    for (key, value) in mapping {
+                        result.insert(key.clone(), value.unwrap());
+                    }
+                    Value::Mapping(result)
+                }
+                ConfigData::Sequence(sequence) => {
+                    Value::Sequence(sequence.iter().map(|v| v.unwrap()).collect())
+                }
+            }
+        } else {
+            Value::Null
+        }
+    }
+
+    /// Serialize this value to sorted YAML string
+    pub fn as_yaml(&self) -> String {
+        let value = self.unwrap();
+        let yaml_value: serde_yaml::Value = value.into();
+        let sorted = sort_yaml_value(&yaml_value);
+        serde_yaml::to_string(&sorted).unwrap_or_default()
+    }
+
+    /// Serialize this value to sorted JSON string
+    pub fn as_json(&self) -> String {
+        let value = self.unwrap();
+        let json_value: serde_json::Value = value.into();
+        let sorted = sort_json_value(&json_value);
+        serde_json::to_string_pretty(&sorted).unwrap_or_default()
+    }
+
     /// Get all scopes present in this value tree
     pub fn scopes(&self) -> HashSet<C> {
         let mut scopes = HashSet::new();
@@ -827,6 +867,50 @@ impl<S: Source, C: Scope> From<ConfigValue<S, C>> for serde_yaml::Value {
 impl<S: Source, C: Scope> From<&ConfigValue<S, C>> for serde_yaml::Value {
     fn from(value: &ConfigValue<S, C>) -> Self {
         value.as_serde_yaml()
+    }
+}
+
+/// Sort a YAML value recursively (sorts mapping keys)
+fn sort_yaml_value(value: &serde_yaml::Value) -> serde_yaml::Value {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            let mut sorted_map = serde_yaml::Mapping::new();
+            let mut keys: Vec<_> = map.keys().collect();
+            keys.sort_by_key(|k| k.as_str().unwrap_or(""));
+
+            for key in keys {
+                if let Some(v) = map.get(key) {
+                    sorted_map.insert(key.clone(), sort_yaml_value(v));
+                }
+            }
+            serde_yaml::Value::Mapping(sorted_map)
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            serde_yaml::Value::Sequence(seq.iter().map(sort_yaml_value).collect())
+        }
+        _ => value.clone(),
+    }
+}
+
+/// Sort a JSON value recursively (sorts object keys)
+fn sort_json_value(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(obj) => {
+            let mut sorted_obj = serde_json::Map::new();
+            let mut keys: Vec<_> = obj.keys().collect();
+            keys.sort();
+
+            for key in keys {
+                if let Some(v) = obj.get(key) {
+                    sorted_obj.insert(key.clone(), sort_json_value(v));
+                }
+            }
+            serde_json::Value::Object(sorted_obj)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(sort_json_value).collect())
+        }
+        _ => value.clone(),
     }
 }
 

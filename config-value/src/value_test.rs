@@ -94,3 +94,80 @@ fn test_extend_keep() {
     // Should keep original value
     assert_eq!(base.get("key").unwrap().as_str(), Some("original".to_string()));
 }
+
+#[test]
+fn test_unwrap() {
+    let yaml = r#"
+name: test
+count: 42
+nested:
+  items: [1, 2, 3]
+"#;
+    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
+        DefaultSource,
+        DefaultScope,
+        yaml,
+    ).unwrap();
+
+    let value = config_value.unwrap();
+
+    // Check it's a mapping
+    assert!(value.is_mapping());
+    let mapping = value.as_mapping().unwrap();
+
+    // Check primitive values
+    assert_eq!(mapping.get("name").unwrap().as_str(), Some("test"));
+    assert_eq!(mapping.get("count").unwrap().as_i64(), Some(42));
+
+    // Check nested mapping
+    let nested = mapping.get("nested").unwrap().as_mapping().unwrap();
+    let items = nested.get("items").unwrap().as_sequence().unwrap();
+    assert_eq!(items.len(), 3);
+}
+
+#[test]
+fn test_as_yaml() {
+    let yaml = r#"
+z_key: last
+a_key: first
+m_key: middle
+"#;
+    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
+        DefaultSource,
+        DefaultScope,
+        yaml,
+    ).unwrap();
+
+    let yaml_output = config_value.as_yaml();
+
+    // Check that keys are sorted
+    let lines: Vec<&str> = yaml_output.lines().collect();
+    assert!(lines[0].starts_with("a_key:"));
+    assert!(lines[1].starts_with("m_key:"));
+    assert!(lines[2].starts_with("z_key:"));
+}
+
+#[test]
+fn test_as_json() {
+    let yaml = r#"
+z_key: last
+a_key: first
+m_key: middle
+"#;
+    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
+        DefaultSource,
+        DefaultScope,
+        yaml,
+    ).unwrap();
+
+    let json_output = config_value.as_json();
+
+    // Check it's valid JSON
+    assert!(json_output.contains("\"a_key\""));
+    assert!(json_output.contains("\"m_key\""));
+    assert!(json_output.contains("\"z_key\""));
+
+    // Parse to verify it's valid JSON
+    let parsed: serde_json::Value = serde_json::from_str(&json_output).unwrap();
+    assert!(parsed.is_object());
+}

@@ -190,13 +190,15 @@ impl ConfigValueExt for ConfigValue {
     }
 
     fn unwrap(&self) -> serde_yaml::Value {
-        self.as_serde_yaml()
+        // Use the new unwrap() method from config-value that returns Value,
+        // then convert to serde_yaml::Value for backward compatibility
+        let value = config_value::ConfigValue::unwrap(self);
+        value.into()
     }
 
     fn as_yaml(&self) -> String {
-        let serde_yaml = self.as_serde_yaml();
-        let serde_yaml = sort_serde_yaml(&serde_yaml);
-        serde_yaml::to_string(&serde_yaml).unwrap()
+        // Use the new as_yaml() method from config-value which handles sorting
+        config_value::ConfigValue::as_yaml(self)
     }
 
     fn get_source(&self) -> &ConfigSource {
