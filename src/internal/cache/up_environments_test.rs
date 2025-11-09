@@ -374,6 +374,194 @@ mod up_environments_cache {
             assert_eq!(ids.len(), expected_total);
         });
     }
+
+    #[test]
+    fn test_retention_stale_cleanup_old_entries() {
+        run_with_env(&[], || {
+            let cache = UpEnvironmentsCache::get();
+
+            // Set retention_stale to 60 seconds for testing
+            let retention_stale = 60;
+            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
+                *config_value = ConfigValue::from_str(
+                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s").as_str(),
+                )
+                .expect("Failed to create config value");
+                true
+            }) {
+                panic!("Failed to edit main user config file: {err}");
+            }
+
+            // Create an environment for workdir1
+            let workdir1 = "github.com:test/stale-repo";
+            let mut env = UpEnvironment::new().init();
+            cache
+                .assign_environment(workdir1, None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Manually set the dates to be older than retention_stale
+            let old_date = "2020-01-01T00:00:00.000Z";
+            CacheManager::get()
+                .execute(
+                    "UPDATE env_history SET used_from_date = ?1, last_seen_at = ?1 WHERE workdir_id = ?2",
+                    &[&old_date, &workdir1],
+                )
+                .expect("Failed to update dates");
+
+            // Create another workdir to trigger cleanup
+            let workdir2 = "github.com:test/fresh-repo";
+            cache
+                .assign_environment(workdir2, None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Verify that workdir1 entry was closed (cleaned up)
+            let result: Result<i64, _> = CacheManager::get().query_one(
+                "SELECT COUNT(*) FROM env_history WHERE workdir_id = ?1 AND used_until_date IS NULL",
+                &[&workdir1],
+            );
+            assert_eq!(result.unwrap(), 0, "Stale entry should have been closed");
+
+            // Verify that workdir2 is still open
+            let result: Result<i64, _> = CacheManager::get().query_one(
+                "SELECT COUNT(*) FROM env_history WHERE workdir_id = ?1 AND used_until_date IS NULL",
+                &[&workdir2],
+            );
+            assert_eq!(result.unwrap(), 1, "Fresh entry should still be open");
+        });
+    }
+
+    #[test]
+    fn test_retention_stale_keeps_recent_entries() {
+        run_with_env(&[], || {
+            let cache = UpEnvironmentsCache::get();
+
+            // Set retention_stale to 60 seconds
+            let retention_stale = 60;
+            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
+                *config_value = ConfigValue::from_str(
+                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s").as_str(),
+                )
+                .expect("Failed to create config value");
+                true
+            }) {
+                panic!("Failed to edit main user config file: {err}");
+            }
+
+            // Create an environment
+            let workdir = "github.com:test/recent-repo";
+            let mut env = UpEnvironment::new().init();
+            cache
+                .assign_environment(workdir, None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Trigger cleanup by creating another workdir
+            cache
+                .assign_environment("github.com:test/other-repo", None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Verify entry is still open
+            let result: Result<i64, _> = CacheManager::get().query_one(
+                "SELECT COUNT(*) FROM env_history WHERE workdir_id = ?1 AND used_until_date IS NULL",
+                &[&workdir],
+            );
+            assert_eq!(result.unwrap(), 1, "Recent entry should still be open");
+        });
+    }
+
+    #[test]
+    fn test_retention_stale_uses_max_of_dates() {
+        run_with_env(&[], || {
+            let cache = UpEnvironmentsCache::get();
+
+            // Set retention_stale to 60 seconds
+            let retention_stale = 60;
+            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
+                *config_value = ConfigValue::from_str(
+                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s").as_str(),
+                )
+                .expect("Failed to create config value");
+                true
+            }) {
+                panic!("Failed to edit main user config file: {err}");
+            }
+
+            // Create an environment with old used_from_date
+            let workdir = "github.com:test/max-date-repo";
+            let mut env = UpEnvironment::new().init();
+            cache
+                .assign_environment(workdir, None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Set used_from_date to old, but last_seen_at to recent (now)
+            let old_date = "2020-01-01T00:00:00.000Z";
+            CacheManager::get()
+                .execute(
+                    "UPDATE env_history SET used_from_date = ?1 WHERE workdir_id = ?2 AND used_until_date IS NULL",
+                    &[&old_date, &workdir],
+                )
+                .expect("Failed to update used_from_date");
+
+            // Trigger cleanup
+            cache
+                .assign_environment("github.com:test/trigger-repo", None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Verify entry is still open because last_seen_at is recent
+            let result: Result<i64, _> = CacheManager::get().query_one(
+                "SELECT COUNT(*) FROM env_history WHERE workdir_id = ?1 AND used_until_date IS NULL",
+                &[&workdir],
+            );
+            assert_eq!(
+                result.unwrap(),
+                1,
+                "Entry with recent last_seen_at should still be open"
+            );
+        });
+    }
+
+    #[test]
+    fn test_last_seen_at_updated_on_omni_up() {
+        run_with_env(&[], || {
+            let cache = UpEnvironmentsCache::get();
+            let workdir = "github.com:test/update-seen-repo";
+            let mut env = UpEnvironment::new().init();
+
+            // Create initial environment
+            cache
+                .assign_environment(workdir, None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Get initial last_seen_at
+            let initial_last_seen: String = CacheManager::get()
+                .query_one(
+                    "SELECT last_seen_at FROM env_history WHERE workdir_id = ?1 AND used_until_date IS NULL",
+                    &[&workdir],
+                )
+                .expect("Failed to get initial last_seen_at");
+
+            // Sleep briefly to ensure time difference
+            std::thread::sleep(std::time::Duration::from_millis(10));
+
+            // Run omni up again (assign same environment)
+            cache
+                .assign_environment(workdir, None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Get updated last_seen_at
+            let updated_last_seen: String = CacheManager::get()
+                .query_one(
+                    "SELECT last_seen_at FROM env_history WHERE workdir_id = ?1 AND used_until_date IS NULL",
+                    &[&workdir],
+                )
+                .expect("Failed to get updated last_seen_at");
+
+            // Verify last_seen_at was updated
+            assert_ne!(
+                initial_last_seen, updated_last_seen,
+                "last_seen_at should be updated after omni up"
+            );
+        });
+    }
 }
 
 mod up_environment {
