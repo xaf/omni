@@ -1,0 +1,283 @@
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+/// Primitive configuration value
+///
+/// Represents configuration values independent of any serialization format (YAML, JSON, TOML, etc.).
+/// This is a recursive structure that can represent primitives, sequences, and mappings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Value {
+    /// Null/None value
+    Null,
+    /// Boolean value
+    Bool(bool),
+    /// Integer value (signed 64-bit)
+    Integer(i64),
+    /// Unsigned integer value (unsigned 64-bit)
+    UnsignedInteger(u64),
+    /// Floating point value (64-bit)
+    Float(f64),
+    /// String value
+    String(String),
+    /// Sequence/array of values
+    Sequence(Vec<Value>),
+    /// Mapping/object of key-value pairs
+    Mapping(HashMap<String, Value>),
+}
+
+impl Value {
+    /// Check if this is a null value
+    pub fn is_null(&self) -> bool {
+        matches!(self, Value::Null)
+    }
+
+    /// Check if this is a sequence/array
+    pub fn is_sequence(&self) -> bool {
+        matches!(self, Value::Sequence(_))
+    }
+
+    /// Check if this is a mapping/object
+    pub fn is_mapping(&self) -> bool {
+        matches!(self, Value::Mapping(_))
+    }
+
+    /// Try to get as a string
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Value::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Try to get as a boolean
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    /// Try to get as a sequence
+    pub fn as_sequence(&self) -> Option<&Vec<Value>> {
+        match self {
+            Value::Sequence(seq) => Some(seq),
+            _ => None,
+        }
+    }
+
+    /// Try to get as a mapping
+    pub fn as_mapping(&self) -> Option<&HashMap<String, Value>> {
+        match self {
+            Value::Mapping(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    /// Try to get as an integer
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Value::Integer(i) => Some(*i),
+            Value::UnsignedInteger(u) if *u <= i64::MAX as u64 => Some(*u as i64),
+            _ => None,
+        }
+    }
+
+    /// Try to get as an unsigned integer
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            Value::UnsignedInteger(u) => Some(*u),
+            Value::Integer(i) if *i >= 0 => Some(*i as u64),
+            _ => None,
+        }
+    }
+
+    /// Try to get as a float
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Value::Float(f) => Some(*f),
+            Value::Integer(i) => Some(*i as f64),
+            Value::UnsignedInteger(u) => Some(*u as f64),
+            _ => None,
+        }
+    }
+
+    /// Force conversion to string
+    ///
+    /// Converts any primitive value to its string representation.
+    /// Returns None for Null, Sequence, and Mapping values.
+    pub fn as_str_forced(&self) -> Option<String> {
+        match self {
+            Value::Null => None,
+            Value::String(s) => Some(s.clone()),
+            Value::Bool(b) => Some(b.to_string()),
+            Value::Integer(i) => Some(i.to_string()),
+            Value::UnsignedInteger(u) => Some(u.to_string()),
+            Value::Float(f) => Some(f.to_string()),
+            Value::Sequence(_) | Value::Mapping(_) => None,
+        }
+    }
+
+    /// Force conversion to boolean
+    ///
+    /// Converts various value types to boolean:
+    /// - Bool: returns the value
+    /// - String: "true", "yes", "y", "on", "1" => true; "false", "no", "n", "off", "0" => false
+    /// - Integer/UnsignedInteger: 0 => false, non-zero => true
+    /// - Float: 0.0 => false, non-zero => true
+    /// - Null, Sequence, Mapping: returns None
+    pub fn as_bool_forced(&self) -> Option<bool> {
+        match self {
+            Value::Null => None,
+            Value::Bool(b) => Some(*b),
+            Value::String(s) => match s.to_lowercase().as_str() {
+                "true" | "yes" | "y" | "on" | "1" => Some(true),
+                "false" | "no" | "n" | "off" | "0" => Some(false),
+                _ => None,
+            },
+            Value::Integer(i) => Some(*i != 0),
+            Value::UnsignedInteger(u) => Some(*u != 0),
+            Value::Float(f) => Some(*f != 0.0),
+            Value::Sequence(_) | Value::Mapping(_) => None,
+        }
+    }
+
+    /// Force conversion to integer
+    ///
+    /// Converts various value types to i64:
+    /// - Integer: returns the value
+    /// - UnsignedInteger: returns as i64 if it fits
+    /// - Float: truncates to i64
+    /// - String: parses as i64
+    /// - Bool: true => 1, false => 0
+    /// - Null, Sequence, Mapping: returns None
+    pub fn as_i64_forced(&self) -> Option<i64> {
+        match self {
+            Value::Null => None,
+            Value::Integer(i) => Some(*i),
+            Value::UnsignedInteger(u) if *u <= i64::MAX as u64 => Some(*u as i64),
+            Value::UnsignedInteger(_) => None,
+            Value::Float(f) => Some(*f as i64),
+            Value::String(s) => s.parse().ok(),
+            Value::Bool(b) => Some(if *b { 1 } else { 0 }),
+            Value::Sequence(_) | Value::Mapping(_) => None,
+        }
+    }
+
+    /// Force conversion to float
+    ///
+    /// Converts various value types to f64:
+    /// - Float: returns the value
+    /// - Integer/UnsignedInteger: converts to f64
+    /// - String: parses as f64
+    /// - Bool: true => 1.0, false => 0.0
+    /// - Null, Sequence, Mapping: returns None
+    pub fn as_f64_forced(&self) -> Option<f64> {
+        match self {
+            Value::Null => None,
+            Value::Float(f) => Some(*f),
+            Value::Integer(i) => Some(*i as f64),
+            Value::UnsignedInteger(u) => Some(*u as f64),
+            Value::String(s) => s.parse().ok(),
+            Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+            Value::Sequence(_) | Value::Mapping(_) => None,
+        }
+    }
+}
+
+// Conversions from serde_yaml::Value
+impl From<serde_yaml::Value> for Value {
+    fn from(value: serde_yaml::Value) -> Self {
+        match value {
+            serde_yaml::Value::Null => Value::Null,
+            serde_yaml::Value::Bool(b) => Value::Bool(b),
+            serde_yaml::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Value::Integer(i)
+                } else if let Some(u) = n.as_u64() {
+                    Value::UnsignedInteger(u)
+                } else if let Some(f) = n.as_f64() {
+                    Value::Float(f)
+                } else {
+                    Value::Null
+                }
+            }
+            serde_yaml::Value::String(s) => Value::String(s),
+            // These shouldn't happen at the primitive level
+            serde_yaml::Value::Sequence(_) => Value::Null,
+            serde_yaml::Value::Mapping(_) => Value::Null,
+            serde_yaml::Value::Tagged(_) => Value::Null,
+        }
+    }
+}
+
+// Conversions to serde_yaml::Value
+impl From<Value> for serde_yaml::Value {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Null => serde_yaml::Value::Null,
+            Value::Bool(b) => serde_yaml::Value::Bool(b),
+            Value::Integer(i) => serde_yaml::Value::Number(i.into()),
+            Value::UnsignedInteger(u) => serde_yaml::Value::Number(u.into()),
+            Value::Float(f) => serde_yaml::Value::Number(f.into()),
+            Value::String(s) => serde_yaml::Value::String(s),
+        }
+    }
+}
+
+impl From<&Value> for serde_yaml::Value {
+    fn from(value: &Value) -> Self {
+        value.clone().into()
+    }
+}
+
+// Conversions from serde_json::Value
+impl From<serde_json::Value> for Value {
+    fn from(value: serde_json::Value) -> Self {
+        match value {
+            serde_json::Value::Null => Value::Null,
+            serde_json::Value::Bool(b) => Value::Bool(b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Value::Integer(i)
+                } else if let Some(u) = n.as_u64() {
+                    Value::UnsignedInteger(u)
+                } else if let Some(f) = n.as_f64() {
+                    Value::Float(f)
+                } else {
+                    Value::Null
+                }
+            }
+            serde_json::Value::String(s) => Value::String(s),
+            // These shouldn't happen at the primitive level
+            serde_json::Value::Array(_) => Value::Null,
+            serde_json::Value::Object(_) => Value::Null,
+        }
+    }
+}
+
+// Conversions to serde_json::Value
+impl From<Value> for serde_json::Value {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Null => serde_json::Value::Null,
+            Value::Bool(b) => serde_json::Value::Bool(b),
+            Value::Integer(i) => serde_json::Value::Number(i.into()),
+            Value::UnsignedInteger(u) => serde_json::Value::Number(u.into()),
+            Value::Float(f) => serde_json::Number::from_f64(f)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            Value::String(s) => serde_json::Value::String(s),
+        }
+    }
+}
+
+impl From<&Value> for serde_json::Value {
+    fn from(value: &Value) -> Self {
+        value.clone().into()
+    }
+}
+
+#[cfg(test)]
+#[path = "primitive_test.rs"]
+mod tests;
