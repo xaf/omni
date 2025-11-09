@@ -1,5 +1,7 @@
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::path::PathBuf;
@@ -16,6 +18,9 @@ use crate::internal::config::parser::EnvOperationConfig;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::up::utils::get_config_mod_times;
 use crate::internal::env::data_home;
+use crate::internal::env::workdir;
+use crate::internal::git::package_path_from_handle;
+use crate::internal::git::ORG_LOADER;
 
 use crate::internal::cache::database::FromRow;
 use crate::internal::cache::database::RowExt;
@@ -76,6 +81,50 @@ impl UpEnvironmentsCache {
         })?;
 
         Ok(cleared)
+    }
+
+    /// Clean up stale open entries (where the workdir no longer exists)
+    fn cleanup_stale_open_entries(
+        tx: &rusqlite::Connection,
+        retention_stale: u64,
+    ) -> Result<(), CacheManagerError> {
+        // Ignore if retention_stale is 0
+        if retention_stale == 0 {
+            return Ok(());
+        }
+
+        // Get workdir_ids that need to be checked
+        let stale_workdir_ids: Vec<String> = tx
+            .prepare(include_str!(
+                "database/sql/up_environments_get_stale_open_workdir_ids.sql"
+            ))?
+            .query_map(params![retention_stale], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if stale_workdir_ids.is_empty() {
+            return Ok(());
+        }
+
+        // Lazy-load sandbox index only if needed
+        let checker = WorkDirChecker::new();
+
+        for workdir_id in stale_workdir_ids {
+            if checker.exists(&workdir_id) {
+                // Workdir still exists, update last_seen_at
+                tx.execute(
+                    include_str!("database/sql/up_environments_update_last_seen_at.sql"),
+                    params![&workdir_id],
+                )?;
+            } else {
+                // Workdir no longer exists, close the entry
+                tx.execute(
+                    include_str!("database/sql/up_environments_close_missing_workdir.sql"),
+                    params![&workdir_id],
+                )?;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn assign_environment(
@@ -163,15 +212,23 @@ impl UpEnvironmentsCache {
                 )?;
             }
 
+            // Cleanup stale open entries (workdirs that no longer exist)
+            Self::cleanup_stale_open_entries(tx, cache_env_config.retention_stale)?;
+
             // Cleanup history
             tx.execute(
                 include_str!("database/sql/up_environments_cleanup_history_duplicate_opens.sql"),
                 [],
             )?;
-            tx.execute(
-                include_str!("database/sql/up_environments_cleanup_history_retention.sql"),
-                params![&cache_env_config.retention],
-            )?;
+
+            // Only apply retention cleanup if retention > 0
+            if cache_env_config.retention > 0 {
+                tx.execute(
+                    include_str!("database/sql/up_environments_cleanup_history_retention.sql"),
+                    params![&cache_env_config.retention],
+                )?;
+            }
+
             tx.execute(
                 include_str!("database/sql/up_environments_cleanup_history_max_per_workdir.sql"),
                 params![&cache_env_config.max_per_workdir],
@@ -183,6 +240,12 @@ impl UpEnvironmentsCache {
             tx.execute(
                 include_str!("database/sql/up_environments_delete_orphaned_env.sql"),
                 [],
+            )?;
+
+            // Update last_seen_at for this workdir to track that we just ran omni up
+            tx.execute(
+                include_str!("database/sql/up_environments_update_last_seen_at.sql"),
+                params![&workdir_id],
             )?;
 
             Ok(())
@@ -200,6 +263,71 @@ impl UpEnvironmentsCache {
             )
             .unwrap();
         environment_ids.into_iter().collect()
+    }
+}
+
+struct WorkDirChecker {
+    sandbox_ids: OnceCell<HashSet<String>>,
+}
+
+impl WorkDirChecker {
+    fn new() -> Self {
+        Self {
+            sandbox_ids: OnceCell::new(),
+        }
+    }
+
+    fn is_sandbox(&self, workdir_id: &str) -> bool {
+        let index = self.sandbox_ids.get_or_init(|| {
+            let mut index = HashSet::new();
+            let config = config(".");
+            let sandbox_root = PathBuf::from(config.sandbox());
+
+            if !sandbox_root.exists() {
+                return index;
+            }
+
+            if let Ok(entries) = std::fs::read_dir(&sandbox_root) {
+                for entry in entries.flatten() {
+                    let Ok(file_type) = entry.file_type() else {
+                        continue;
+                    };
+
+                    if !file_type.is_dir() {
+                        continue;
+                    }
+
+                    let path = entry.path();
+
+                    // Try to read the workdir_id from this directory
+                    if let Some(path_str) = path.to_str() {
+                        let wd = workdir(path_str);
+                        if let Some(id) = wd.id() {
+                            index.insert(id);
+                        }
+                    }
+                }
+            }
+
+            index
+        });
+
+        index.contains(workdir_id)
+    }
+
+    fn exists(&self, workdir_id: &str) -> bool {
+        if let Some(package_id) = workdir_id.strip_prefix("package#") {
+            package_path_from_handle(package_id)
+                .map(|path| path.exists())
+                .unwrap_or(false)
+        } else if workdir_id.contains(':') && workdir_id.contains('/') {
+            ORG_LOADER
+                .find_repo_quick(workdir_id, true, false)
+                .map(|path| path.exists())
+                .unwrap_or(false)
+        } else {
+            self.is_sandbox(workdir_id)
+        }
     }
 }
 

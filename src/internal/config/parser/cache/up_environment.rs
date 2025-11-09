@@ -13,6 +13,8 @@ pub struct UpEnvironmentCacheConfig {
     pub max_per_workdir: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_total: Option<usize>,
+    #[serde(default)]
+    pub retention_stale: u64,
 }
 
 impl Default for UpEnvironmentCacheConfig {
@@ -21,12 +23,14 @@ impl Default for UpEnvironmentCacheConfig {
             retention: Self::DEFAULT_RETENTION,
             max_per_workdir: None,
             max_total: None,
+            retention_stale: Self::DEFAULT_RETENTION_STALE,
         }
     }
 }
 
 impl UpEnvironmentCacheConfig {
     const DEFAULT_RETENTION: u64 = 7776000; // 90 days
+    const DEFAULT_RETENTION_STALE: u64 = 15552000; // 180 days (6 months)
 
     pub fn from_config_value(
         config_value: Option<ConfigValue>,
@@ -75,10 +79,17 @@ impl UpEnvironmentCacheConfig {
             None => None,
         };
 
+        let retention_stale = parse_duration_or_default(
+            config_value.get("retention_stale").as_ref(),
+            Self::DEFAULT_RETENTION_STALE,
+            &error_handler.with_key("retention_stale"),
+        );
+
         Self {
             retention,
             max_per_workdir,
             max_total,
+            retention_stale,
         }
     }
 }
