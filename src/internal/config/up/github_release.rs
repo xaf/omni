@@ -1471,7 +1471,10 @@ impl UpConfigGithubRelease {
         Ok(releases)
     }
 
-    pub fn resolve_release(&self, releases: &GithubReleases) -> Result<GithubReleaseVersion, UpError> {
+    pub fn resolve_release(
+        &self,
+        releases: &GithubReleases,
+    ) -> Result<GithubReleaseVersion, UpError> {
         let match_version = self.version.clone().unwrap_or_else(|| "latest".to_string());
         self.resolve_release_from_str(&match_version, releases)
     }
