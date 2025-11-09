@@ -9,6 +9,7 @@ cache:
     versions_retention: 7776000
   environment:
     retention: 7776000
+    retention_stale: 15552000
   github_release:
     cleanup_after: 604800
     versions_expire: 86400
