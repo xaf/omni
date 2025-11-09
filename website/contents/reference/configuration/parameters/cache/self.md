@@ -12,6 +12,7 @@ Configuration of the cache.
 | Operation | Type | Description                                                    |
 |-----------|------|---------------------------------------------------------|
 | `path` | path | The path to the cache directory *(default: `~/.cache/omni`)* |
+| `environment` | [environment](cache/environment) | Configuration of the cache for environment history tracking |
 | `cargo_install` | [cargo_install](cache/cargo_install) | Configuration of the cache for `cargo-install` operations |
 | `github_release` | [github_release](cache/github_release) | Configuration of the cache for `github-release` operations |
 | `go_install` | [go_install](cache/go_install) | Configuration of the cache for `go-install` operations |
@@ -23,6 +24,9 @@ Configuration of the cache.
 ```yaml
 cache:
   path: ~/.cache/omni
+  environment:
+    retention: 90d
+    retention_stale: 180d
   cargo_install:
     versions_expire: 1d
     cleanup_after: 1w

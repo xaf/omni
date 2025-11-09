@@ -88,6 +88,11 @@ impl UpEnvironmentsCache {
         tx: &rusqlite::Connection,
         retention_stale: u64,
     ) -> Result<(), CacheManagerError> {
+        // Ignore if retention_stale is 0
+        if retention_stale == 0 {
+            return Ok(());
+        }
+
         // Get workdir_ids that need to be checked
         let stale_workdir_ids: Vec<String> = tx
             .prepare(include_str!(
@@ -104,17 +109,14 @@ impl UpEnvironmentsCache {
         let checker = WorkDirChecker::new();
 
         for workdir_id in stale_workdir_ids {
-            eprintln!("Checking existence of workdir_id: {}", &workdir_id);
             if checker.exists(&workdir_id) {
                 // Workdir still exists, update last_seen_at
-                eprintln!("Workdir exists: {}", &workdir_id);
                 tx.execute(
                     include_str!("database/sql/up_environments_update_last_seen_at.sql"),
                     params![&workdir_id],
                 )?;
             } else {
                 // Workdir no longer exists, close the entry
-                eprintln!("Workdir missing, closing entry: {}", &workdir_id);
                 tx.execute(
                     include_str!("database/sql/up_environments_close_missing_workdir.sql"),
                     params![&workdir_id],
@@ -218,10 +220,15 @@ impl UpEnvironmentsCache {
                 include_str!("database/sql/up_environments_cleanup_history_duplicate_opens.sql"),
                 [],
             )?;
-            tx.execute(
-                include_str!("database/sql/up_environments_cleanup_history_retention.sql"),
-                params![&cache_env_config.retention],
-            )?;
+
+            // Only apply retention cleanup if retention > 0
+            if cache_env_config.retention > 0 {
+                tx.execute(
+                    include_str!("database/sql/up_environments_cleanup_history_retention.sql"),
+                    params![&cache_env_config.retention],
+                )?;
+            }
+
             tx.execute(
                 include_str!("database/sql/up_environments_cleanup_history_max_per_workdir.sql"),
                 params![&cache_env_config.max_per_workdir],

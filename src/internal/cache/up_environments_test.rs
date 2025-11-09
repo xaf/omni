@@ -520,6 +520,57 @@ mod up_environments_cache {
     }
 
     #[test]
+    fn test_retention_disabled_with_zero() {
+        run_with_env(&[], || {
+            let cache = UpEnvironmentsCache::get();
+
+            // Set retention to 0 to disable cleanup
+            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
+                *config_value = ConfigValue::from_str("cache:\n  environment:\n    retention: 0")
+                    .expect("Failed to create config value");
+                true
+            }) {
+                panic!("Failed to edit main user config file: {err}");
+            }
+
+            // Create and close an environment
+            let workdir = "github.com:test/disabled-retention";
+            let mut env = UpEnvironment::new().init();
+            cache
+                .assign_environment(workdir, None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Close it
+            cache.clear(workdir).expect("Failed to clear");
+
+            // Set the closed date to very old
+            let old_date = "2020-01-01T00:00:00.000Z";
+            CacheManager::get()
+                .execute(
+                    "UPDATE env_history SET used_until_date = ?1 WHERE workdir_id = ?2",
+                    &[&old_date, &workdir],
+                )
+                .expect("Failed to update used_until_date");
+
+            // Trigger cleanup by creating another workdir
+            cache
+                .assign_environment("github.com:test/trigger", None, &mut env)
+                .expect("Failed to assign environment");
+
+            // Verify the old closed entry was NOT deleted (retention disabled)
+            let result: Result<i64, _> = CacheManager::get().query_one(
+                "SELECT COUNT(*) FROM env_history WHERE workdir_id = ?1",
+                &[&workdir],
+            );
+            assert_eq!(
+                result.unwrap(),
+                1,
+                "Closed entry should NOT be deleted when retention = 0"
+            );
+        });
+    }
+
+    #[test]
     fn test_last_seen_at_updated_on_omni_up() {
         run_with_env(&[], || {
             let cache = UpEnvironmentsCache::get();
