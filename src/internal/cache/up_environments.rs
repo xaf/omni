@@ -86,14 +86,14 @@ impl UpEnvironmentsCache {
     /// Clean up stale open entries (where the workdir no longer exists)
     fn cleanup_stale_open_entries(
         tx: &rusqlite::Connection,
-        retention_active: u64,
+        retention_stale: u64,
     ) -> Result<(), CacheManagerError> {
         // Get workdir_ids that need to be checked
         let stale_workdir_ids: Vec<String> = tx
             .prepare(include_str!(
                 "database/sql/up_environments_get_stale_open_workdir_ids.sql"
             ))?
-            .query_map(params![retention_active], |row| row.get(0))?
+            .query_map(params![retention_stale], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
 
         if stale_workdir_ids.is_empty() {
@@ -211,7 +211,7 @@ impl UpEnvironmentsCache {
             }
 
             // Cleanup stale open entries (workdirs that no longer exist)
-            Self::cleanup_stale_open_entries(tx, cache_env_config.retention_active)?;
+            Self::cleanup_stale_open_entries(tx, cache_env_config.retention_stale)?;
 
             // Cleanup history
             tx.execute(
