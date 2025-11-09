@@ -1,6 +1,7 @@
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::path::PathBuf;
@@ -82,100 +83,17 @@ impl UpEnvironmentsCache {
         Ok(cleared)
     }
 
-    /// Check if a git repository workdir exists by parsing the workdir_id
-    /// and checking against ORG configurations
-    fn check_git_repo_exists(workdir_id: &str) -> bool {
-        // workdir_id format: "host:owner/repo" (e.g., "github.com:xaf/omni")
-        // Try to find the repository in any of the configured ORGs
-        for org in ORG_LOADER.orgs.iter() {
-            if let Some(repo_path) = org.get_repo_path(workdir_id) {
-                if repo_path.exists() {
-                    return true;
-                }
-            }
-        }
-
-        // Also check if it matches the default worktree location
-        // This is a fallback for repos not in any ORG
-        let config = config(".");
-        let worktree = config.worktree();
-
-        // Parse the workdir_id to extract host/owner/repo
-        if let Some((host_and_owner, repo)) = workdir_id.rsplit_once('/') {
-            if let Some((host, owner)) = host_and_owner.split_once(':') {
-                // Try common path patterns
-                let path1 = PathBuf::from(&worktree).join(host).join(owner).join(repo);
-                let path2 = PathBuf::from(&worktree).join(format!("{}/{}", owner, repo));
-
-                if path1.exists() || path2.exists() {
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-
-    /// Check if a package exists by parsing the workdir_id
-    fn check_package_exists(workdir_id: &str) -> bool {
-        // workdir_id format: "host:owner/repo" (e.g., "github.com:xaf/omni")
-        // Use package_path_from_handle to get the package path
-        if let Some(package_path) = package_path_from_handle(workdir_id) {
-            package_path.exists()
-        } else {
-            false
-        }
-    }
-
-    /// Build an index of workdir_ids found in the sandbox directory
-    fn build_sandbox_id_index() -> Result<HashMap<String, PathBuf>, CacheManagerError> {
-        let mut index = HashMap::new();
-        let config = config(".");
-        let sandbox_root = PathBuf::from(config.sandbox());
-
-        if !sandbox_root.exists() {
-            return Ok(index);
-        }
-
-        if let Ok(entries) = std::fs::read_dir(&sandbox_root) {
-            for entry in entries.flatten() {
-                let Ok(file_type) = entry.file_type() else {
-                    continue;
-                };
-
-                if !file_type.is_dir() {
-                    continue;
-                }
-
-                let path = entry.path();
-
-                // Try to read the workdir_id from this directory
-                if let Some(path_str) = path.to_str() {
-                    let wd = workdir(path_str);
-                    if let Some(id) = wd.id() {
-                        index.insert(id, path);
-                    }
-                }
-            }
-        }
-
-        Ok(index)
-    }
-
     /// Clean up stale open entries (where the workdir no longer exists)
     fn cleanup_stale_open_entries(
         tx: &rusqlite::Connection,
         retention_active: u64,
-        stale_check_every: u64,
     ) -> Result<(), CacheManagerError> {
         // Get workdir_ids that need to be checked
         let stale_workdir_ids: Vec<String> = tx
             .prepare(include_str!(
                 "database/sql/up_environments_get_stale_open_workdir_ids.sql"
             ))?
-            .query_map(params![retention_active, stale_check_every], |row| {
-                row.get(0)
-            })?
+            .query_map(params![retention_active], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
 
         if stale_workdir_ids.is_empty() {
@@ -183,32 +101,20 @@ impl UpEnvironmentsCache {
         }
 
         // Lazy-load sandbox index only if needed
-        let mut sandbox_ids: Option<HashMap<String, PathBuf>> = None;
+        let checker = WorkDirChecker::new();
 
         for workdir_id in stale_workdir_ids {
-            let exists = if let Some(bare_id) = workdir_id.strip_prefix("package#") {
-                // This is a package, check if it exists in the package directory
-                Self::check_package_exists(bare_id)
-            } else if workdir_id.contains(':') && workdir_id.contains('/') {
-                // Looks like git ID format: "github.com:owner/repo"
-                Self::check_git_repo_exists(&workdir_id)
-            } else {
-                // Looks like generated ID or needs sandbox check
-                // Lazy-load sandbox index on first use
-                if sandbox_ids.is_none() {
-                    sandbox_ids = Some(Self::build_sandbox_id_index()?);
-                }
-                sandbox_ids.as_ref().unwrap().contains_key(&workdir_id)
-            };
-
-            if exists {
-                // Workdir still exists, update last_check_exists_at
+            eprintln!("Checking existence of workdir_id: {}", &workdir_id);
+            if checker.exists(&workdir_id) {
+                // Workdir still exists, update last_seen_at
+                eprintln!("Workdir exists: {}", &workdir_id);
                 tx.execute(
-                    include_str!("database/sql/up_environments_update_last_check_exists_at.sql"),
+                    include_str!("database/sql/up_environments_update_last_seen_at.sql"),
                     params![&workdir_id],
                 )?;
             } else {
                 // Workdir no longer exists, close the entry
+                eprintln!("Workdir missing, closing entry: {}", &workdir_id);
                 tx.execute(
                     include_str!("database/sql/up_environments_close_missing_workdir.sql"),
                     params![&workdir_id],
@@ -305,11 +211,7 @@ impl UpEnvironmentsCache {
             }
 
             // Cleanup stale open entries (workdirs that no longer exist)
-            Self::cleanup_stale_open_entries(
-                tx,
-                cache_env_config.retention_active,
-                cache_env_config.stale_check_every,
-            )?;
+            Self::cleanup_stale_open_entries(tx, cache_env_config.retention_active)?;
 
             // Cleanup history
             tx.execute(
@@ -333,6 +235,12 @@ impl UpEnvironmentsCache {
                 [],
             )?;
 
+            // Update last_seen_at for this workdir to track that we just ran omni up
+            tx.execute(
+                include_str!("database/sql/up_environments_update_last_seen_at.sql"),
+                params![&workdir_id],
+            )?;
+
             Ok(())
         })?;
 
@@ -348,6 +256,71 @@ impl UpEnvironmentsCache {
             )
             .unwrap();
         environment_ids.into_iter().collect()
+    }
+}
+
+struct WorkDirChecker {
+    sandbox_ids: OnceCell<HashSet<String>>,
+}
+
+impl WorkDirChecker {
+    fn new() -> Self {
+        Self {
+            sandbox_ids: OnceCell::new(),
+        }
+    }
+
+    fn is_sandbox(&self, workdir_id: &str) -> bool {
+        let index = self.sandbox_ids.get_or_init(|| {
+            let mut index = HashSet::new();
+            let config = config(".");
+            let sandbox_root = PathBuf::from(config.sandbox());
+
+            if !sandbox_root.exists() {
+                return index;
+            }
+
+            if let Ok(entries) = std::fs::read_dir(&sandbox_root) {
+                for entry in entries.flatten() {
+                    let Ok(file_type) = entry.file_type() else {
+                        continue;
+                    };
+
+                    if !file_type.is_dir() {
+                        continue;
+                    }
+
+                    let path = entry.path();
+
+                    // Try to read the workdir_id from this directory
+                    if let Some(path_str) = path.to_str() {
+                        let wd = workdir(path_str);
+                        if let Some(id) = wd.id() {
+                            index.insert(id);
+                        }
+                    }
+                }
+            }
+
+            index
+        });
+
+        index.contains(workdir_id)
+    }
+
+    fn exists(&self, workdir_id: &str) -> bool {
+        if let Some(package_id) = workdir_id.strip_prefix("package#") {
+            package_path_from_handle(package_id)
+                .map(|path| path.exists())
+                .unwrap_or(false)
+        } else if workdir_id.contains(':') && workdir_id.contains('/') {
+            ORG_LOADER
+                .find_repo_quick(workdir_id, true, false)
+                .map(|path| path.exists())
+                .unwrap_or(false)
+        } else {
+            self.is_sandbox(workdir_id)
+        }
     }
 }
 
