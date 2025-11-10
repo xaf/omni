@@ -11,6 +11,7 @@ use crate::internal::cache::utils as cache_utils;
 use crate::internal::commands::utils::abs_path;
 use crate::internal::commands::utils::str_to_bool;
 use crate::internal::commands::HelpCommand;
+use crate::internal::config::get_as_bool_or_default;
 use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::parser::ParseArgsErrorKind;
 use config_value::ConfigErrorKind;
@@ -64,7 +65,7 @@ impl CommandDefinition {
                 "true".to_string()
             });
 
-        let aliases = config_value.get_as_str_array_validated("aliases", &error_handler.with_key("aliases"));
+        let aliases = config_value.get_as_str_array("aliases", &error_handler.with_key("aliases"));
 
         let syntax = match config_value.get("syntax") {
             Some(value) => {
@@ -102,7 +103,7 @@ impl CommandDefinition {
         };
 
         let category =
-            config_value.get_as_str_array_validated("category", &error_handler.with_key("category"));
+            config_value.get_as_str_array("category", &error_handler.with_key("category"));
         let category = if category.is_empty() {
             None
         } else {
@@ -136,13 +137,13 @@ impl CommandDefinition {
             None => None,
         };
 
-        let argparser = config_value.get_as_bool_or_default_validated(
+        let argparser = config_value.get_as_bool_or_default(
             "argparser",
             false, // Disable argparser by default
             &error_handler.with_key("argparser"),
         );
 
-        let export = config_value.get_as_bool_or_default_validated(
+        let export = config_value.get_as_bool_or_default(
             "export",
             false, // Do not export by default
             &error_handler.with_key("export"),
@@ -913,7 +914,7 @@ impl SyntaxOptArg {
                         .get_as_str_or_none("dest", &error_handler.with_key("dest"));
 
                     if required.is_none() {
-                        required = Some(value_for_details.get_as_bool_or_default(
+                        required = Some(get_as_bool_or_default(&value_for_details, 
                             "required",
                             false,
                             &error_handler.with_key("required"),
@@ -924,7 +925,7 @@ impl SyntaxOptArg {
                     // if not found, try to load it from the placeholder key
                     for key in &["placeholders", "placeholder"] {
                         let ph =
-                            value_for_details.get_as_str_array_validated(key, &error_handler.with_key(key));
+                            value_for_details.get_as_str_array(key, &error_handler.with_key(key));
                         if !ph.is_empty() {
                             placeholders = ph;
                             break;
@@ -953,27 +954,27 @@ impl SyntaxOptArg {
                                 None
                             })
                         });
-                    last_arg_double_hyphen = value_for_details.get_as_bool_or_default(
+                    last_arg_double_hyphen = get_as_bool_or_default(&value_for_details, 
                         "last",
                         false,
                         &error_handler.with_key("last"),
                     );
-                    leftovers = value_for_details.get_as_bool_or_default(
+                    leftovers = get_as_bool_or_default(&value_for_details, 
                         "leftovers",
                         false,
                         &error_handler.with_key("leftovers"),
                     );
-                    allow_hyphen_values = value_for_details.get_as_bool_or_default(
+                    allow_hyphen_values = get_as_bool_or_default(&value_for_details, 
                         "allow_hyphen_values",
                         false,
                         &error_handler.with_key("allow_hyphen_values"),
                     );
-                    allow_negative_numbers = value_for_details.get_as_bool_or_default(
+                    allow_negative_numbers = get_as_bool_or_default(&value_for_details, 
                         "allow_negative_numbers",
                         false,
                         &error_handler.with_key("allow_negative_numbers"),
                     );
-                    group_occurrences = value_for_details.get_as_bool_or_default(
+                    group_occurrences = get_as_bool_or_default(&value_for_details, 
                         "group_occurrences",
                         false,
                         &error_handler.with_key("group_occurrences"),
@@ -988,19 +989,19 @@ impl SyntaxOptArg {
                     .unwrap_or(SyntaxOptArgType::String);
 
                     requires = value_for_details
-                        .get_as_str_array_validated("requires", &error_handler.with_key("requires"));
+                        .get_as_str_array("requires", &error_handler.with_key("requires"));
 
-                    conflicts_with = value_for_details.get_as_str_array_validated(
+                    conflicts_with = value_for_details.get_as_str_array(
                         "conflicts_with",
                         &error_handler.with_key("conflicts_with"),
                     );
 
-                    required_without = value_for_details.get_as_str_array_validated(
+                    required_without = value_for_details.get_as_str_array(
                         "required_without",
                         &error_handler.with_key("required_without"),
                     );
 
-                    required_without_all = value_for_details.get_as_str_array_validated(
+                    required_without_all = value_for_details.get_as_str_array(
                         "required_without_all",
                         &error_handler.with_key("required_without_all"),
                     );
@@ -1052,7 +1053,7 @@ impl SyntaxOptArg {
                     }
 
                     let aliases = value_for_details
-                        .get_as_str_array_validated("aliases", &error_handler.with_key("aliases"));
+                        .get_as_str_array("aliases", &error_handler.with_key("aliases"));
                     names.extend(aliases);
                 }
             }
@@ -2641,7 +2642,7 @@ impl SyntaxGroup {
 
         // Handle the group parameters
         let parameters =
-            config_value.get_as_str_array_validated("parameters", &error_handler.with_key("parameters"));
+            config_value.get_as_str_array("parameters", &error_handler.with_key("parameters"));
         // No parameters, skip this group
         if parameters.is_empty() {
             error_handler
@@ -2651,23 +2652,23 @@ impl SyntaxGroup {
         }
 
         // Parse the rest of the group configuration
-        let multiple = config_value.get_as_bool_or_default(
+        let multiple = get_as_bool_or_default(&config_value, 
             "multiple",
             false,
             &error_handler.with_key("multiple"),
         );
 
-        let required = config_value.get_as_bool_or_default(
+        let required = get_as_bool_or_default(&config_value, 
             "required",
             false,
             &error_handler.with_key("required"),
         );
 
         let requires =
-            config_value.get_as_str_array_validated("requires", &error_handler.with_key("requires"));
+            config_value.get_as_str_array("requires", &error_handler.with_key("requires"));
 
         let conflicts_with = config_value
-            .get_as_str_array_validated("conflicts_with", &error_handler.with_key("conflicts_with"));
+            .get_as_str_array("conflicts_with", &error_handler.with_key("conflicts_with"));
 
         Some(Self {
             name,

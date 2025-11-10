@@ -139,7 +139,7 @@ impl UpConfigGoInstalls {
             let mut tools = Vec::new();
             for path_str in table.keys().sorted() {
                 let value = table.get(path_str).expect("path config not found");
-                let path = match ConfigValue::from_str(path_str) {
+                let path = match ConfigValue::from_str(Default::default(), Default::default(), path_str) {
                     Ok(value) => value,
                     Err(_) => continue,
                 };
@@ -148,7 +148,7 @@ impl UpConfigGoInstalls {
                     table.clone()
                 } else if let Some(version) = value.as_str_forced() {
                     let mut path_config = HashMap::new();
-                    let value = match ConfigValue::from_str(&version) {
+                    let value = match ConfigValue::from_str(Default::default(), Default::default(), &version) {
                         Ok(value) => value,
                         Err(_) => continue,
                     };
@@ -564,7 +564,7 @@ impl UpConfigGoInstall {
         table: &HashMap<String, ConfigValue>,
         error_handler: &ConfigErrorHandler,
     ) -> Self {
-        let config_value = ConfigValue::from_table(table.clone());
+        let config_value = ConfigValue::from_table(Default::default(), Default::default(), table.clone());
 
         let path = match table.get("path") {
             Some(path) => {
@@ -593,13 +593,13 @@ impl UpConfigGoInstall {
                             ..UpConfigGoInstall::default()
                         };
                     } else if let (Some(table), Ok(path_config_value)) =
-                        (value.as_table(), ConfigValue::from_str(key))
+                        (value.as_table(), ConfigValue::from_str(Default::default(), Default::default(), key))
                     {
                         let mut path_config = table.clone();
                         path_config.insert("path".to_string(), path_config_value);
                         return UpConfigGoInstall::from_table(&path_config, error_handler);
                     } else if let (true, Ok(path_config_value)) =
-                        (value.is_null(), ConfigValue::from_str(key))
+                        (value.is_null(), ConfigValue::from_str(Default::default(), Default::default(), key))
                     {
                         let path_config =
                             HashMap::from_iter(vec![("path".to_string(), path_config_value)]);
@@ -689,10 +689,10 @@ impl UpConfigGoInstall {
             &error_handler.with_key("prerelease"),
         );
         let build =
-            config_value.get_as_bool_or_default_validated("build", false, &error_handler.with_key("build"));
+            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
 
         let dirs = config_value
-            .get_as_str_array_validated("dir", &error_handler.with_key("dir"))
+            .get_as_str_array("dir", &error_handler.with_key("dir"))
             .iter()
             .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
             .collect::<BTreeSet<_>>();

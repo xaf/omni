@@ -205,4 +205,180 @@ fn should_transform_keypath(keypath: &[String]) -> bool {
     }
 }
 
+// Error handling wrapper functions for ConfigValue
+// These wrap the basic ConfigValue methods with omni's error handling
+
+/// Get a string value or None, reporting type errors via error handler
+pub fn get_as_str_or_none(
+    config_value: &ConfigValue,
+    key: &str,
+    error_handler: &ConfigErrorHandler,
+) -> Option<String> {
+    if let Some(value) = config_value.get(key) {
+        match value.as_str_forced() {
+            Some(value) => Some(value),
+            None => {
+                error_handler
+                    .clone()
+                    .with_expected("string")
+                    .with_actual(value.clone())
+                    .error(ConfigErrorKind::InvalidValueType);
+                None
+            }
+        }
+    } else {
+        None
+    }
+}
+
+/// Get a string value with default, reporting type errors via error handler
+pub fn get_as_str_or_default(
+    config_value: &ConfigValue,
+    key: &str,
+    default: &str,
+    error_handler: &ConfigErrorHandler,
+) -> String {
+    if let Some(value) = config_value.get(key) {
+        match value.as_str_forced() {
+            Some(value) => value,
+            None => {
+                error_handler
+                    .clone()
+                    .with_expected("string")
+                    .with_actual(value.clone())
+                    .error(ConfigErrorKind::InvalidValueType);
+                default.to_string()
+            }
+        }
+    } else {
+        default.to_string()
+    }
+}
+
+/// Get a string array, reporting type errors via error handler
+pub fn get_as_str_array(
+    config_value: &ConfigValue,
+    key: &str,
+    error_handler: &ConfigErrorHandler,
+) -> Vec<String> {
+    config_value.get_as_str_array(key, error_handler)
+}
+
+/// Get a boolean value or None, reporting type errors via error handler
+pub fn get_as_bool_or_none(
+    config_value: &ConfigValue,
+    key: &str,
+    error_handler: &ConfigErrorHandler,
+) -> Option<bool> {
+    if let Some(value) = config_value.get(key) {
+        match value.as_bool_forced() {
+            Some(value) => Some(value),
+            None => {
+                error_handler
+                    .clone()
+                    .with_expected("bool")
+                    .with_actual(value.clone())
+                    .error(ConfigErrorKind::InvalidValueType);
+                None
+            }
+        }
+    } else {
+        None
+    }
+}
+
+/// Get a boolean value with default, reporting type errors via error handler
+pub fn get_as_bool_or_default(
+    config_value: &ConfigValue,
+    key: &str,
+    default: bool,
+    error_handler: &ConfigErrorHandler,
+) -> bool {
+    if let Some(value) = config_value.get(key) {
+        match value.as_bool_forced() {
+            Some(value) => value,
+            None => {
+                error_handler
+                    .clone()
+                    .with_expected("bool")
+                    .with_actual(value.clone())
+                    .error(ConfigErrorKind::InvalidValueType);
+                default
+            }
+        }
+    } else {
+        default
+    }
+}
+
+/// Get a float value or None, reporting type errors via error handler
+pub fn get_as_float_or_none(
+    config_value: &ConfigValue,
+    key: &str,
+    error_handler: &ConfigErrorHandler,
+) -> Option<f64> {
+    if let Some(value) = config_value.get(key) {
+        match value.as_float() {
+            Some(value) => Some(value),
+            None => {
+                error_handler
+                    .clone()
+                    .with_expected("float")
+                    .with_actual(value.clone())
+                    .error(ConfigErrorKind::InvalidValueType);
+                None
+            }
+        }
+    } else {
+        None
+    }
+}
+
+/// Get a float value with default, reporting type errors via error handler
+pub fn get_as_float_or_default(
+    config_value: &ConfigValue,
+    key: &str,
+    default: f64,
+    error_handler: &ConfigErrorHandler,
+) -> f64 {
+    if let Some(value) = config_value.get(key) {
+        match value.as_float() {
+            Some(value) => value,
+            None => {
+                error_handler
+                    .clone()
+                    .with_expected("float")
+                    .with_actual(value.clone())
+                    .error(ConfigErrorKind::InvalidValueType);
+                default
+            }
+        }
+    } else {
+        default
+    }
+}
+
+/// Get an integer value or None, reporting type errors via error handler
+pub fn get_as_integer_or_none(
+    config_value: &ConfigValue,
+    key: &str,
+    error_handler: &ConfigErrorHandler,
+) -> Option<i64> {
+    if let Some(value) = config_value.get(key) {
+        match value.as_integer() {
+            Some(value) => Some(value),
+            None => {
+                error_handler
+                    .clone()
+                    .with_expected("integer")
+                    .with_actual(value.clone())
+                    .error(ConfigErrorKind::InvalidValueType);
+                None
+            }
+        }
+    } else {
+        None
+    }
+}
+
 // Implement Deserialize for ConfigValue by deserializing as Value first

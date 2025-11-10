@@ -670,28 +670,14 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         self.get(key).and_then(|v| v.as_float_forced())
     }
 
-    /// Get a string value with a default fallback
-    pub fn get_as_str_or_default(&self, key: &str, default: &str) -> String {
-        self.get_as_str_forced(key).unwrap_or_else(|| default.to_string())
-    }
-
-    /// Get a boolean value with a default fallback
-    pub fn get_as_bool_or_default(&self, key: &str, default: bool) -> bool {
-        self.get_as_bool_forced(key).unwrap_or(default)
-    }
-
-    /// Get an integer value with a default fallback
-    pub fn get_as_integer_or_default(&self, key: &str, default: i64) -> i64 {
-        self.get_as_integer_forced(key).unwrap_or(default)
-    }
-
-    /// Get a float value with a default fallback
-    pub fn get_as_float_or_default(&self, key: &str, default: f64) -> f64 {
-        self.get_as_float_forced(key).unwrap_or(default)
+    /// Get a value by key as a string (non-forced, exact type match)
+    pub fn get_as_str(&self, key: &str) -> Option<String> {
+        self.get(key).and_then(|v| v.as_str())
     }
 
     /// Get a string array from a key (supports both single values and arrays)
-    pub fn get_as_str_array(&self, key: &str) -> Vec<String> {
+    /// Internal method without error reporting - use get_as_str_array instead
+    fn get_as_str_array_internal(&self, key: &str) -> Vec<String> {
         let mut output = Vec::new();
 
         if let Some(value) = self.get(key) {
@@ -735,7 +721,7 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
     }
 
     /// Get a string value with default, reporting type errors via error handler
-    pub fn get_as_str_or_default_validated<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+    pub fn get_as_str_or_default<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
         &self,
         key: &str,
         default: &str,
@@ -759,12 +745,12 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
     }
 
     /// Get a string array, reporting type errors via error handler
-    pub fn get_as_str_array_validated<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+    pub fn get_as_str_array<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
         &self,
         key: &str,
         error_handler: &E,
     ) -> Vec<String> {
-        let result = self.get_as_str_array(key);
+        let result = self.get_as_str_array_internal(key);
 
         if result.is_empty() {
             if let Some(value) = self.get(key) {
@@ -805,7 +791,7 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
     }
 
     /// Get a boolean value with default, reporting type errors via error handler
-    pub fn get_as_bool_or_default_validated<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+    pub fn get_as_bool_or_default<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
         &self,
         key: &str,
         default: bool,
@@ -852,7 +838,7 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
     }
 
     /// Get a float value with default, reporting type errors via error handler
-    pub fn get_as_float_or_default_validated<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+    pub fn get_as_float_or_default<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
         &self,
         key: &str,
         default: f64,
@@ -1083,8 +1069,14 @@ impl<S: Source, C: Scope> From<&ConfigValue<S, C>> for serde_yaml::Value {
     }
 }
 
+impl<S: Source + Default, C: Scope + Default> Default for ConfigValue<S, C> {
+    fn default() -> Self {
+        Self::new_null(S::default(), C::default())
+    }
+}
+
 /// Sort a YAML value recursively (sorts mapping keys)
-fn sort_yaml_value(value: &serde_yaml::Value) -> serde_yaml::Value {
+pub(crate) fn sort_yaml_value(value: &serde_yaml::Value) -> serde_yaml::Value {
     match value {
         serde_yaml::Value::Mapping(map) => {
             let mut sorted_map = serde_yaml::Mapping::new();
@@ -1106,7 +1098,7 @@ fn sort_yaml_value(value: &serde_yaml::Value) -> serde_yaml::Value {
 }
 
 /// Sort a JSON value recursively (sorts object keys)
-fn sort_json_value(value: &serde_json::Value) -> serde_json::Value {
+pub(crate) fn sort_json_value(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(obj) => {
             let mut sorted_obj = serde_json::Map::new();

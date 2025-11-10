@@ -77,11 +77,11 @@ impl CheckConfig {
         }
 
         let ignore = config_value
-            .get_as_str_array_validated("ignore", &error_handler.with_key("ignore"))
+            .get_as_str_array("ignore", &error_handler.with_key("ignore"))
             .into_iter()
             .collect();
         let select = config_value
-            .get_as_str_array_validated("select", &error_handler.with_key("select"))
+            .get_as_str_array("select", &error_handler.with_key("select"))
             .into_iter()
             .collect();
 

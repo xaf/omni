@@ -97,7 +97,7 @@ impl UpCommandConfig {
             &error_handler.with_key("notify_workdir_config_available"),
         );
 
-        let preferred_tools = config_value_global.get_as_str_array_validated(
+        let preferred_tools = config_value_global.get_as_str_array(
             "preferred_tools",
             &error_handler.with_key("preferred_tools"),
         );
@@ -217,10 +217,10 @@ impl UpCommandOperationConfig {
             .unwrap_or_default();
 
         let allowed =
-            config_value_global.get_as_str_array_validated("allowed", &error_handler.with_key("allowed"));
+            config_value_global.get_as_str_array("allowed", &error_handler.with_key("allowed"));
 
         let sources =
-            config_value_global.get_as_str_array_validated("sources", &error_handler.with_key("sources"));
+            config_value_global.get_as_str_array("sources", &error_handler.with_key("sources"));
 
         let mise = UpCommandOperationMiseConfig::from_config_value(
             config_value.get("mise"),
@@ -275,10 +275,10 @@ impl UpCommandOperationMiseConfig {
             .unwrap_or_default();
 
         let backends =
-            config_value_global.get_as_str_array_validated("backends", &error_handler.with_key("backends"));
+            config_value_global.get_as_str_array("backends", &error_handler.with_key("backends"));
 
         let sources =
-            config_value_global.get_as_str_array_validated("sources", &error_handler.with_key("sources"));
+            config_value_global.get_as_str_array("sources", &error_handler.with_key("sources"));
 
         let default_plugin_sources =
             if let Some(value) = config_value_global.get("default_plugin_sources") {
@@ -346,7 +346,7 @@ impl UpCommandOperationCargoInstallConfig {
             .unwrap_or_default();
 
         let crates =
-            config_value_global.get_as_str_array_validated("crates", &error_handler.with_key("crates"));
+            config_value_global.get_as_str_array("crates", &error_handler.with_key("crates"));
 
         Self { crates }
     }
@@ -376,7 +376,7 @@ impl UpCommandOperationGoInstallConfig {
             .unwrap_or_default();
 
         let sources =
-            config_value_global.get_as_str_array_validated("sources", &error_handler.with_key("sources"));
+            config_value_global.get_as_str_array("sources", &error_handler.with_key("sources"));
 
         Self { sources }
     }
@@ -406,7 +406,7 @@ impl UpCommandOperationGithubReleaseConfig {
             .unwrap_or_default();
 
         let repositories = config_value_global
-            .get_as_str_array_validated("repositories", &error_handler.with_key("repositories"));
+            .get_as_str_array("repositories", &error_handler.with_key("repositories"));
 
         Self { repositories }
     }

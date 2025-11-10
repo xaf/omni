@@ -135,7 +135,7 @@ impl UpConfigCargoInstalls {
             let mut crates = Vec::new();
             for crate_name_str in table.keys().sorted() {
                 let value = table.get(crate_name_str).expect("crate config not found");
-                let crate_name = match ConfigValue::from_str(crate_name_str) {
+                let crate_name = match ConfigValue::from_str(Default::default(), Default::default(), crate_name_str) {
                     Ok(value) => value,
                     Err(_) => continue,
                 };
@@ -144,7 +144,7 @@ impl UpConfigCargoInstalls {
                     table.clone()
                 } else if let Some(version) = value.as_str_forced() {
                     let mut crate_config = HashMap::new();
-                    let value = match ConfigValue::from_str(&version) {
+                    let value = match ConfigValue::from_str(Default::default(), Default::default(), &version) {
                         Ok(value) => value,
                         Err(_) => continue,
                     };
@@ -560,7 +560,7 @@ impl UpConfigCargoInstall {
         table: &HashMap<String, ConfigValue>,
         error_handler: &ConfigErrorHandler,
     ) -> Self {
-        let config_value = ConfigValue::from_table(table.clone());
+        let config_value = ConfigValue::from_table(Default::default(), Default::default(), table.clone());
 
         let crate_name = match table.get("crate") {
             Some(crate_name) => {
@@ -587,13 +587,13 @@ impl UpConfigCargoInstall {
                             ..UpConfigCargoInstall::default()
                         };
                     } else if let (Some(table), Ok(crate_name_config_value)) =
-                        (value.as_table(), ConfigValue::from_str(key))
+                        (value.as_table(), ConfigValue::from_str(Default::default(), Default::default(), key))
                     {
                         let mut crate_name_config = table.clone();
                         crate_name_config.insert("crate_name".to_string(), crate_name_config_value);
                         return UpConfigCargoInstall::from_table(&crate_name_config, error_handler);
                     } else if let (true, Ok(crate_name_config_value)) =
-                        (value.is_null(), ConfigValue::from_str(key))
+                        (value.is_null(), ConfigValue::from_str(Default::default(), Default::default(), key))
                     {
                         let crate_name_config = HashMap::from_iter(vec![(
                             "crate".to_string(),
@@ -679,16 +679,16 @@ impl UpConfigCargoInstall {
             false,
             &error_handler.with_key("upgrade"),
         );
-        let prerelease = config_value.get_as_bool_or_default_validated(
+        let prerelease = config_value.get_as_bool_or_default(
             "prerelease",
             false,
             &error_handler.with_key("prerelease"),
         );
         let build =
-            config_value.get_as_bool_or_default_validated("build", false, &error_handler.with_key("build"));
+            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
 
         let dirs = config_value
-            .get_as_str_array_validated("dir", &error_handler.with_key("dir"))
+            .get_as_str_array("dir", &error_handler.with_key("dir"))
             .iter()
             .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
             .collect::<BTreeSet<_>>();

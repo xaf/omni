@@ -52,17 +52,17 @@ impl AskPassConfig {
         }
 
         Self {
-            enabled: config_value.get_as_bool_or_default_validated(
+            enabled: config_value.get_as_bool_or_default(
                 "enabled",
                 Self::DEFAULT_ENABLED,
                 &error_handler.with_key("enabled"),
             ),
-            enable_gui: config_value.get_as_bool_or_default_validated(
+            enable_gui: config_value.get_as_bool_or_default(
                 "enable_gui",
                 Self::DEFAULT_ENABLE_GUI,
                 &error_handler.with_key("enable_gui"),
             ),
-            prefer_gui: config_value.get_as_bool_or_default_validated(
+            prefer_gui: config_value.get_as_bool_or_default(
                 "prefer_gui",
                 Self::DEFAULT_PREFER_GUI,
                 &error_handler.with_key("prefer_gui"),

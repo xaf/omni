@@ -114,7 +114,7 @@ impl UpConfigGolang {
                 }
 
                 let list_dirs =
-                    config_value.get_as_str_array_validated("dir", &error_handler.with_key("dir"));
+                    config_value.get_as_str_array("dir", &error_handler.with_key("dir"));
                 for value in list_dirs {
                     dirs.insert(
                         PathBuf::from(value)

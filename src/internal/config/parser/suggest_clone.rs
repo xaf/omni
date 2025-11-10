@@ -185,7 +185,7 @@ impl SuggestCloneConfig {
             match render_config_template(&template, template_context) {
                 Ok(value) => {
                     // Load the template as config value
-                    let config_value = match ConfigValue::from_str(&value) {
+                    let config_value = match ConfigValue::from_str(Default::default(), Default::default(), &value) {
                         Ok(value) => value,
                         Err(err) => {
                             if !quiet {

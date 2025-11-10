@@ -38,12 +38,12 @@ impl CdConfig {
         };
 
         Self {
-            fast_search: config_value.get_as_bool_or_default_validated(
+            fast_search: config_value.get_as_bool_or_default(
                 "fast_search",
                 Self::DEFAULT_FAST_SEARCH,
                 &error_handler.with_key("fast_search"),
             ),
-            path_match_min_score: config_value.get_as_float_or_default_validated(
+            path_match_min_score: config_value.get_as_float_or_default(
                 "path_match_min_score",
                 Self::DEFAULT_PATH_MATCH_MIN_SCORE,
                 &error_handler.with_key("path_match_min_score"),

@@ -185,6 +185,16 @@ impl Value {
     }
 }
 
+// Implement Default for Value
+impl Default for Value {
+    fn default() -> Self {
+        Value::Null
+    }
+}
+
+// Implement Eq for Value (treating NaN as equal to itself for simplicity)
+impl Eq for Value {}
+
 // Conversions from serde_yaml::Value
 impl From<serde_yaml::Value> for Value {
     fn from(value: serde_yaml::Value) -> Self {
@@ -357,6 +367,12 @@ impl From<f64> for Value {
     }
 }
 
+impl From<i32> for Value {
+    fn from(i: i32) -> Self {
+        Value::Integer(i as i64)
+    }
+}
+
 impl From<Vec<&str>> for Value {
     fn from(v: Vec<&str>) -> Self {
         Value::Sequence(v.into_iter().map(|s| Value::String(s.to_string())).collect())
@@ -404,28 +420,31 @@ impl Value {
         Ok(Value::from(json_value))
     }
 
-    /// Serialize this Value to a YAML string
+    /// Serialize this Value to a YAML string (sorted)
     ///
-    /// Returns a YAML representation of the value.
+    /// Returns a YAML representation of the value with sorted keys.
     pub fn to_yaml_string(&self) -> Result<String, serde_yaml::Error> {
         let yaml_value: serde_yaml::Value = self.clone().into();
-        serde_yaml::to_string(&yaml_value)
+        let sorted = crate::value::sort_yaml_value(&yaml_value);
+        serde_yaml::to_string(&sorted)
     }
 
-    /// Serialize this Value to a JSON string
+    /// Serialize this Value to a JSON string (sorted)
     ///
-    /// Returns a JSON representation of the value.
+    /// Returns a JSON representation of the value with sorted keys.
     pub fn to_json_string(&self) -> Result<String, serde_json::Error> {
         let json_value: serde_json::Value = self.clone().into();
-        serde_json::to_string(&json_value)
+        let sorted = crate::value::sort_json_value(&json_value);
+        serde_json::to_string(&sorted)
     }
 
-    /// Serialize this Value to a pretty JSON string
+    /// Serialize this Value to a pretty JSON string (sorted)
     ///
-    /// Returns a pretty-printed JSON representation of the value.
+    /// Returns a pretty-printed JSON representation of the value with sorted keys.
     pub fn to_json_string_pretty(&self) -> Result<String, serde_json::Error> {
         let json_value: serde_json::Value = self.clone().into();
-        serde_json::to_string_pretty(&json_value)
+        let sorted = crate::value::sort_json_value(&json_value);
+        serde_json::to_string_pretty(&sorted)
     }
 
     /// Convert any serializable type to a Value

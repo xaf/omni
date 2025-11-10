@@ -150,7 +150,7 @@ impl SuggestConfig {
             match render_config_template(&template, template_context) {
                 Ok(value) => {
                     // Load the template as config value
-                    match ConfigValue::from_str(&value) {
+                    match ConfigValue::from_str(Default::default(), Default::default(), &value) {
                         Ok(value) => {
                             // Parse the config value into an object of this type
                             let suggest =

@@ -200,7 +200,7 @@ impl UpConfigGithubReleases {
             let mut releases = Vec::new();
             for repo in table.keys().sorted() {
                 let value = table.get(repo).expect("repo config not found");
-                let repository = match ConfigValue::from_str(repo) {
+                let repository = match ConfigValue::from_str(Default::default(), Default::default(), repo) {
                     Ok(value) => value,
                     Err(_) => continue,
                 };
@@ -209,7 +209,7 @@ impl UpConfigGithubReleases {
                     table.clone()
                 } else if let Some(version) = value.as_str_forced() {
                     let mut repo_config = HashMap::new();
-                    let value = match ConfigValue::from_str(&version) {
+                    let value = match ConfigValue::from_str(Default::default(), Default::default(), &version) {
                         Ok(value) => value,
                         Err(_) => continue,
                     };
@@ -715,7 +715,7 @@ impl UpConfigGithubRelease {
         table: &HashMap<String, ConfigValue>,
         error_handler: &ConfigErrorHandler,
     ) -> Self {
-        let config_value = ConfigValue::from_table(table.clone());
+        let config_value = ConfigValue::from_table(Default::default(), Default::default(), table.clone());
 
         let repository = ["repository", "repo"]
             .iter()
@@ -733,13 +733,13 @@ impl UpConfigGithubRelease {
                             ..Self::default()
                         };
                     } else if let (Some(table), Ok(repo_config_value)) =
-                        (value.as_table(), ConfigValue::from_str(key))
+                        (value.as_table(), ConfigValue::from_str(Default::default(), Default::default(), key))
                     {
                         let mut repo_config = table.clone();
                         repo_config.insert("repository".to_string(), repo_config_value);
                         return Self::from_table(&repo_config, error_handler);
                     } else if let (true, Ok(repo_config_value)) =
-                        (value.is_null(), ConfigValue::from_str(key))
+                        (value.is_null(), ConfigValue::from_str(Default::default(), Default::default(), key))
                     {
                         let repo_config =
                             HashMap::from_iter(vec![("repository".to_string(), repo_config_value)]);
@@ -816,10 +816,10 @@ impl UpConfigGithubRelease {
             &error_handler.with_key("prerelease"),
         );
         let build =
-            config_value.get_as_bool_or_default_validated("build", false, &error_handler.with_key("build"));
+            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
         let binary =
-            config_value.get_as_bool_or_default_validated("binary", true, &error_handler.with_key("binary"));
-        let immutable = config_value.get_as_bool_or_default_validated(
+            config_value.get_as_bool_or_default("binary", true, &error_handler.with_key("binary"));
+        let immutable = config_value.get_as_bool_or_default(
             "immutable",
             false,
             &error_handler.with_key("immutable"),
@@ -828,17 +828,17 @@ impl UpConfigGithubRelease {
             table.get("asset_name"),
             &error_handler.with_key("asset_name"),
         );
-        let skip_os_matching = config_value.get_as_bool_or_default_validated(
+        let skip_os_matching = config_value.get_as_bool_or_default(
             "skip_os_matching",
             false,
             &error_handler.with_key("skip_os_matching"),
         );
-        let skip_arch_matching = config_value.get_as_bool_or_default_validated(
+        let skip_arch_matching = config_value.get_as_bool_or_default(
             "skip_arch_matching",
             false,
             &error_handler.with_key("skip_arch_matching"),
         );
-        let prefer_dist = config_value.get_as_bool_or_default_validated(
+        let prefer_dist = config_value.get_as_bool_or_default(
             "prefer_dist",
             false,
             &error_handler.with_key("prefer_dist"),
@@ -857,7 +857,7 @@ impl UpConfigGithubRelease {
             EnvConfig::from_config_value(table.get("env").cloned(), &error_handler.with_key("env"));
 
         let dirs = config_value
-            .get_as_str_array_validated("dir", &error_handler.with_key("dir"))
+            .get_as_str_array("dir", &error_handler.with_key("dir"))
             .iter()
             .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
             .collect::<BTreeSet<_>>();
@@ -2483,7 +2483,7 @@ impl GithubReleaseChecksumConfig {
         table: &HashMap<String, ConfigValue>,
         error_handler: &ConfigErrorHandler,
     ) -> Self {
-        let config_value = ConfigValue::from_table(table.clone());
+        let config_value = ConfigValue::from_table(Default::default(), Default::default(), table.clone());
 
         let enabled =
             config_value.get_as_bool_or_none("enabled", &error_handler.with_key("enabled"));
