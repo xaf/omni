@@ -35,7 +35,7 @@ blake3 = "1.8.2"
 cfg-if = "1.0.4"
 clap = { version = "4.5.51", features = ["string"] }
 ctrlc = { version = "3.5.1", features = ["termination"] }
-duct = "1.1.0"
+duct = "1.1.1"
 flate2 = "1.1.4"
 fs4 = "0.13.0"
 futures = "0.3.31"
