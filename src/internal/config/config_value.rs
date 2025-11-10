@@ -5,16 +5,17 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::PathEntryConfig;
-use crate::internal::config::utils::sort_serde_yaml;
+use config_value::ConfigErrorKind;
 use crate::internal::env::user_home;
-use crate::internal::user_interface::colors::StringColor;
-use crate::omni_error;
 
 // Re-export core types from config-value
 pub use config_value::{
-    ConfigData, ConfigError, ExtendStrategy as ConfigExtendStrategy, Scope, Source, Value,
+    ConfigData,
+    ExtendStrategy as ConfigExtendStrategy,
+    Scope,
+    Source,
+    Value,
 };
 
 // Omni-specific source type
@@ -77,311 +78,32 @@ impl Scope for ConfigScope {
 // Type alias for omni's ConfigValue
 pub type ConfigValue = config_value::ConfigValue<ConfigSource, ConfigScope>;
 
-// Extend options wrapper for omni-specific defaults
-#[derive(Debug, Clone)]
-pub struct ConfigExtendOptions {
-    pub strategy: ConfigExtendStrategy,
-    pub transform: bool,
+// Type alias for omni's config loader
+pub type OmniConfigLoader = config_value::ConfigLoader<ConfigSource, ConfigScope>;
+
+/// Create a config loader with omni's transformation rules
+pub fn omni_config_loader() -> OmniConfigLoader {
+    OmniConfigLoader::new()
+        .with_transform_enabled(true)
+        .with_transform(omni_transform)
 }
 
-impl Default for ConfigExtendOptions {
-    fn default() -> Self {
-        Self {
-            strategy: ConfigExtendStrategy::Default,
-            transform: true,
-        }
-    }
+// Omni-specific helper functions for ConfigValue
+pub fn omni_empty() -> ConfigValue {
+    ConfigValue::empty(ConfigSource::Default, ConfigScope::Default)
 }
 
-impl ConfigExtendOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_strategy(mut self, strategy: ConfigExtendStrategy) -> Self {
-        self.strategy = strategy;
-        self
-    }
-
-    pub fn with_transform(mut self, transform: bool) -> Self {
-        self.transform = transform;
-        self
-    }
-
-    fn into_inner(self) -> config_value::ExtendOptions {
-        config_value::ExtendOptions::default()
-            .with_strategy(self.strategy)
-            .with_transform(self.transform)
-    }
+pub fn omni_from_str(value: &str) -> Result<ConfigValue, serde_yaml::Error> {
+    let value_obj = Value::from_yaml_str(value)?;
+    Ok(config_value::ConfigValue::from_config_value(
+        ConfigSource::Null,
+        ConfigScope::Null,
+        value_obj,
+    ))
 }
 
-// Extension trait for omni-specific ConfigValue methods
-pub trait ConfigValueExt {
-    fn empty() -> Self;
-    fn from_str(value: &str) -> Result<Self, serde_yaml::Error>
-    where
-        Self: Sized;
-    fn from_table(table: HashMap<String, ConfigValue>) -> Self;
-    fn extend(&mut self, other: ConfigValue, options: ConfigExtendOptions, keypath: Vec<String>);
-    fn unwrap(&self) -> serde_yaml::Value;
-    fn as_yaml(&self) -> String;
-    fn get_source(&self) -> &ConfigSource;
-    fn get_scope(&self) -> ConfigScope;
-
-    // Helper methods with ConfigErrorHandler for error reporting
-    fn get_as_str_or_none(&self, key: &str, error_handler: &ConfigErrorHandler) -> Option<String>;
-    fn get_as_str_or_default(
-        &self,
-        key: &str,
-        default: &str,
-        error_handler: &ConfigErrorHandler,
-    ) -> String;
-    fn get_as_str_array(&self, key: &str, error_handler: &ConfigErrorHandler) -> Vec<String>;
-    fn get_as_bool_or_none(&self, key: &str, error_handler: &ConfigErrorHandler) -> Option<bool>;
-    fn get_as_bool_or_default(
-        &self,
-        key: &str,
-        default: bool,
-        error_handler: &ConfigErrorHandler,
-    ) -> bool;
-    fn get_as_float_or_none(&self, key: &str, error_handler: &ConfigErrorHandler) -> Option<f64>;
-    fn get_as_float_or_default(
-        &self,
-        key: &str,
-        default: f64,
-        error_handler: &ConfigErrorHandler,
-    ) -> f64;
-    fn get_as_integer_or_none(&self, key: &str, error_handler: &ConfigErrorHandler)
-        -> Option<i64>;
-    fn select_keys(&self, keys: Vec<String>) -> Option<ConfigValue>;
-}
-
-impl ConfigValueExt for ConfigValue {
-    fn empty() -> Self {
-        ConfigValue::empty(ConfigSource::Default, ConfigScope::Default)
-    }
-
-    fn from_str(value: &str) -> Result<Self, serde_yaml::Error> {
-        let value: serde_yaml::Value = serde_yaml::from_str(value)?;
-        Ok(ConfigValue::from_value(
-            ConfigSource::Null,
-            ConfigScope::Null,
-            value,
-        ))
-    }
-
-    fn from_table(table: HashMap<String, ConfigValue>) -> Self {
-        ConfigValue::from_table(ConfigSource::Null, ConfigScope::Null, table)
-    }
-
-    fn extend(&mut self, other: ConfigValue, options: ConfigExtendOptions, keypath: Vec<String>) {
-        // Omni-specific extend with path resolution transform
-        let transform_enabled = options.transform;
-        self.extend_with_transform(
-            other,
-            options.into_inner(),
-            keypath,
-            |value: &mut ConfigValue, keypath: &[String]| {
-                if transform_enabled {
-                    omni_transform(value, keypath);
-                }
-            },
-        );
-    }
-
-    fn unwrap(&self) -> serde_yaml::Value {
-        // Use the new unwrap() method from config-value that returns Value,
-        // then convert to serde_yaml::Value for backward compatibility
-        let value = config_value::ConfigValue::unwrap(self);
-        value.into()
-    }
-
-    fn as_yaml(&self) -> String {
-        // Use the new as_yaml() method from config-value which handles sorting
-        config_value::ConfigValue::as_yaml(self)
-    }
-
-    fn get_source(&self) -> &ConfigSource {
-        self.source()
-    }
-
-    fn get_scope(&self) -> ConfigScope {
-        self.scope().clone()
-    }
-
-    fn get_as_str_or_none(&self, key: &str, error_handler: &ConfigErrorHandler) -> Option<String> {
-        if let Some(value) = self.get(key) {
-            match value.as_str_forced() {
-                Some(value) => Some(value),
-                None => {
-                    error_handler
-                        .with_expected("string")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-
-    fn get_as_str_or_default(
-        &self,
-        key: &str,
-        default: &str,
-        error_handler: &ConfigErrorHandler,
-    ) -> String {
-        if let Some(value) = self.get(key) {
-            match value.as_str_forced() {
-                Some(value) => value,
-                None => {
-                    error_handler
-                        .with_expected("string")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    default.to_string()
-                }
-            }
-        } else {
-            default.to_string()
-        }
-    }
-
-    fn get_as_str_array(&self, key: &str, error_handler: &ConfigErrorHandler) -> Vec<String> {
-        // Use the base method but report errors
-        let result = self.get_as_str_array(key);
-
-        // Check if we got nothing and there was a value that couldn't be converted
-        if result.is_empty() {
-            if let Some(value) = self.get(key) {
-                if !value.is_array() && !value.is_str() {
-                    error_handler
-                        .with_expected("string or array of strings")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-            }
-        }
-
-        result
-    }
-
-    fn get_as_bool_or_none(&self, key: &str, error_handler: &ConfigErrorHandler) -> Option<bool> {
-        if let Some(value) = self.get(key) {
-            match value.as_bool_forced() {
-                Some(value) => Some(value),
-                None => {
-                    error_handler
-                        .with_expected("bool")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-
-    fn get_as_bool_or_default(
-        &self,
-        key: &str,
-        default: bool,
-        error_handler: &ConfigErrorHandler,
-    ) -> bool {
-        if let Some(value) = self.get(key) {
-            match value.as_bool_forced() {
-                Some(value) => value,
-                None => {
-                    error_handler
-                        .with_expected("bool")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    default
-                }
-            }
-        } else {
-            default
-        }
-    }
-
-    fn get_as_float_or_none(&self, key: &str, error_handler: &ConfigErrorHandler) -> Option<f64> {
-        if let Some(value) = self.get(key) {
-            match value.as_float() {
-                Some(value) => Some(value),
-                None => {
-                    error_handler
-                        .with_expected("float")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-
-    fn get_as_float_or_default(
-        &self,
-        key: &str,
-        default: f64,
-        error_handler: &ConfigErrorHandler,
-    ) -> f64 {
-        if let Some(value) = self.get(key) {
-            match value.as_float() {
-                Some(value) => value,
-                None => {
-                    error_handler
-                        .with_expected("float")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    default
-                }
-            }
-        } else {
-            default
-        }
-    }
-
-    fn get_as_integer_or_none(
-        &self,
-        key: &str,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<i64> {
-        if let Some(value) = self.get(key) {
-            match value.as_integer() {
-                Some(value) => Some(value),
-                None => {
-                    error_handler
-                        .with_expected("integer")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-
-    fn select_keys(&self, keys: Vec<String>) -> Option<ConfigValue> {
-        if let Some(mapping) = self.as_table() {
-            let mut new_mapping = HashMap::new();
-            for key in keys {
-                if let Some(value) = mapping.get(&key) {
-                    new_mapping.insert(key, value.clone());
-                }
-            }
-            return Some(ConfigValue::from_table(
-                self.source().clone(),
-                self.scope().clone(),
-                new_mapping,
-            ));
-        }
-        None
-    }
+pub fn omni_from_table(table: HashMap<String, ConfigValue>) -> ConfigValue {
+    config_value::ConfigValue::from_table(ConfigSource::Null, ConfigScope::Null, table)
 }
 
 // Omni-specific path resolution transform
@@ -420,20 +142,20 @@ fn omni_transform(value: &mut ConfigValue, keypath: &[String]) {
                         let mut package_path = HashMap::new();
                         package_path.insert(
                             "package".to_string(),
-                            ConfigValue::from_value(
+                            ConfigValue::from_config_value(
                                 source.clone(),
                                 value.scope().clone(),
-                                serde_yaml::Value::String(
+                                Value::String(
                                     package_config.package.clone().unwrap().to_string(),
                                 ),
                             ),
                         );
                         package_path.insert(
                             "path".to_string(),
-                            ConfigValue::from_value(
+                            ConfigValue::from_config_value(
                                 source.clone(),
                                 value.scope().clone(),
-                                serde_yaml::Value::String(relpath),
+                                Value::String(relpath),
                             ),
                         );
 
@@ -451,10 +173,10 @@ fn omni_transform(value: &mut ConfigValue, keypath: &[String]) {
         }
 
         // Update the value with the resolved path
-        *value = ConfigValue::from_value(
+        *value = ConfigValue::from_config_value(
             value.source().clone(),
             value.scope().clone(),
-            serde_yaml::Value::String(abs_path),
+            Value::String(abs_path),
         );
     }
 }
@@ -483,23 +205,4 @@ fn should_transform_keypath(keypath: &[String]) -> bool {
     }
 }
 
-// Implement Deserialize for ConfigValue by deserializing as serde_yaml::Value first
-impl<'de> Deserialize<'de> for ConfigValue {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = serde_yaml::Value::deserialize(deserializer)?;
-        Ok(ConfigValue::from_value(
-            ConfigSource::Default,
-            ConfigScope::Default,
-            value,
-        ))
-    }
-}
-
-impl Default for ConfigValue {
-    fn default() -> Self {
-        ConfigValue::new_null(ConfigSource::Null, ConfigScope::Null)
-    }
-}
+// Implement Deserialize for ConfigValue by deserializing as Value first

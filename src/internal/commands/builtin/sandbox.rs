@@ -18,6 +18,8 @@ use crate::internal::commands::utils::validate_sandbox_name;
 use crate::internal::commands::Command;
 use crate::internal::config::config;
 use crate::internal::config::loader::ConfigLoader;
+use crate::internal::config::omni_from_str;
+use crate::internal::config::omni_from_table;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
 use crate::internal::config::ConfigValue;
@@ -312,7 +314,7 @@ impl SandboxCommand {
             // Ensure config_value is a table
             if !config_value.is_table() {
                 let empty_table = std::collections::HashMap::new();
-                *config_value = ConfigValue::from_table(empty_table);
+                *config_value = omni_from_table(empty_table);
             }
 
             // Ensure 'up' exists as an array
@@ -320,7 +322,7 @@ impl SandboxCommand {
                 if let Some(table) = config_value.as_table_mut() {
                     table.insert(
                         "up".to_string(),
-                        ConfigValue::from_str("[]").expect("failed to create empty array"),
+                        omni_from_str("[]").expect("failed to create empty array"),
                     );
                 }
             }
@@ -352,9 +354,9 @@ impl SandboxCommand {
                 .filter_map(|dep| {
                     // Parse the dependency as YAML to handle both simple strings and complex structures
                     // like "go: latest" or just "go"
-                    let dep_value = ConfigValue::from_str(dep).unwrap_or_else(|_| {
+                    let dep_value = omni_from_str(dep).unwrap_or_else(|_| {
                         // If parsing fails, treat it as a simple string
-                        ConfigValue::from_str(&format!("\"{dep}\""))
+                        omni_from_str(&format!("\"{dep}\""))
                             .expect("failed to create config value")
                     });
 

@@ -37,7 +37,7 @@ use crate::internal::cache::GithubReleases;
 use crate::internal::config;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::parser::EnvConfig;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::parser::GithubAuthConfig;
@@ -816,10 +816,10 @@ impl UpConfigGithubRelease {
             &error_handler.with_key("prerelease"),
         );
         let build =
-            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
+            config_value.get_as_bool_or_default_validated("build", false, &error_handler.with_key("build"));
         let binary =
-            config_value.get_as_bool_or_default("binary", true, &error_handler.with_key("binary"));
-        let immutable = config_value.get_as_bool_or_default(
+            config_value.get_as_bool_or_default_validated("binary", true, &error_handler.with_key("binary"));
+        let immutable = config_value.get_as_bool_or_default_validated(
             "immutable",
             false,
             &error_handler.with_key("immutable"),
@@ -828,17 +828,17 @@ impl UpConfigGithubRelease {
             table.get("asset_name"),
             &error_handler.with_key("asset_name"),
         );
-        let skip_os_matching = config_value.get_as_bool_or_default(
+        let skip_os_matching = config_value.get_as_bool_or_default_validated(
             "skip_os_matching",
             false,
             &error_handler.with_key("skip_os_matching"),
         );
-        let skip_arch_matching = config_value.get_as_bool_or_default(
+        let skip_arch_matching = config_value.get_as_bool_or_default_validated(
             "skip_arch_matching",
             false,
             &error_handler.with_key("skip_arch_matching"),
         );
-        let prefer_dist = config_value.get_as_bool_or_default(
+        let prefer_dist = config_value.get_as_bool_or_default_validated(
             "prefer_dist",
             false,
             &error_handler.with_key("prefer_dist"),
@@ -857,7 +857,7 @@ impl UpConfigGithubRelease {
             EnvConfig::from_config_value(table.get("env").cloned(), &error_handler.with_key("env"));
 
         let dirs = config_value
-            .get_as_str_array("dir", &error_handler.with_key("dir"))
+            .get_as_str_array_validated("dir", &error_handler.with_key("dir"))
             .iter()
             .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
             .collect::<BTreeSet<_>>();

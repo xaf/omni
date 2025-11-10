@@ -9,7 +9,7 @@ use tera::Tera;
 
 use crate::internal::cache::utils::Empty;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::template::config_template_context;
 use crate::internal::config::template::render_config_template;
 use crate::internal::config::template::tera_render_error_message;

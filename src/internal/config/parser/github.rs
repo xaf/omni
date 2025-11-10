@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::internal::cache::utils::Empty;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::ConfigValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

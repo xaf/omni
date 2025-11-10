@@ -12,7 +12,7 @@ use crate::internal::config::config;
 use crate::internal::config::parser::path_pattern_from_str;
 use crate::internal::config::parser::ConfigError;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::utils::check_allowed;
 use crate::internal::config::CommandSyntax;

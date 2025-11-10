@@ -11,8 +11,9 @@ use std::process::Command as ProcessCommand;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
-use serde_yaml::Value as YamlValue;
 use walkdir::WalkDir;
+
+use config_value::Value;
 
 use crate::internal::commands::base::AutocompleteParameter;
 use crate::internal::commands::base::CommandAutocompletion;
@@ -26,12 +27,12 @@ use crate::internal::config::config_loader;
 use crate::internal::config::loader::WORKDIR_CONFIG_FILES;
 use crate::internal::config::parser::parse_arg_name;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::utils::is_executable;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigExtendOptions;
 use crate::internal::config::ConfigScope;
 use crate::internal::config::OmniConfig;
+use crate::internal::config::omni_config_loader;
 use crate::internal::config::SyntaxGroup;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
@@ -78,11 +79,8 @@ impl PathCommand {
             cfg
         } else {
             let mut local_config = config_loader(".").raw_config.clone();
-            local_config.extend(
-                suggest_config_value.clone(),
-                ConfigExtendOptions::new(),
-                vec![],
-            );
+            let loader = omni_config_loader();
+            loader.merge(&mut local_config, suggest_config_value.clone());
             local_config.into()
         };
 
@@ -406,23 +404,28 @@ impl<'de> PathCommandFileDetails {
     where
         D: serde::Deserializer<'de>,
     {
-        let mut value = YamlValue::deserialize(deserializer)?;
+        let yaml_value = serde_yaml::Value::deserialize(deserializer)?;
+        let value = Value::from(yaml_value);
 
-        if let YamlValue::Mapping(ref mut map) = value {
+        if let Some(mapping) = value.as_mapping() {
+            // Create a mutable copy since we need to remove keys
+            let mut map = mapping.clone();
             // Deserialize the autocompletion field, which can be either a
             // boolean or a string representing a boolean or 'partial'
             // The result is stored as a CommandAutocompletion enum
             // where 'true' is Full, 'partial' is Partial, and 'false' is Null
             let autocompletion: CommandAutocompletion = map
-                .remove(YamlValue::String("autocompletion".to_string()))
-                .map_or(CommandAutocompletion::Null, |v| match v {
-                    YamlValue::Bool(b) => CommandAutocompletion::from(b),
-                    YamlValue::String(s) => CommandAutocompletion::from(s),
-                    _ => {
+                .remove("autocompletion")
+                .map_or(CommandAutocompletion::Null, |v| {
+                    if let Some(b) = v.as_bool() {
+                        CommandAutocompletion::from(b)
+                    } else if let Some(s) = v.as_str() {
+                        CommandAutocompletion::from(s.to_string())
+                    } else {
                         error_handler
                             .with_key("autocompletion")
                             .with_expected(vec!["boolean", "string"])
-                            .with_actual(v.to_owned())
+                            .with_actual(v.clone())
                             .error(ConfigErrorKind::InvalidValueType);
 
                         CommandAutocompletion::Null
@@ -431,95 +434,99 @@ impl<'de> PathCommandFileDetails {
 
             // Deserialize the booleans
             let sync_update = map
-                .remove(YamlValue::String("sync_update".to_string()))
-                .is_some_and(|v| match bool::deserialize(v.clone()) {
-                    Ok(b) => b,
-                    Err(_err) => {
-                        error_handler
-                            .with_key("sync_update")
-                            .with_expected("boolean")
-                            .with_actual(v.to_owned())
-                            .error(ConfigErrorKind::InvalidValueType);
+                .remove("sync_update")
+                .is_some_and(|v| {
+                    match v.as_bool_forced() {
+                        Some(b) => b,
+                        None => {
+                            error_handler
+                                .with_key("sync_update")
+                                .with_expected("boolean")
+                                .with_actual(v)
+                                .error(ConfigErrorKind::InvalidValueType);
 
-                        false
+                            false
+                        }
                     }
                 });
             let argparser = map
-                .remove(YamlValue::String("argparser".to_string()))
-                .is_some_and(|v| match bool::deserialize(v.clone()) {
-                    Ok(b) => b,
-                    Err(_err) => {
-                        error_handler
-                            .with_key("argparser")
-                            .with_expected("boolean")
-                            .with_actual(v.to_owned())
-                            .error(ConfigErrorKind::InvalidValueType);
+                .remove("argparser")
+                .is_some_and(|v| {
+                    match v.as_bool_forced() {
+                        Some(b) => b,
+                        None => {
+                            error_handler
+                                .with_key("argparser")
+                                .with_expected("boolean")
+                                .with_actual(v)
+                                .error(ConfigErrorKind::InvalidValueType);
 
-                        false
+                            false
+                        }
                     }
                 });
 
             // Deserialize the help message
             let help = map
-                .remove(YamlValue::String("help".to_string()))
-                .and_then(|v| match String::deserialize(v.clone()) {
-                    Ok(s) => Some(s),
-                    Err(_err) => {
-                        error_handler
-                            .with_key("help")
-                            .with_expected("string")
-                            .with_actual(v.to_owned())
-                            .error(ConfigErrorKind::InvalidValueType);
+                .remove("help")
+                .and_then(|v| {
+                    match v.as_str() {
+                        Some(s) => Some(s.to_string()),
+                        None => {
+                            error_handler
+                                .with_key("help")
+                                .with_expected("string")
+                                .with_actual(v)
+                                .error(ConfigErrorKind::InvalidValueType);
 
-                        None
+                            None
+                        }
                     }
                 });
 
             // Deserialize the category
             let category = map
-                .remove(YamlValue::String("category".to_string()))
-                .and_then(|v| match YamlValue::deserialize(v.clone()) {
-                    Ok(value) => match value {
-                        YamlValue::String(s) => Some(
+                .remove("category")
+                .and_then(|v| {
+                    if let Some(s) = v.as_str() {
+                        Some(
                             s.split(',')
                                 .map(|s| s.trim().to_string())
                                 .collect::<Vec<String>>(),
-                        ),
-                        YamlValue::Sequence(s) => Some(
-                            s.iter()
+                        )
+                    } else if let Some(seq) = v.as_sequence() {
+                        Some(
+                            seq.iter()
                                 .enumerate()
-                                .filter_map(|(idx, entry)| match entry {
-                                    YamlValue::String(s) => Some(s.trim().to_string()),
-                                    YamlValue::Number(n) => Some(n.to_string()),
-                                    YamlValue::Bool(b) => Some(b.to_string()),
-                                    _ => {
+                                .filter_map(|(idx, entry)| {
+                                    if let Some(s) = entry.as_str() {
+                                        Some(s.trim().to_string())
+                                    } else if let Some(i) = entry.as_i64() {
+                                        Some(i.to_string())
+                                    } else if let Some(u) = entry.as_u64() {
+                                        Some(u.to_string())
+                                    } else if let Some(f) = entry.as_f64() {
+                                        Some(f.to_string())
+                                    } else if let Some(b) = entry.as_bool() {
+                                        Some(b.to_string())
+                                    } else {
                                         error_handler
                                             .with_key("category")
                                             .with_index(idx)
                                             .with_expected("string")
-                                            .with_actual(entry.to_owned())
+                                            .with_actual(entry.clone())
                                             .error(ConfigErrorKind::InvalidValueType);
 
                                         None
                                     }
                                 })
                                 .collect::<Vec<String>>(),
-                        ),
-                        _ => {
-                            error_handler
-                                .with_key("category")
-                                .with_expected(vec!["string", "sequence"])
-                                .with_actual(value.to_owned())
-                                .error(ConfigErrorKind::InvalidValueType);
-
-                            None
-                        }
-                    },
-                    Err(_err) => {
+                        )
+                    } else {
                         error_handler
                             .with_key("category")
                             .with_expected(vec!["string", "sequence"])
-                            .with_actual(v.to_owned())
+                            .with_actual(v)
                             .error(ConfigErrorKind::InvalidValueType);
 
                         None
@@ -528,36 +535,42 @@ impl<'de> PathCommandFileDetails {
 
             // Deserialize the syntax
             let syntax = map
-                .remove(YamlValue::String("syntax".to_string()))
+                .remove("syntax")
                 .and_then(
-                    |v| match CommandSyntax::deserialize(v.clone(), error_handler) {
-                        Ok(s) => Some(s),
-                        Err(_err) => {
-                            error_handler
-                                .with_key("syntax")
-                                .with_expected("table")
-                                .with_actual(v.to_owned())
-                                .error(ConfigErrorKind::InvalidValueType);
+                    |v| {
+                        let yaml_value: serde_yaml::Value = v.clone().into();
+                        match CommandSyntax::deserialize(yaml_value, error_handler) {
+                            Ok(s) => Some(s),
+                            Err(_err) => {
+                                error_handler
+                                    .with_key("syntax")
+                                    .with_expected("table")
+                                    .with_actual(v)
+                                    .error(ConfigErrorKind::InvalidValueType);
 
-                            None
+                                None
+                            }
                         }
                     },
                 );
 
             // Deserialize the tags
             let tags = map
-                .remove(YamlValue::String("tags".to_string()))
+                .remove("tags")
                 .and_then(
-                    |v| match BTreeMap::<String, String>::deserialize(v.clone()) {
-                        Ok(t) => Some(t),
-                        Err(_err) => {
-                            error_handler
-                                .with_key("tags")
-                                .with_expected("table")
-                                .with_actual(v.to_owned())
-                                .error(ConfigErrorKind::InvalidValueType);
+                    |v| {
+                        let yaml_value: serde_yaml::Value = v.clone().into();
+                        match BTreeMap::<String, String>::deserialize(yaml_value) {
+                            Ok(t) => Some(t),
+                            Err(_err) => {
+                                error_handler
+                                    .with_key("tags")
+                                    .with_expected("table")
+                                    .with_actual(v)
+                                    .error(ConfigErrorKind::InvalidValueType);
 
-                            None
+                                None
+                            }
                         }
                     },
                 )

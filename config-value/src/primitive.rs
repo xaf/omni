@@ -314,6 +314,130 @@ impl From<&Value> for serde_json::Value {
     }
 }
 
+// Convenient From implementations for common types
+impl From<&str> for Value {
+    fn from(s: &str) -> Self {
+        Value::String(s.to_string())
+    }
+}
+
+impl From<String> for Value {
+    fn from(s: String) -> Self {
+        Value::String(s)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Self {
+        Value::Bool(b)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(i: i64) -> Self {
+        Value::Integer(i)
+    }
+}
+
+impl From<u64> for Value {
+    fn from(u: u64) -> Self {
+        Value::UnsignedInteger(u)
+    }
+}
+
+impl From<usize> for Value {
+    fn from(u: usize) -> Self {
+        Value::UnsignedInteger(u as u64)
+    }
+}
+
+impl From<f64> for Value {
+    fn from(f: f64) -> Self {
+        Value::Float(f)
+    }
+}
+
+impl From<Vec<&str>> for Value {
+    fn from(v: Vec<&str>) -> Self {
+        Value::Sequence(v.into_iter().map(|s| Value::String(s.to_string())).collect())
+    }
+}
+
+impl From<&[&str]> for Value {
+    fn from(v: &[&str]) -> Self {
+        Value::Sequence(v.iter().map(|s| Value::String(s.to_string())).collect())
+    }
+}
+
+impl From<Vec<String>> for Value {
+    fn from(v: Vec<String>) -> Self {
+        Value::Sequence(v.into_iter().map(Value::String).collect())
+    }
+}
+
+impl From<Vec<Value>> for Value {
+    fn from(v: Vec<Value>) -> Self {
+        Value::Sequence(v)
+    }
+}
+
+impl From<HashMap<String, Value>> for Value {
+    fn from(m: HashMap<String, Value>) -> Self {
+        Value::Mapping(m)
+    }
+}
+
+impl Value {
+    /// Parse a YAML string into a Value
+    ///
+    /// This is a convenience method that parses YAML text directly into a Value.
+    pub fn from_yaml_str(s: &str) -> Result<Self, serde_yaml::Error> {
+        let yaml_value: serde_yaml::Value = serde_yaml::from_str(s)?;
+        Ok(Value::from(yaml_value))
+    }
+
+    /// Parse a JSON string into a Value
+    ///
+    /// This is a convenience method that parses JSON text directly into a Value.
+    pub fn from_json_str(s: &str) -> Result<Self, serde_json::Error> {
+        let json_value: serde_json::Value = serde_json::from_str(s)?;
+        Ok(Value::from(json_value))
+    }
+
+    /// Serialize this Value to a YAML string
+    ///
+    /// Returns a YAML representation of the value.
+    pub fn to_yaml_string(&self) -> Result<String, serde_yaml::Error> {
+        let yaml_value: serde_yaml::Value = self.clone().into();
+        serde_yaml::to_string(&yaml_value)
+    }
+
+    /// Serialize this Value to a JSON string
+    ///
+    /// Returns a JSON representation of the value.
+    pub fn to_json_string(&self) -> Result<String, serde_json::Error> {
+        let json_value: serde_json::Value = self.clone().into();
+        serde_json::to_string(&json_value)
+    }
+
+    /// Serialize this Value to a pretty JSON string
+    ///
+    /// Returns a pretty-printed JSON representation of the value.
+    pub fn to_json_string_pretty(&self) -> Result<String, serde_json::Error> {
+        let json_value: serde_json::Value = self.clone().into();
+        serde_json::to_string_pretty(&json_value)
+    }
+
+    /// Convert any serializable type to a Value
+    ///
+    /// This is similar to serde_yaml::to_value() or serde_json::to_value().
+    /// It serializes the input to a YAML value first, then converts to Value.
+    pub fn to_value<T: Serialize>(value: T) -> Result<Self, serde_yaml::Error> {
+        let yaml_value = serde_yaml::to_value(value)?;
+        Ok(Value::from(yaml_value))
+    }
+}
+
 #[cfg(test)]
 #[path = "primitive_test.rs"]
 mod tests;

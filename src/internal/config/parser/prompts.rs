@@ -1,3 +1,4 @@
+use config_value::Value;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -76,10 +77,10 @@ pub struct PromptConfig {
     pub id: String,
     pub prompt: String,
     #[serde(
-        skip_serializing_if = "serde_yaml::Value::is_null",
-        default = "serde_yaml::Value::default"
+        skip_serializing_if = "Value::is_null",
+        default
     )]
-    pub default: serde_yaml::Value,
+    pub default: Value,
     #[serde(
         flatten,
         skip_serializing_if = "PromptType::is_default",
@@ -151,13 +152,13 @@ impl PromptConfig {
         // if is used to conditionally prompt the user.
         let if_condition = config_value.get_as_str_forced("if");
 
-        // We keep the default value as a serde_yaml::Value so that we can
+        // We keep the default value as a Value so that we can
         // serialize it as a string if it's a string, or as a boolean if it's a
         // boolean, etc. and interpret it as the correct type when we use it
         // as default value for the prompt.
         let default = match config_value.get("default") {
-            Some(default) => default.as_serde_yaml(),
-            None => serde_yaml::Value::Null,
+            Some(default) => default.unwrap(),
+            None => Value::Null,
         };
 
         // Scope is used to determine how prompts answers are stored. For
@@ -194,8 +195,17 @@ impl PromptConfig {
     pub fn in_context(&self) -> Result<Self, String> {
         let template_context = config_template_context(".");
 
-        // Dump self as yaml string using serde_yaml
-        let yaml = match serde_yaml::to_string(self) {
+        // Dump self as yaml string
+        let value = match Value::to_value(self) {
+            Ok(value) => value,
+            Err(err) => {
+                return Err(format!(
+                    "failed to serialize prompt {} to value: {}",
+                    &self.id, err
+                ))
+            }
+        };
+        let yaml = match value.to_yaml_string() {
             Ok(yaml) => yaml,
             Err(err) => {
                 return Err(format!(
@@ -407,7 +417,7 @@ impl PromptType {
         &self,
         id: &str,
         prompt: &str,
-        default: serde_yaml::Value,
+        default: Value,
         scope: PromptScope,
     ) -> bool {
         // Override the default value with the cached answer if there is one
@@ -507,9 +517,10 @@ impl PromptType {
 
                 if !default.is_null() {
                     let defaults = match default.clone() {
-                        serde_yaml::Value::Sequence(defaults) => defaults,
-                        serde_yaml::Value::String(_) => vec![default],
-                        serde_yaml::Value::Number(ref number) if number.is_i64() => vec![default],
+                        Value::Sequence(defaults) => defaults,
+                        Value::String(_) => vec![default],
+                        Value::Integer(_) => vec![default],
+                        Value::UnsignedInteger(_) => vec![default],
                         _ => vec![],
                     };
 
@@ -675,12 +686,12 @@ impl PromptType {
             }
         };
 
-        let serde_yaml_answer = match requestty::prompt_one(question) {
+        let answer_value = match requestty::prompt_one(question) {
             Ok(answer) => match answer {
-                requestty::Answer::String(answer) => serde_yaml::to_value(answer),
-                requestty::Answer::Bool(answer) => serde_yaml::to_value(answer),
-                requestty::Answer::Int(answer) => serde_yaml::to_value(answer),
-                requestty::Answer::Float(answer) => serde_yaml::to_value(answer),
+                requestty::Answer::String(answer) => Value::to_value(answer),
+                requestty::Answer::Bool(answer) => Value::to_value(answer),
+                requestty::Answer::Int(answer) => Value::to_value(answer),
+                requestty::Answer::Float(answer) => Value::to_value(answer),
                 requestty::Answer::ListItem(answer) => {
                     let choices = match self {
                         Self::Choice { choices } => match choices.choices() {
@@ -701,7 +712,7 @@ impl PromptType {
                         }
                     };
 
-                    serde_yaml::to_value(selected_choice)
+                    Value::to_value(selected_choice)
                 }
                 requestty::Answer::ListItems(answers) => {
                     let choices = match self {
@@ -721,7 +732,7 @@ impl PromptType {
                         .map(|choice| choice.id.to_string())
                         .collect::<Vec<_>>();
 
-                    serde_yaml::to_value(selected_choices)
+                    Value::to_value(selected_choices)
                 }
                 _ => unimplemented!(),
             },
@@ -731,8 +742,8 @@ impl PromptType {
             }
         };
 
-        let serde_yaml_answer = match serde_yaml_answer {
-            Ok(serde_yaml_answer) => serde_yaml_answer,
+        let answer_value = match answer_value {
+            Ok(answer_value) => answer_value,
             Err(err) => {
                 omni_warning!(format!("failed to serialize answer: {}", err));
                 return false;
@@ -740,7 +751,7 @@ impl PromptType {
         };
 
         if let Err(err) =
-            PromptsCache::get().add_answer(id, scope_org, scope_repo, serde_yaml_answer)
+            PromptsCache::get().add_answer(id, scope_org, scope_repo, answer_value)
         {
             omni_warning!(format!("failed to update cache: {}", err));
             false

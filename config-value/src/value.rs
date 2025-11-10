@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::extend_strategy::ExtendStrategy;
-use crate::loader::ExtendOptions;
 use crate::primitive::Value;
 use crate::scope::Scope;
 use crate::source::Source;
@@ -88,10 +87,32 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         Self::new(source, scope, Some(Box::new(config_data)))
     }
 
+    /// Create a ConfigValue from a config_value::Value
+    pub fn from_config_value(source: S, scope: C, value: Value) -> Self {
+        let config_data = match value {
+            Value::Mapping(map) => {
+                let mut result = HashMap::new();
+                for (k, v) in map {
+                    result.insert(k, Self::from_config_value(source.clone(), scope.clone(), v));
+                }
+                ConfigData::Mapping(result)
+            }
+            Value::Sequence(seq) => {
+                let result = seq
+                    .into_iter()
+                    .map(|v| Self::from_config_value(source.clone(), scope.clone(), v))
+                    .collect();
+                ConfigData::Sequence(result)
+            }
+            _ => ConfigData::Value(value),
+        };
+        Self::new(source, scope, Some(Box::new(config_data)))
+    }
+
     /// Create a ConfigValue from a YAML string
     pub fn from_str(source: S, scope: C, value: &str) -> Result<Self, serde_yaml::Error> {
-        let value: serde_yaml::Value = serde_yaml::from_str(value)?;
-        Ok(Self::from_value(source, scope, value))
+        let value = Value::from_yaml_str(value)?;
+        Ok(Self::from_config_value(source, scope, value))
     }
 
     /// Create a ConfigValue from a HashMap
@@ -540,6 +561,48 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         }
     }
 
+    /// Get a nested value by key and return it as an array (mutable)
+    pub fn get_as_array_mut(&mut self, key: &str) -> Option<&mut Vec<ConfigValue<S, C>>> {
+        if let Some(value) = self.get_mut(key) {
+            return value.as_array_mut();
+        }
+        None
+    }
+
+    /// Get a nested value by key and return it as a table
+    pub fn get_as_table(&self, key: &str) -> Option<HashMap<String, ConfigValue<S, C>>> {
+        if let Some(value) = self.get(key) {
+            return value.as_table();
+        }
+        None
+    }
+
+    /// Get a nested value by key and return it as a table (mutable)
+    pub fn get_as_table_mut(&mut self, key: &str) -> Option<&mut HashMap<String, ConfigValue<S, C>>> {
+        if let Some(value) = self.get_mut(key) {
+            return value.as_table_mut();
+        }
+        None
+    }
+
+    /// Select specific keys from a mapping and return a new ConfigValue with only those keys
+    pub fn select_keys(&self, keys: Vec<String>) -> Option<ConfigValue<S, C>> {
+        if let Some(mapping) = self.as_table() {
+            let mut new_mapping = HashMap::new();
+            for key in keys {
+                if let Some(value) = mapping.get(&key) {
+                    new_mapping.insert(key, value.clone());
+                }
+            }
+            return Some(ConfigValue::from_table(
+                self.source().clone(),
+                self.scope().clone(),
+                new_mapping,
+            ));
+        }
+        None
+    }
+
     /// Force conversion to string
     ///
     /// Attempts to convert any value to a string representation.
@@ -597,6 +660,11 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         self.get(key).and_then(|v| v.as_integer_forced())
     }
 
+    /// Get a value by key and force to unsigned integer
+    pub fn get_as_unsigned_integer(&self, key: &str) -> Option<u64> {
+        self.get(key).and_then(|v| v.as_unsigned_integer())
+    }
+
     /// Get a value by key and force to float
     pub fn get_as_float_forced(&self, key: &str) -> Option<f64> {
         self.get(key).and_then(|v| v.as_float_forced())
@@ -641,34 +709,198 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         output
     }
 
-    /// Extend this value with another value using merge strategies
-    pub fn extend(&mut self, other: ConfigValue<S, C>, options: ExtendOptions, keypath: Vec<String>) {
-        self.extend_internal(other, options, keypath, None::<&fn(&mut ConfigValue<S, C>, &[String])>);
+    // Methods with error handler support for validation and reporting
+
+    /// Get a string value or None, reporting type errors via error handler
+    pub fn get_as_str_or_none<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+        &self,
+        key: &str,
+        error_handler: &E,
+    ) -> Option<String> {
+        if let Some(value) = self.get(key) {
+            match value.as_str_forced() {
+                Some(value) => Some(value),
+                None => {
+                    error_handler
+                        .clone()
+                        .with_expected("string")
+                        .with_actual(value.clone())
+                        .error(crate::ConfigErrorKind::InvalidValueType);
+                    None
+                }
+            }
+        } else {
+            None
+        }
     }
 
-    /// Extend with custom transform function
-    pub fn extend_with_transform<F>(
-        &mut self,
-        other: ConfigValue<S, C>,
-        options: ExtendOptions,
-        keypath: Vec<String>,
-        transform: F,
-    ) where
-        F: Fn(&mut ConfigValue<S, C>, &[String]),
-    {
-        self.extend_internal(other, options, keypath, Some(&transform));
+    /// Get a string value with default, reporting type errors via error handler
+    pub fn get_as_str_or_default_validated<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+        &self,
+        key: &str,
+        default: &str,
+        error_handler: &E,
+    ) -> String {
+        if let Some(value) = self.get(key) {
+            match value.as_str_forced() {
+                Some(value) => value,
+                None => {
+                    error_handler
+                        .clone()
+                        .with_expected("string")
+                        .with_actual(value.clone())
+                        .error(crate::ConfigErrorKind::InvalidValueType);
+                    default.to_string()
+                }
+            }
+        } else {
+            default.to_string()
+        }
     }
 
-    fn extend_internal<F>(
-        &mut self,
-        other: ConfigValue<S, C>,
-        options: ExtendOptions,
-        keypath: Vec<String>,
-        transform: Option<&F>,
-    ) where
-        F: Fn(&mut ConfigValue<S, C>, &[String]),
-    {
-        if options.strategy == ExtendStrategy::Keep && !self.is_none_or_empty() {
+    /// Get a string array, reporting type errors via error handler
+    pub fn get_as_str_array_validated<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+        &self,
+        key: &str,
+        error_handler: &E,
+    ) -> Vec<String> {
+        let result = self.get_as_str_array(key);
+
+        if result.is_empty() {
+            if let Some(value) = self.get(key) {
+                if !value.is_array() && !value.is_str() {
+                    error_handler
+                        .clone()
+                        .with_expected("string or array of strings")
+                        .with_actual(value.clone())
+                        .error(crate::ConfigErrorKind::InvalidValueType);
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Get a boolean value or None, reporting type errors via error handler
+    pub fn get_as_bool_or_none<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+        &self,
+        key: &str,
+        error_handler: &E,
+    ) -> Option<bool> {
+        if let Some(value) = self.get(key) {
+            match value.as_bool_forced() {
+                Some(value) => Some(value),
+                None => {
+                    error_handler
+                        .clone()
+                        .with_expected("bool")
+                        .with_actual(value.clone())
+                        .error(crate::ConfigErrorKind::InvalidValueType);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Get a boolean value with default, reporting type errors via error handler
+    pub fn get_as_bool_or_default_validated<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+        &self,
+        key: &str,
+        default: bool,
+        error_handler: &E,
+    ) -> bool {
+        if let Some(value) = self.get(key) {
+            match value.as_bool_forced() {
+                Some(value) => value,
+                None => {
+                    error_handler
+                        .clone()
+                        .with_expected("bool")
+                        .with_actual(value.clone())
+                        .error(crate::ConfigErrorKind::InvalidValueType);
+                    default
+                }
+            }
+        } else {
+            default
+        }
+    }
+
+    /// Get a float value or None, reporting type errors via error handler
+    pub fn get_as_float_or_none<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+        &self,
+        key: &str,
+        error_handler: &E,
+    ) -> Option<f64> {
+        if let Some(value) = self.get(key) {
+            match value.as_float() {
+                Some(value) => Some(value),
+                None => {
+                    error_handler
+                        .clone()
+                        .with_expected("float")
+                        .with_actual(value.clone())
+                        .error(crate::ConfigErrorKind::InvalidValueType);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Get a float value with default, reporting type errors via error handler
+    pub fn get_as_float_or_default_validated<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+        &self,
+        key: &str,
+        default: f64,
+        error_handler: &E,
+    ) -> f64 {
+        if let Some(value) = self.get(key) {
+            match value.as_float() {
+                Some(value) => value,
+                None => {
+                    error_handler
+                        .clone()
+                        .with_expected("float")
+                        .with_actual(value.clone())
+                        .error(crate::ConfigErrorKind::InvalidValueType);
+                    default
+                }
+            }
+        } else {
+            default
+        }
+    }
+
+    /// Get an integer value or None, reporting type errors via error handler
+    pub fn get_as_integer_or_none<E: crate::error_handler::ErrorHandler<ErrorKind = crate::ConfigErrorKind>>(
+        &self,
+        key: &str,
+        error_handler: &E,
+    ) -> Option<i64> {
+        if let Some(value) = self.get(key) {
+            match value.as_integer() {
+                Some(value) => Some(value),
+                None => {
+                    error_handler
+                        .clone()
+                        .with_expected("integer")
+                        .with_actual(value.clone())
+                        .error(crate::ConfigErrorKind::InvalidValueType);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Extend this value with another value using merge strategies (internal, recursive)
+    pub(crate) fn extend(&mut self, other: ConfigValue<S, C>, extend_strategy: ExtendStrategy) {
+        if extend_strategy == ExtendStrategy::Keep && !self.is_none_or_empty() {
             return;
         }
 
@@ -677,58 +909,36 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
                 (ConfigData::Mapping(self_mapping), ConfigData::Mapping(other_mapping)) => {
                     for (orig_key, value) in other_mapping {
                         let (key, key_strategy) = ExtendStrategy::from_key(&orig_key);
-                        let children_strategy = key_strategy.unwrap_or(options.strategy.clone());
-
-                        let mut keypath = keypath.clone();
-                        keypath.push(key.clone());
+                        let children_strategy = key_strategy.unwrap_or(extend_strategy.clone());
 
                         if let Some(self_value) = self_mapping.get_mut(&key) {
-                            self_value.extend_internal(
-                                value,
-                                ExtendOptions::default().with_strategy(children_strategy).with_transform(options.transform),
-                                keypath,
-                                transform,
-                            );
+                            self_value.extend(value, children_strategy);
                         } else {
                             let mut new_value = ConfigValue::new_null(other.source.clone(), other.scope.clone());
-                            new_value.extend_internal(
-                                value,
-                                ExtendOptions::default().with_strategy(children_strategy).with_transform(options.transform),
-                                keypath,
-                                transform,
-                            );
+                            new_value.extend(value, children_strategy);
                             self_mapping.insert(key, new_value);
                         }
                     }
                 }
                 (ConfigData::Sequence(self_sequence), ConfigData::Sequence(other_sequence)) => {
-                    if options.strategy == ExtendStrategy::Keep && !self_sequence.is_empty() {
+                    if extend_strategy == ExtendStrategy::Keep && !self_sequence.is_empty() {
                         return;
                     }
 
-                    let init_index = if options.strategy == ExtendStrategy::Append {
+                    let _init_index = if extend_strategy == ExtendStrategy::Append {
                         self_sequence.len()
                     } else {
                         0
                     };
 
                     let mut new_sequence = Vec::new();
-                    for (index, value) in other_sequence.iter().enumerate() {
-                        let mut keypath = keypath.clone();
-                        keypath.push((init_index + index).to_string());
-
+                    for (_index, value) in other_sequence.iter().enumerate() {
                         let mut new_value = ConfigValue::new_null(other.source.clone(), other.scope.clone());
-                        new_value.extend_internal(
-                            value.clone(),
-                            options.clone(),
-                            keypath,
-                            transform,
-                        );
-
+                        new_value.extend(value.clone(), extend_strategy.clone());
                         new_sequence.push(new_value);
                     }
 
-                    match options.strategy {
+                    match extend_strategy {
                         ExtendStrategy::Append => {
                             'outer: for new_value in new_sequence {
                                 let new_value_yaml = new_value.as_serde_yaml();
@@ -760,58 +970,36 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
                     }
                 }
                 (ConfigData::Value(self_null), ConfigData::Mapping(other_mapping))
-                    if self_null.is_null() || options.strategy != ExtendStrategy::Keep =>
+                    if self_null.is_null() || extend_strategy != ExtendStrategy::Keep =>
                 {
                     let mut new_mapping = HashMap::new();
                     for (orig_key, value) in other_mapping {
                         let (key, key_strategy) = ExtendStrategy::from_key(&orig_key);
-                        let children_strategy = key_strategy.unwrap_or(options.strategy.clone());
-
-                        let mut keypath = keypath.clone();
-                        keypath.push(key.clone());
+                        let children_strategy = key_strategy.unwrap_or(extend_strategy.clone());
 
                         let mut new_value = ConfigValue::new_null(other.source.clone(), other.scope.clone());
-                        new_value.extend_internal(
-                            value,
-                            ExtendOptions::default().with_strategy(children_strategy).with_transform(options.transform),
-                            keypath,
-                            transform,
-                        );
+                        new_value.extend(value, children_strategy);
                         new_mapping.insert(key, new_value);
                     }
                     *self_value = Box::new(ConfigData::Mapping(new_mapping));
                 }
                 (ConfigData::Value(self_null), ConfigData::Sequence(other_sequence))
-                    if self_null.is_null() || options.strategy != ExtendStrategy::Keep =>
+                    if self_null.is_null() || extend_strategy != ExtendStrategy::Keep =>
                 {
                     let mut new_sequence = Vec::new();
-                    for (index, value) in other_sequence.iter().enumerate() {
-                        let mut keypath = keypath.clone();
-                        keypath.push(index.to_string());
-
+                    for (_index, value) in other_sequence.iter().enumerate() {
                         let mut new_value = ConfigValue::new_null(other.source.clone(), other.scope.clone());
-                        new_value.extend_internal(
-                            value.clone(),
-                            options.clone(),
-                            keypath,
-                            transform,
-                        );
-
+                        new_value.extend(value.clone(), extend_strategy.clone());
                         new_sequence.push(new_value);
                     }
                     *self_value = Box::new(ConfigData::Sequence(new_sequence));
                 }
                 (ConfigData::Value(self_null), ConfigData::Value(other_val))
-                    if self_null.is_null() || options.strategy != ExtendStrategy::Keep =>
+                    if self_null.is_null() || extend_strategy != ExtendStrategy::Keep =>
                 {
                     self.source = other.source.clone();
                     self.scope = other.scope.clone();
                     *self_value = Box::new(ConfigData::Value(other_val));
-                    if options.transform {
-                        if let Some(transform_fn) = transform {
-                            transform_fn(self, &keypath);
-                        }
-                    }
                 }
                 _ => {}
             }
@@ -850,6 +1038,19 @@ impl<S: Source, C: Scope> Serialize for ConfigValue<S, C> {
     }
 }
 
+// Implement Deserialize for ConfigValue
+impl<'de, S: Source + Deserialize<'de> + Default, C: Scope + Deserialize<'de>> Deserialize<'de> for ConfigValue<S, C> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_yaml::Value::deserialize(deserializer)?;
+        let source = S::default();
+        let scope = C::default();
+        Ok(ConfigValue::from_value(source, scope, value))
+    }
+}
+
 // Implement Display for ConfigValue
 impl<S: Source, C: Scope> std::fmt::Display for ConfigValue<S, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -858,6 +1059,18 @@ impl<S: Source, C: Scope> std::fmt::Display for ConfigValue<S, C> {
 }
 
 // Implement From conversions
+impl<S: Source, C: Scope> From<ConfigValue<S, C>> for crate::Value {
+    fn from(value: ConfigValue<S, C>) -> Self {
+        value.unwrap()
+    }
+}
+
+impl<S: Source, C: Scope> From<&ConfigValue<S, C>> for crate::Value {
+    fn from(value: &ConfigValue<S, C>) -> Self {
+        value.unwrap()
+    }
+}
+
 impl<S: Source, C: Scope> From<ConfigValue<S, C>> for serde_yaml::Value {
     fn from(value: ConfigValue<S, C>) -> Self {
         value.as_serde_yaml()

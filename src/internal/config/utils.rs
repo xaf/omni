@@ -1,33 +1,11 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use humantime::parse_duration;
 
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::ConfigValue;
-
-pub fn sort_serde_yaml(value: &serde_yaml::Value) -> serde_yaml::Value {
-    match value {
-        serde_yaml::Value::Sequence(seq) => {
-            let sorted_seq: Vec<serde_yaml::Value> = seq.iter().map(sort_serde_yaml).collect();
-            serde_yaml::Value::Sequence(sorted_seq)
-        }
-        serde_yaml::Value::Mapping(mapping) => {
-            let sorted_mapping: BTreeMap<String, serde_yaml::Value> = mapping
-                .iter()
-                .map(|(k, v)| (k.as_str().unwrap().to_owned(), sort_serde_yaml(v)))
-                .collect();
-            let sorted_mapping: serde_yaml::Mapping = sorted_mapping
-                .into_iter()
-                .map(|(k, v)| (serde_yaml::Value::String(k), v))
-                .collect();
-            serde_yaml::Value::Mapping(sorted_mapping)
-        }
-        _ => value.clone(),
-    }
-}
+use config_value::ConfigErrorKind;
 
 pub fn parse_duration_or_default(
     value: Option<&ConfigValue>,

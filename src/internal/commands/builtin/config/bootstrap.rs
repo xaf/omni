@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
 
+use config_value::Value;
 use itertools::Itertools;
 use regex::Regex;
 use serde::Deserialize;
@@ -22,10 +23,12 @@ use crate::internal::commands::Command;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigExtendOptions;
 use crate::internal::config::ConfigExtendStrategy;
 use crate::internal::config::ConfigLoader;
+use crate::internal::config::ConfigScope;
+use crate::internal::config::ConfigSource;
 use crate::internal::config::ConfigValue;
+use crate::internal::config::omni_config_loader;
 use crate::internal::config::OrgConfig;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
@@ -245,32 +248,36 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
         };
 
         if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-            // Dump our config object as yaml
-            let yaml = serde_yaml::to_string(&config);
-
-            // Now get a ConfigValue object from the yaml
-            let new_config_value = match yaml {
-                Ok(yaml) => match ConfigValue::from_str(&yaml) {
-                    Ok(config_value) => config_value,
-                    Err(err) => {
-                        omni_error!(format!("failed to parse configuration: {}", err));
-                        return false;
-                    }
-                },
+            // Convert our config object to Value and then to yaml
+            let value = match Value::to_value(&config) {
+                Ok(value) => value,
+                Err(err) => {
+                    omni_error!(format!("failed to convert configuration to value: {}", err));
+                    return false;
+                }
+            };
+            let yaml = match value.to_yaml_string() {
+                Ok(yaml) => yaml,
                 Err(err) => {
                     omni_error!(format!("failed to serialize configuration: {}", err));
                     return false;
                 }
             };
 
+            // Now get a ConfigValue object from the yaml
+            let new_config_value = match config_value::ConfigValue::from_str(ConfigSource::Default, ConfigScope::User, &yaml) {
+                Ok(config_value) => config_value,
+                Err(err) => {
+                    omni_error!(format!("failed to parse configuration: {}", err));
+                    return false;
+                }
+            };
+
             // Apply it over the existing configuration
-            config_value.extend(
-                new_config_value,
-                ConfigExtendOptions::new()
-                    .with_strategy(ConfigExtendStrategy::Replace)
-                    .with_transform(false),
-                vec![],
-            );
+            let loader = omni_config_loader()
+                .with_default_extend_strategy(ConfigExtendStrategy::Replace)
+                .with_transform_enabled(false);
+            loader.merge(config_value, new_config_value);
 
             // And return true to save the configuration
             true

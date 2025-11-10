@@ -38,7 +38,7 @@ impl CloneConfig {
         );
 
         Self {
-            auto_up: config_value.get_as_bool_or_default(
+            auto_up: config_value.get_as_bool_or_default_validated(
                 "auto_up",
                 Self::DEFAULT_AUTO_UP,
                 &error_handler.with_key("auto_up"),

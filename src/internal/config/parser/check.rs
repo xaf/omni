@@ -77,11 +77,11 @@ impl CheckConfig {
         }
 
         let ignore = config_value
-            .get_as_str_array("ignore", &error_handler.with_key("ignore"))
+            .get_as_str_array_validated("ignore", &error_handler.with_key("ignore"))
             .into_iter()
             .collect();
         let select = config_value
-            .get_as_str_array("select", &error_handler.with_key("select"))
+            .get_as_str_array_validated("select", &error_handler.with_key("select"))
             .into_iter()
             .collect();
 
@@ -154,7 +154,7 @@ impl CheckConfig {
 
 fn path_pattern_from_config_value(value: &ConfigValue) -> String {
     let pattern = value.as_str_forced().expect("value should be a string");
-    match value.get_source().path() {
+    match value.source().path() {
         Some(path) => {
             let as_path = PathBuf::from(path);
             let parent = as_path.parent().unwrap_or(&as_path);
@@ -163,7 +163,7 @@ fn path_pattern_from_config_value(value: &ConfigValue) -> String {
             path_pattern_from_str(
                 &pattern,
                 Some(&as_str),
-                !matches!(value.get_scope(), ConfigScope::Workdir),
+                !matches!(value.scope(), ConfigScope::Workdir),
             )
         }
         None => pattern.to_string(),

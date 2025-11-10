@@ -17,7 +17,7 @@ use crate::internal::cache::HomebrewOperationCache;
 use crate::internal::config;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::up::utils::get_command_output;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::ProgressHandler;

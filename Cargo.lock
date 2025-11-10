@@ -373,6 +373,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "config-value"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "console"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1792,6 +1802,7 @@ dependencies = [
  "blake3",
  "cfg-if",
  "clap",
+ "config-value",
  "ctrlc",
  "duct",
  "flate2",

@@ -19,7 +19,7 @@ use crate::internal::cache::CargoInstallVersions;
 use crate::internal::config::config;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::up::mise::mise_path;
 use crate::internal::config::up::mise_tool_path;
 use crate::internal::config::up::utils::cleanup_path;
@@ -679,16 +679,16 @@ impl UpConfigCargoInstall {
             false,
             &error_handler.with_key("upgrade"),
         );
-        let prerelease = config_value.get_as_bool_or_default(
+        let prerelease = config_value.get_as_bool_or_default_validated(
             "prerelease",
             false,
             &error_handler.with_key("prerelease"),
         );
         let build =
-            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
+            config_value.get_as_bool_or_default_validated("build", false, &error_handler.with_key("build"));
 
         let dirs = config_value
-            .get_as_str_array("dir", &error_handler.with_key("dir"))
+            .get_as_str_array_validated("dir", &error_handler.with_key("dir"))
             .iter()
             .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
             .collect::<BTreeSet<_>>();

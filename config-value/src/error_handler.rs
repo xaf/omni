@@ -7,7 +7,12 @@ pub trait ErrorHandler: Clone {
     type ErrorKind;
 
     /// Set the expected type/value
-    fn with_expected(self, expected: &str) -> Self;
+    ///
+    /// Accepts anything that can be converted to a Value, allowing flexible usage:
+    /// - Single string: `with_expected("string")`
+    /// - Multiple options: `with_expected(vec!["string", "array of strings"])`
+    /// - Any Value: `with_expected(Value::String("foo".to_string()))`
+    fn with_expected<V: Into<crate::Value>>(self, expected: V) -> Self;
 
     /// Set the actual value that was found
     fn with_actual<S: crate::Source, C: crate::Scope>(
@@ -32,7 +37,7 @@ pub struct NoOpErrorHandler;
 impl ErrorHandler for NoOpErrorHandler {
     type ErrorKind = ();
 
-    fn with_expected(self, _expected: &str) -> Self {
+    fn with_expected<V: Into<crate::Value>>(self, _expected: V) -> Self {
         self
     }
 
@@ -51,3 +56,7 @@ impl ErrorHandler for NoOpErrorHandler {
         // No-op
     }
 }
+
+#[cfg(test)]
+#[path = "error_handler_test.rs"]
+mod tests;

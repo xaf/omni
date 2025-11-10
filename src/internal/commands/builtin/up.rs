@@ -7,6 +7,7 @@ use std::process::exit;
 use std::str::FromStr;
 
 use blake3::Hasher as Blake3Hasher;
+use config_value::Value;
 use imara_diff::diff;
 use imara_diff::intern::InternedInput;
 use imara_diff::Algorithm;
@@ -37,9 +38,9 @@ use crate::internal::config::up::utils::SyncUpdateOperation;
 use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigExtendOptions;
 use crate::internal::config::ConfigLoader;
 use crate::internal::config::ConfigValue;
+use crate::internal::config::omni_config_loader;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
 use crate::internal::config::SyntaxOptArgType;
@@ -380,7 +381,8 @@ impl UpCommand {
 
             let suggest_config = suggest_config.clone();
             let mut after = config_value.clone();
-            after.extend(suggest_config.clone(), ConfigExtendOptions::new(), vec![]);
+            let loader = omni_config_loader();
+            loader.merge(&mut after, suggest_config.clone());
 
             // Get the yaml representation of the before and after config
             let before_yaml = before.as_yaml();
@@ -496,14 +498,11 @@ impl UpCommand {
 
         let mut choices = vec![];
         let mut split_suggestions = vec![];
+        let loader = omni_config_loader();
         for key in keys.iter() {
             if let Some(key_suggest_config) = suggest_config.select_keys(vec![key.to_string()]) {
                 let mut after = before.clone();
-                after.extend(
-                    key_suggest_config.clone(),
-                    ConfigExtendOptions::new(),
-                    vec![],
-                );
+                loader.merge(&mut after, key_suggest_config.clone());
 
                 // Get the yaml representation of the specific change
                 let after_yaml = after.as_yaml();
@@ -542,11 +541,7 @@ impl UpCommand {
             Ok(answer) => match answer {
                 requestty::Answer::ListItems(items) => {
                     for item in items {
-                        after.extend(
-                            split_suggestions[item.index].clone(),
-                            ConfigExtendOptions::new(),
-                            vec![],
-                        );
+                        loader.merge(&mut after, split_suggestions[item.index].clone());
                     }
                 }
                 _ => unreachable!(),
@@ -1696,8 +1691,11 @@ fn color_diff(diff: &str) -> String {
 }
 
 fn fingerprint<T: Serialize>(value: &T) -> u64 {
-    let string = match serde_yaml::to_string(value) {
-        Ok(string) => string,
+    let string = match Value::to_value(value) {
+        Ok(v) => match v.to_yaml_string() {
+            Ok(string) => string,
+            Err(_err) => return 0,
+        },
         Err(_err) => return 0,
     };
 

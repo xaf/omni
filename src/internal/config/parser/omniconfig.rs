@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use config_value::Value;
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use serde::Serialize;
@@ -13,7 +14,7 @@ use crate::internal::config::parser::CloneConfig;
 use crate::internal::config::parser::CommandDefinition;
 use crate::internal::config::parser::ConfigCommandsConfig;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::parser::EnvConfig;
 use crate::internal::config::parser::GithubConfig;
 use crate::internal::config::parser::MakefileCommandsConfig;
@@ -299,21 +300,29 @@ impl OmniConfig {
         let mut config_hasher = blake3::Hasher::new();
 
         if let Some(up) = &self.up {
-            if let Ok(up_str) = serde_yaml::to_string(&up) {
-                config_hasher.update(up_str.as_bytes());
+            if let Ok(value) = Value::to_value(&up) {
+                if let Ok(up_str) = value.to_yaml_string() {
+                    config_hasher.update(up_str.as_bytes());
+                }
             }
         }
 
-        if let Ok(suggest_config_str) = serde_yaml::to_string(&self.suggest_config) {
-            config_hasher.update(suggest_config_str.as_bytes());
+        if let Ok(value) = Value::to_value(&self.suggest_config) {
+            if let Ok(suggest_config_str) = value.to_yaml_string() {
+                config_hasher.update(suggest_config_str.as_bytes());
+            }
         }
 
-        if let Ok(suggest_clone_str) = serde_yaml::to_string(&self.suggest_clone) {
-            config_hasher.update(suggest_clone_str.as_bytes());
+        if let Ok(value) = Value::to_value(&self.suggest_clone) {
+            if let Ok(suggest_clone_str) = value.to_yaml_string() {
+                config_hasher.update(suggest_clone_str.as_bytes());
+            }
         }
 
-        if let Ok(env_str) = serde_yaml::to_string(&self.env) {
-            config_hasher.update(env_str.as_bytes());
+        if let Ok(value) = Value::to_value(&self.env) {
+            if let Ok(env_str) = value.to_yaml_string() {
+                config_hasher.update(env_str.as_bytes());
+            }
         }
 
         config_hasher.finalize().to_hex()[..16].to_string()

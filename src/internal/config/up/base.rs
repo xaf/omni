@@ -6,7 +6,7 @@ use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils::Empty;
 use crate::internal::cache::UpEnvironmentsCache;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::up::utils::cleanup_path;
 use crate::internal::config::up::utils::reshim;
 use crate::internal::config::up::utils::ProgressHandler;

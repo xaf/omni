@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpConfigBundler;

@@ -801,7 +801,7 @@ impl TidyGitRepo {
                                 &ConfigErrorHandler::noop(),
                             ) {
                                 if path_entry.starts_with(&current_path) {
-                                    if let ConfigSource::File(path) = value.get_source() {
+                                    if let ConfigSource::File(path) = value.source() {
                                         files_to_edit.insert(path.clone());
                                     }
                                 }

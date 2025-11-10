@@ -2,8 +2,8 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::StringFilter;
+use config_value::ConfigErrorKind;
 use crate::internal::config::utils::parse_duration_or_default;
 use crate::internal::config::ConfigValue;
 use crate::internal::env::shell_is_interactive;

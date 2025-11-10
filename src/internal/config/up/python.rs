@@ -12,7 +12,7 @@ use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::commands::utils::abs_path;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::up::github_release::UpConfigGithubRelease;
 use crate::internal::config::up::mise::FullyQualifiedToolName;
 use crate::internal::config::up::mise::PostInstallFuncArgs;

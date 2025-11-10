@@ -10,7 +10,7 @@ use crate::internal::cache::utils::Empty;
 use crate::internal::commands::utils::abs_path_from_path;
 use crate::internal::config::config_value::ConfigData;
 use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
+use config_value::ConfigErrorKind;
 use crate::internal::config::ConfigSource;
 use crate::internal::config::ConfigValue;
 
@@ -71,8 +71,8 @@ impl EnvConfig {
                         let mut map = HashMap::new();
                         map.insert(key.to_string(), value.clone());
                         ConfigValue::new(
-                            config_value.get_source().clone(),
-                            config_value.get_scope().clone(),
+                            config_value.source().clone(),
+                            config_value.scope().clone(),
                             Some(Box::new(ConfigData::Mapping(map))),
                         )
                     })
@@ -185,7 +185,7 @@ impl EnvOperationConfig {
                 // before returning it. We can use the value ConfigSource
                 // to determine the current scope.
                 if value_type == "path" {
-                    let source_path = match config_value.get_source() {
+                    let source_path = match config_value.source() {
                         ConfigSource::File(path) => Some(path.to_string()),
                         ConfigSource::Package(path_entry) => Some(path_entry.to_string()),
                         _ => {

@@ -1,9 +1,12 @@
 pub(crate) mod config_value;
-pub(crate) use config_value::ConfigExtendOptions;
 pub(crate) use config_value::ConfigExtendStrategy;
 pub(crate) use config_value::ConfigScope;
 pub(crate) use config_value::ConfigSource;
 pub(crate) use config_value::ConfigValue;
+pub(crate) use config_value::omni_config_loader;
+pub(crate) use config_value::omni_empty;
+pub(crate) use config_value::omni_from_str;
+pub(crate) use config_value::omni_from_table;
 
 pub(crate) mod loader;
 pub(crate) use loader::config_loader;

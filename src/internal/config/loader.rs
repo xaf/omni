@@ -14,11 +14,12 @@ use fs4::fs_std::FileExt;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 
-use crate::internal::config::ConfigExtendOptions;
 use crate::internal::config::ConfigExtendStrategy;
 use crate::internal::config::ConfigScope;
 use crate::internal::config::ConfigSource;
 use crate::internal::config::ConfigValue;
+use crate::internal::config::omni_config_loader;
+use config_value::Value;
 use crate::internal::env::config_home;
 use crate::internal::env::user_home;
 use crate::internal::env::xdg_config_home;
@@ -199,7 +200,7 @@ impl ConfigLoader {
     fn new_global() -> Self {
         let mut new_config_loader = Self {
             loaded_config_files: vec![],
-            raw_config: ConfigValue::empty(),
+            raw_config: ConfigValue::empty(ConfigSource::Default, ConfigScope::Default),
         };
 
         new_config_loader
@@ -414,7 +415,7 @@ impl ConfigLoader {
             return;
         }
 
-        match serde_yaml::from_str::<serde_yaml::Value>(&contents) {
+        match Value::from_yaml_str(&contents) {
             Ok(value) => {
                 self.loaded_config_files.push(config_file.to_string());
 
@@ -425,12 +426,9 @@ impl ConfigLoader {
                     ConfigSource::File(config_file.to_string())
                 };
 
-                let config_value = ConfigValue::from_value(source, scope.clone(), value);
-                self.raw_config.extend(
-                    config_value,
-                    ConfigExtendOptions::new().with_strategy(strategy),
-                    vec![],
-                );
+                let config_value = ConfigValue::from_config_value(source, scope.clone(), value);
+                let loader = omni_config_loader().with_default_extend_strategy(strategy);
+                loader.merge(&mut self.raw_config, config_value);
             }
             Err(err) => {
                 omni_print!(format!(
