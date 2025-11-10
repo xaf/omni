@@ -6,10 +6,8 @@ use std::rc::Rc;
 
 use serde::ser::SerializeMap;
 use serde::Serialize;
-use thiserror::Error;
 
 use crate::internal::commands::utils::abs_or_rel_path;
-use crate::internal::config::config_value::ConfigValue;
 use crate::internal::user_interface::colors::StringColor;
 use config_value::{ErrorHandler, Value};
 
@@ -208,7 +206,7 @@ impl ErrorHandler for ConfigErrorHandler {
     }
 
     fn error(self, kind: Self::ErrorKind) {
-        self.error(kind);
+        ConfigErrorHandler::error(&self, kind);
     }
 }
 

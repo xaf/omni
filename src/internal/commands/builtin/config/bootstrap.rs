@@ -27,7 +27,6 @@ use crate::internal::config::ConfigExtendStrategy;
 use crate::internal::config::ConfigLoader;
 use crate::internal::config::ConfigScope;
 use crate::internal::config::ConfigSource;
-use crate::internal::config::ConfigValue;
 use crate::internal::config::omni_config_loader;
 use crate::internal::config::OrgConfig;
 use crate::internal::config::SyntaxOptArg;

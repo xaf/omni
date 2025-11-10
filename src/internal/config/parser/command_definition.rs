@@ -11,7 +11,6 @@ use crate::internal::cache::utils as cache_utils;
 use crate::internal::commands::utils::abs_path;
 use crate::internal::commands::utils::str_to_bool;
 use crate::internal::commands::HelpCommand;
-use crate::internal::config::get_as_bool_or_default;
 use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::parser::ParseArgsErrorKind;
 use config_value::ConfigErrorKind;
@@ -914,7 +913,7 @@ impl SyntaxOptArg {
                         .get_as_str_or_none("dest", &error_handler.with_key("dest"));
 
                     if required.is_none() {
-                        required = Some(get_as_bool_or_default(&value_for_details, 
+                        required = Some(value_for_details.get_as_bool_or_default(
                             "required",
                             false,
                             &error_handler.with_key("required"),
@@ -954,27 +953,27 @@ impl SyntaxOptArg {
                                 None
                             })
                         });
-                    last_arg_double_hyphen = get_as_bool_or_default(&value_for_details, 
+                    last_arg_double_hyphen = value_for_details.get_as_bool_or_default(
                         "last",
                         false,
                         &error_handler.with_key("last"),
                     );
-                    leftovers = get_as_bool_or_default(&value_for_details, 
+                    leftovers = value_for_details.get_as_bool_or_default(
                         "leftovers",
                         false,
                         &error_handler.with_key("leftovers"),
                     );
-                    allow_hyphen_values = get_as_bool_or_default(&value_for_details, 
+                    allow_hyphen_values = value_for_details.get_as_bool_or_default(
                         "allow_hyphen_values",
                         false,
                         &error_handler.with_key("allow_hyphen_values"),
                     );
-                    allow_negative_numbers = get_as_bool_or_default(&value_for_details, 
+                    allow_negative_numbers = value_for_details.get_as_bool_or_default(
                         "allow_negative_numbers",
                         false,
                         &error_handler.with_key("allow_negative_numbers"),
                     );
-                    group_occurrences = get_as_bool_or_default(&value_for_details, 
+                    group_occurrences = value_for_details.get_as_bool_or_default(
                         "group_occurrences",
                         false,
                         &error_handler.with_key("group_occurrences"),
@@ -2652,13 +2651,13 @@ impl SyntaxGroup {
         }
 
         // Parse the rest of the group configuration
-        let multiple = get_as_bool_or_default(&config_value, 
+        let multiple = config_value.get_as_bool_or_default(
             "multiple",
             false,
             &error_handler.with_key("multiple"),
         );
 
-        let required = get_as_bool_or_default(&config_value, 
+        let required = config_value.get_as_bool_or_default(
             "required",
             false,
             &error_handler.with_key("required"),
