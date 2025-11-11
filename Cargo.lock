@@ -376,6 +376,7 @@ dependencies = [
 name = "config-value"
 version = "0.1.0"
 dependencies = [
+ "fs4",
  "serde",
  "serde_json",
  "serde_yaml_ng",

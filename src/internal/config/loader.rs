@@ -1,16 +1,10 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::fs::OpenOptions;
 use std::io;
-use std::io::Read;
-use std::io::Seek;
-use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Mutex;
 
-use fs4::fs_std::FileExt;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 
@@ -19,7 +13,6 @@ use crate::internal::config::ConfigScope;
 use crate::internal::config::ConfigSource;
 use crate::internal::config::ConfigValue;
 use crate::internal::config::omni_config_loader;
-use config_value::Value;
 use crate::internal::env::config_home;
 use crate::internal::env::user_home;
 use crate::internal::env::xdg_config_home;
@@ -318,45 +311,13 @@ impl ConfigLoader {
     where
         F: FnOnce(&mut ConfigValue) -> bool,
     {
-        // Check if the directory of the config file exists, otherwise create it recursively
-        let file_pathbuf = PathBuf::from(file_path.clone());
-        if let Some(parent) = file_pathbuf.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
-        }
+        let loader = omni_config_loader()
+            .with_default_extend_strategy(ConfigExtendStrategy::Raw);
 
-        // Open the file and take the lock
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(file_path.clone())?;
+        let source = ConfigSource::File(file_path.clone());
 
-        // Take the exclusive lock on the file, it will be release when `_file_lock` goes out of scope
-        let _file_lock = file.lock_exclusive();
-
-        // Now we'll want to open the file in question, and load its
-        // configuration into a clean ConfigLoader.
-        let mut config_loader = Self::new_empty();
-        config_loader.import_config_file_with_strategy(
-            &file_path,
-            scope,
-            ConfigExtendStrategy::Raw,
-        );
-
-        // We can now call the edit function
-        if edit_fn(&mut config_loader.raw_config) {
-            let serialized = config_loader.raw_config.as_yaml();
-
-            // Replace entirely the content of the file with the new JSON
-            file.set_len(0)?;
-            file.seek(io::SeekFrom::Start(0))?;
-            file.write_all(serialized.as_bytes())?;
-        }
-
-        Ok(())
+        // Use the auto-detecting edit_file - it will detect YAML/JSON format automatically
+        loader.edit_file(&file_path, source, scope, edit_fn)
     }
 
     // fn new_local_only(path: &str) -> Self {
@@ -404,31 +365,30 @@ impl ConfigLoader {
         scope: ConfigScope,
         strategy: ConfigExtendStrategy,
     ) {
-        let file = File::open(config_file);
-        if file.is_err() {
+        // Check if file exists first
+        if !PathBuf::from(config_file).exists() {
             return;
         }
 
-        let mut file = file.unwrap();
-        let mut contents = String::new();
-        if let Err(_err) = file.read_to_string(&mut contents) {
-            return;
-        }
+        // Determine source type (package or file)
+        let path_entry_config = path_entry_config(config_file);
+        let source = if path_entry_config.package.is_some() {
+            ConfigSource::Package(path_entry_config)
+        } else {
+            ConfigSource::File(config_file.to_string())
+        };
 
-        match Value::from_yaml_str(&contents) {
-            Ok(value) => {
+        // Use the generic load_and_merge_file_with_strategy from config-value
+        let loader = omni_config_loader();
+        match loader.load_and_merge_file_with_strategy(
+            &mut self.raw_config,
+            config_file,
+            source,
+            scope,
+            strategy,
+        ) {
+            Ok(_) => {
                 self.loaded_config_files.push(config_file.to_string());
-
-                let path_entry_config = path_entry_config(config_file);
-                let source = if path_entry_config.package.is_some() {
-                    ConfigSource::Package(path_entry_config)
-                } else {
-                    ConfigSource::File(config_file.to_string())
-                };
-
-                let config_value = ConfigValue::from_config_value(source, scope.clone(), value);
-                let loader = omni_config_loader().with_default_extend_strategy(strategy);
-                loader.merge(&mut self.raw_config, config_value);
             }
             Err(err) => {
                 omni_print!(format!(

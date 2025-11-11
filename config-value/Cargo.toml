@@ -12,4 +12,7 @@ serde_json = "1.0"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 thiserror = "2.0"
 
+[target.'cfg(unix)'.dependencies]
+fs4 = "0.13"
+
 [dev-dependencies]

@@ -57,7 +57,7 @@ pub mod value;
 pub use error::{ConfigError, ConfigErrorKind};
 pub use error_handler::{ErrorHandler, NoOpErrorHandler};
 pub use extend_strategy::ExtendStrategy;
-pub use loader::{ConfigLoader, Options};
+pub use loader::{ConfigLoader, FileFormat, Options};
 pub use primitive::Value;
 pub use scope::Scope;
 pub use source::Source;

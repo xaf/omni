@@ -404,6 +404,14 @@ impl From<HashMap<String, Value>> for Value {
 }
 
 impl Value {
+    /// Parse a string into a Value using YAML
+    ///
+    /// This is the default parsing method. Uses YAML which is also compatible with JSON.
+    /// This is a convenience method that is equivalent to `from_yaml_str`.
+    pub fn from_str(s: &str) -> Result<Self, serde_yaml::Error> {
+        Self::from_yaml_str(s)
+    }
+
     /// Parse a YAML string into a Value
     ///
     /// This is a convenience method that parses YAML text directly into a Value.
