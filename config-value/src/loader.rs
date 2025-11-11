@@ -401,6 +401,104 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
         Ok(())
     }
 
+    /// Load multiple files and merge them into a base configuration using the loader's default strategy
+    ///
+    /// This function:
+    /// 1. Loads each file in order (using `load_file`)
+    /// 2. Merges each into the base configuration using the loader's default extend strategy
+    /// 3. Applies transforms if enabled (after each merge)
+    /// 4. Skips files that don't exist (returns success)
+    ///
+    /// Files are processed in order, so later files override earlier ones according to the merge strategy.
+    ///
+    /// # Arguments
+    /// * `base` - The base configuration to merge into
+    /// * `files` - List of (file_path, source, scope) tuples to load
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut config = ConfigValue::new_null(ConfigSource::Default, ConfigScope::Default);
+    /// loader.load_and_merge_files(
+    ///     &mut config,
+    ///     vec![
+    ///         ("/etc/app/config.yaml", ConfigSource::System, ConfigScope::System),
+    ///         ("/home/user/.config/app.yaml", ConfigSource::User, ConfigScope::User),
+    ///     ],
+    /// )?;
+    /// ```
+    pub fn load_and_merge_files<'a>(
+        &self,
+        base: &mut ConfigValue<S, C>,
+        files: impl IntoIterator<Item = (&'a str, S, C)>,
+    ) -> io::Result<()>
+    where
+        S: Clone + 'a,
+        C: Clone + 'a,
+    {
+        use std::path::Path;
+
+        for (file_path, source, scope) in files {
+            // Skip if file doesn't exist
+            if !Path::new(file_path).exists() {
+                continue;
+            }
+
+            // Load and merge this file
+            self.load_and_merge_file(base, file_path, source, scope)?;
+        }
+
+        Ok(())
+    }
+
+    /// Load multiple files and merge them with individual strategies for each file
+    ///
+    /// This function:
+    /// 1. Loads each file in order (using `load_file`)
+    /// 2. Merges each into the base configuration using its specified extend strategy
+    /// 3. Applies transforms if enabled (after each merge)
+    /// 4. Skips files that don't exist (returns success)
+    ///
+    /// This allows fine-grained control over how each file merges.
+    ///
+    /// # Arguments
+    /// * `base` - The base configuration to merge into
+    /// * `files` - List of (file_path, source, scope, strategy) tuples to load
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut config = ConfigValue::new_null(ConfigSource::Default, ConfigScope::Default);
+    /// loader.load_and_merge_files_with_strategies(
+    ///     &mut config,
+    ///     vec![
+    ///         ("/etc/app/config.yaml", source.clone(), scope.clone(), ExtendStrategy::Default),
+    ///         ("/etc/app/paths.yaml", source.clone(), scope.clone(), ExtendStrategy::Append),
+    ///     ],
+    /// )?;
+    /// ```
+    pub fn load_and_merge_files_with_strategies<'a>(
+        &self,
+        base: &mut ConfigValue<S, C>,
+        files: impl IntoIterator<Item = (&'a str, S, C, ExtendStrategy)>,
+    ) -> io::Result<()>
+    where
+        S: Clone + 'a,
+        C: Clone + 'a,
+    {
+        use std::path::Path;
+
+        for (file_path, source, scope, strategy) in files {
+            // Skip if file doesn't exist
+            if !Path::new(file_path).exists() {
+                continue;
+            }
+
+            // Load and merge this file with its specific strategy
+            self.load_and_merge_file_with_strategy(base, file_path, source, scope, strategy)?;
+        }
+
+        Ok(())
+    }
+
     /// Edit a configuration file with auto-detected format
     ///
     /// This function:

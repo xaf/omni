@@ -348,9 +348,43 @@ impl ConfigLoader {
     }
 
     pub fn import_config_files(&mut self, config_files: Vec<String>, scope: ConfigScope) {
-        for config_file in &config_files.clone() {
-            if !self.loaded_config_files.contains(config_file) {
-                self.import_config_file(config_file, scope.clone());
+        // Prepare files that haven't been loaded yet
+        let files_to_load: Vec<_> = config_files
+            .iter()
+            .filter(|f| !self.loaded_config_files.contains(f))
+            .map(|f| {
+                let path_entry_config = path_entry_config(f);
+                let source = if path_entry_config.package.is_some() {
+                    ConfigSource::Package(path_entry_config)
+                } else {
+                    ConfigSource::File(f.to_string())
+                };
+                (f.as_str(), source, scope.clone())
+            })
+            .collect();
+
+        // Track which files we're about to load
+        let loading_files: Vec<String> = files_to_load
+            .iter()
+            .map(|(path, _, _)| path.to_string())
+            .collect();
+
+        // Use the generic load_and_merge_files method
+        let loader = omni_config_loader();
+        match loader.load_and_merge_files(&mut self.raw_config, files_to_load) {
+            Ok(_) => {
+                // Add successfully loaded files to the list
+                self.loaded_config_files.extend(loading_files);
+            }
+            Err(err) => {
+                // Individual file errors are handled by load_and_merge_files
+                // This only catches unexpected errors
+                omni_print!(format!(
+                    "{} {}",
+                    "configuration error: unable to load files:".red(),
+                    err
+                ));
+                exit(1);
             }
         }
     }
