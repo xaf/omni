@@ -22,6 +22,8 @@ use crate::internal::workdir;
 use crate::omni_error;
 use crate::omni_print;
 
+use config_value::FileDefinition;
+
 lazy_static! {
     #[derive(Debug)]
     static ref CONFIG_LOADER_PER_PATH: Mutex<ConfigLoaderPerPath> = Mutex::new(ConfigLoaderPerPath::new());
@@ -359,14 +361,16 @@ impl ConfigLoader {
                 } else {
                     ConfigSource::File(f.to_string())
                 };
-                (f.as_str(), source, scope.clone())
+                FileDefinition::new(f.as_str())
+                    .with_source(source)
+                    .with_scope(scope.clone())
             })
             .collect();
 
         // Track which files we're about to load
         let loading_files: Vec<String> = files_to_load
             .iter()
-            .map(|(path, _, _)| path.to_string())
+            .map(|file| file.path().to_string())
             .collect();
 
         // Use the generic load_and_merge_files method

@@ -1,4 +1,5 @@
 use super::*;
+use crate::extend_strategy::ExtendStrategy;
 use crate::source::DefaultSource;
 use crate::scope::DefaultScope;
 
@@ -69,7 +70,7 @@ fn test_extend_append() {
         "items__toappend: [3, 4]",
     ).unwrap();
 
-    base.extend(other, ExtendOptions::default(), vec![]);
+    base.extend(other, ExtendStrategy::Default);
 
     let items = base.get("items").unwrap().as_array().unwrap();
     assert_eq!(items.len(), 4);
@@ -89,7 +90,7 @@ fn test_extend_keep() {
         "key__ifnone: replacement",
     ).unwrap();
 
-    base.extend(other, ExtendOptions::default(), vec![]);
+    base.extend(other, ExtendStrategy::Default);
 
     // Should keep original value
     assert_eq!(base.get("key").unwrap().as_str(), Some("original".to_string()));

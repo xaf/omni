@@ -78,6 +78,181 @@ pub enum FileFormat {
     Json,
 }
 
+/// Builder for specifying files to load and merge
+///
+/// Provides a fluent API for configuring file loading parameters:
+/// - File path (required)
+/// - Source and Scope (optional, use defaults if not specified)
+/// - Merge strategy (optional, uses loader's default if not specified)
+/// - Whether file must exist (optional, defaults to optional/skip if not found)
+///
+/// # Example
+/// ```ignore
+/// use config_value::{FileDefinition, ExtendStrategy};
+///
+/// let files = vec![
+///     // Minimal - uses default source and scope, optional file
+///     FileDefinition::new("config.yaml"),
+///
+///     // With custom source, scope, and strategy
+///     FileDefinition::new("paths.yaml")
+///         .with_source(ConfigSource::User)
+///         .with_scope(ConfigScope::User)
+///         .with_strategy(ExtendStrategy::Append),
+///
+///     // Required file - error if not found
+///     FileDefinition::new("required.yaml")
+///         .require_exists(true),
+/// ];
+///
+/// loader.load_and_merge_files(&mut config, files)?;
+/// ```
+#[derive(Debug, Clone)]
+pub struct FileDefinition<'a, S: Source, C: Scope> {
+    /// Path to the file to load
+    path: &'a str,
+    /// Source marker for the file (uses default if None)
+    source: Option<S>,
+    /// Scope marker for the file (uses default if None)
+    scope: Option<C>,
+    /// Optional merge strategy (uses loader's default if None)
+    strategy: Option<ExtendStrategy>,
+    /// Whether the file is required to exist (default: false)
+    require_exists: bool,
+    /// Whether the file is required to be valid (default: true)
+    require_valid: bool,
+}
+
+impl<'a, S: Source + Default, C: Scope + Default> FileDefinition<'a, S, C> {
+    /// Create a new FileDefinition with only the required file path
+    ///
+    /// # Arguments
+    /// * `path` - Path to the configuration file
+    ///
+    /// By default:
+    /// - Uses `ConfigSource::default()` for source
+    /// - Uses `ConfigScope::default()` for scope
+    /// - Uses the loader's default merge strategy
+    /// - Does not require file to exist (skips if not found)
+    /// - Requires file to be valid if found (error on parse failure)
+    pub fn new(path: &'a str) -> Self {
+        Self {
+            path,
+            source: None,
+            scope: None,
+            strategy: None,
+            require_exists: false,
+            require_valid: true,
+        }
+    }
+
+    /// Specify a source for this file
+    ///
+    /// If not specified, uses `ConfigSource::default()`.
+    pub fn with_source(mut self, source: S) -> Self {
+        self.source = Some(source);
+        self
+    }
+
+    /// Specify a scope for this file
+    ///
+    /// If not specified, uses `ConfigScope::default()`.
+    pub fn with_scope(mut self, scope: C) -> Self {
+        self.scope = Some(scope);
+        self
+    }
+
+    /// Specify a merge strategy for this file
+    ///
+    /// If not specified, uses the loader's default strategy.
+    pub fn with_strategy(mut self, strategy: ExtendStrategy) -> Self {
+        self.strategy = Some(strategy);
+        self
+    }
+
+    /// Control whether this file must exist
+    ///
+    /// # Arguments
+    /// * `require_exists` - If true, return error if file not found; if false (default), skip missing files
+    ///
+    /// By default, files are optional and will be skipped if not found.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Make file required
+    /// FileDefinition::new("config.yaml").require_exists(true)
+    ///
+    /// // Make file optional (default behavior, usually not needed)
+    /// FileDefinition::new("config.yaml").require_exists(false)
+    ///
+    /// // Conditional based on logic
+    /// let is_required = check_environment();
+    /// FileDefinition::new("config.yaml").require_exists(is_required)
+    /// ```
+    #[allow(clippy::wrong_self_convention)]
+    pub fn require_exists(mut self, require_exists: bool) -> Self {
+        self.require_exists = require_exists;
+        self
+    }
+
+    /// Control whether this file must be valid (parseable)
+    ///
+    /// # Arguments
+    /// * `require_valid` - If true (default), return error if file is invalid; if false, skip invalid files
+    ///
+    /// By default, files must be valid. If a file exists but cannot be parsed, an error is returned.
+    /// Use `require_valid(false)` to silently skip files with parse errors.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Require file to be valid (default behavior, usually not needed)
+    /// FileDefinition::new("config.yaml").require_valid(true)
+    ///
+    /// // Allow invalid files to be skipped
+    /// FileDefinition::new("config.yaml").require_valid(false)
+    ///
+    /// // Try to load optional config, but ignore if corrupted
+    /// FileDefinition::new("optional.yaml")
+    ///     .require_exists(false)  // Skip if missing
+    ///     .require_valid(false)   // Skip if invalid
+    /// ```
+    #[allow(clippy::wrong_self_convention)]
+    pub fn require_valid(mut self, require_valid: bool) -> Self {
+        self.require_valid = require_valid;
+        self
+    }
+
+    /// Get the file path
+    pub fn path(&self) -> &str {
+        self.path
+    }
+
+    /// Get the source (returns default if not specified)
+    pub fn source(&self) -> S {
+        self.source.clone().unwrap_or_default()
+    }
+
+    /// Get the scope (returns default if not specified)
+    pub fn scope(&self) -> C {
+        self.scope.clone().unwrap_or_default()
+    }
+
+    /// Get the strategy (None means use loader's default)
+    pub fn strategy(&self) -> Option<&ExtendStrategy> {
+        self.strategy.as_ref()
+    }
+
+    /// Check if file is required to exist
+    pub fn is_require_exists(&self) -> bool {
+        self.require_exists
+    }
+
+    /// Check if file is required to be valid
+    pub fn is_require_valid(&self) -> bool {
+        self.require_valid
+    }
+}
+
 impl FileFormat {
     /// Detect format from file extension
     ///
@@ -401,99 +576,103 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
         Ok(())
     }
 
-    /// Load multiple files and merge them into a base configuration using the loader's default strategy
+    /// Load multiple files and merge them into a base configuration
     ///
     /// This function:
     /// 1. Loads each file in order (using `load_file`)
-    /// 2. Merges each into the base configuration using the loader's default extend strategy
+    /// 2. Merges each into the base configuration using its specified strategy
+    ///    (or the loader's default if not specified)
     /// 3. Applies transforms if enabled (after each merge)
-    /// 4. Skips files that don't exist (returns success)
+    /// 4. Handles missing files according to each file's configuration
+    ///    (by default, missing files are skipped; use `require_exists()` to make them mandatory)
     ///
     /// Files are processed in order, so later files override earlier ones according to the merge strategy.
     ///
     /// # Arguments
     /// * `base` - The base configuration to merge into
-    /// * `files` - List of (file_path, source, scope) tuples to load
+    /// * `files` - Iterator of `FileDefinition` builders specifying files to load
     ///
     /// # Example
     /// ```ignore
+    /// use config_value::{FileDefinition, ExtendStrategy};
+    ///
     /// let mut config = ConfigValue::new_null(ConfigSource::Default, ConfigScope::Default);
     /// loader.load_and_merge_files(
     ///     &mut config,
     ///     vec![
-    ///         ("/etc/app/config.yaml", ConfigSource::System, ConfigScope::System),
-    ///         ("/home/user/.config/app.yaml", ConfigSource::User, ConfigScope::User),
+    ///         // Required system config
+    ///         FileDefinition::new("/etc/app/config.yaml")
+    ///             .with_source(ConfigSource::System)
+    ///             .with_scope(ConfigScope::System)
+    ///             .require_exists(),
+    ///         // Optional path config with append strategy
+    ///         FileDefinition::new("/etc/app/paths.yaml")
+    ///             .with_source(ConfigSource::System)
+    ///             .with_scope(ConfigScope::System)
+    ///             .with_strategy(ExtendStrategy::Append),
+    ///         // Optional user config (default behavior)
+    ///         FileDefinition::new("/home/user/.config/app.yaml")
+    ///             .with_source(ConfigSource::User)
+    ///             .with_scope(ConfigScope::User),
     ///     ],
     /// )?;
     /// ```
     pub fn load_and_merge_files<'a>(
         &self,
         base: &mut ConfigValue<S, C>,
-        files: impl IntoIterator<Item = (&'a str, S, C)>,
+        files: impl IntoIterator<Item = FileDefinition<'a, S, C>>,
     ) -> io::Result<()>
     where
-        S: Clone + 'a,
-        C: Clone + 'a,
+        S: Clone + Default + 'a,
+        C: Clone + Default + 'a,
     {
         use std::path::Path;
 
-        for (file_path, source, scope) in files {
-            // Skip if file doesn't exist
+        for file_spec in files {
+            let file_path = file_spec.path();
+
+            // Check if file exists
             if !Path::new(file_path).exists() {
-                continue;
+                if !file_spec.is_require_exists() {
+                    // Skip missing file
+                    continue;
+                } else {
+                    // Return error for missing file
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("Configuration file not found: {}", file_path),
+                    ));
+                }
             }
 
-            // Load and merge this file
-            self.load_and_merge_file(base, file_path, source, scope)?;
-        }
+            // Load and merge this file with its specific strategy (or default)
+            let result = if let Some(strategy) = file_spec.strategy() {
+                self.load_and_merge_file_with_strategy(
+                    base,
+                    file_path,
+                    file_spec.source(),
+                    file_spec.scope(),
+                    strategy.clone(),
+                )
+            } else {
+                self.load_and_merge_file(
+                    base,
+                    file_path,
+                    file_spec.source(),
+                    file_spec.scope(),
+                )
+            };
 
-        Ok(())
-    }
-
-    /// Load multiple files and merge them with individual strategies for each file
-    ///
-    /// This function:
-    /// 1. Loads each file in order (using `load_file`)
-    /// 2. Merges each into the base configuration using its specified extend strategy
-    /// 3. Applies transforms if enabled (after each merge)
-    /// 4. Skips files that don't exist (returns success)
-    ///
-    /// This allows fine-grained control over how each file merges.
-    ///
-    /// # Arguments
-    /// * `base` - The base configuration to merge into
-    /// * `files` - List of (file_path, source, scope, strategy) tuples to load
-    ///
-    /// # Example
-    /// ```ignore
-    /// let mut config = ConfigValue::new_null(ConfigSource::Default, ConfigScope::Default);
-    /// loader.load_and_merge_files_with_strategies(
-    ///     &mut config,
-    ///     vec![
-    ///         ("/etc/app/config.yaml", source.clone(), scope.clone(), ExtendStrategy::Default),
-    ///         ("/etc/app/paths.yaml", source.clone(), scope.clone(), ExtendStrategy::Append),
-    ///     ],
-    /// )?;
-    /// ```
-    pub fn load_and_merge_files_with_strategies<'a>(
-        &self,
-        base: &mut ConfigValue<S, C>,
-        files: impl IntoIterator<Item = (&'a str, S, C, ExtendStrategy)>,
-    ) -> io::Result<()>
-    where
-        S: Clone + 'a,
-        C: Clone + 'a,
-    {
-        use std::path::Path;
-
-        for (file_path, source, scope, strategy) in files {
-            // Skip if file doesn't exist
-            if !Path::new(file_path).exists() {
-                continue;
+            // Handle load/parse errors based on require_valid setting
+            if let Err(err) = result {
+                if !file_spec.is_require_valid() {
+                    // Skip invalid file silently
+                    continue;
+                } else {
+                    // Return error for invalid file
+                    return Err(err);
+                }
             }
-
-            // Load and merge this file with its specific strategy
-            self.load_and_merge_file_with_strategy(base, file_path, source, scope, strategy)?;
         }
 
         Ok(())
@@ -701,5 +880,88 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
         }
 
         Ok(())
+    }
+}
+#[cfg(test)]
+mod test_file_definition_api {
+    use super::FileDefinition;
+    use crate::source::DefaultSource;
+    use crate::scope::DefaultScope;
+
+    #[test]
+    fn test_require_exists_true() {
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_exists(true);
+        assert!(f.is_require_exists());
+    }
+
+    #[test]
+    fn test_require_exists_false() {
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_exists(false);
+        assert!(!f.is_require_exists());
+    }
+
+    #[test]
+    fn test_default_exists_is_optional() {
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml");
+        assert!(!f.is_require_exists());
+    }
+
+    #[test]
+    fn test_require_exists_conditional() {
+        let is_production = true;
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_exists(is_production);
+        assert!(f.is_require_exists());
+
+        let is_production = false;
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_exists(is_production);
+        assert!(!f.is_require_exists());
+    }
+
+    #[test]
+    fn test_require_valid_true() {
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_valid(true);
+        assert!(f.is_require_valid());
+    }
+
+    #[test]
+    fn test_require_valid_false() {
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_valid(false);
+        assert!(!f.is_require_valid());
+    }
+
+    #[test]
+    fn test_default_valid_is_required() {
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml");
+        assert!(f.is_require_valid());
+    }
+
+    #[test]
+    fn test_both_require_settings() {
+        // Most strict: must exist and be valid
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_exists(true)
+            .require_valid(true);
+        assert!(f.is_require_exists());
+        assert!(f.is_require_valid());
+
+        // Most lenient: optional and can be invalid
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_exists(false)
+            .require_valid(false);
+        assert!(!f.is_require_exists());
+        assert!(!f.is_require_valid());
+
+        // Mixed: must exist but can be invalid
+        let f = FileDefinition::<DefaultSource, DefaultScope>::new("test.yaml")
+            .require_exists(true)
+            .require_valid(false);
+        assert!(f.is_require_exists());
+        assert!(!f.is_require_valid());
     }
 }
