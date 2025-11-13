@@ -49,7 +49,7 @@ imara-diff = "0.1.6"
 indicatif = "0.18.3"
 itertools = "0.14.0"
 lazy_static = "1.4.0"
-libz-sys = { version = "1.1.21", features = ["static"] }  # So we can force static linking
+libz-sys = { version = "1.1.23", features = ["static"] }  # So we can force static linking
 machine-uid = "0.5.4"
 md-5 = "0.10.6"
 nix = { version = "0.30.1", features = ["fs", "process", "signal"] }
