@@ -469,7 +469,7 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
 
         // Parse with detected format
         if contents.is_empty() {
-            Ok(ConfigValue::new_null(source, scope))
+            Ok(ConfigValue::new_null_with(source, scope))
         } else {
             format.parse(&contents, source, scope).map_err(|e| {
                 io::Error::new(
@@ -585,6 +585,7 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
     /// 3. Applies transforms if enabled (after each merge)
     /// 4. Handles missing files according to each file's configuration
     ///    (by default, missing files are skipped; use `require_exists()` to make them mandatory)
+    /// 5. Returns a list of successfully loaded file paths
     ///
     /// Files are processed in order, so later files override earlier ones according to the merge strategy.
     ///
@@ -592,19 +593,22 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
     /// * `base` - The base configuration to merge into
     /// * `files` - Iterator of `FileDefinition` builders specifying files to load
     ///
+    /// # Returns
+    /// A vector of file paths that were successfully loaded and merged
+    ///
     /// # Example
     /// ```ignore
     /// use config_value::{FileDefinition, ExtendStrategy};
     ///
     /// let mut config = ConfigValue::new_null(ConfigSource::Default, ConfigScope::Default);
-    /// loader.load_and_merge_files(
+    /// let loaded = loader.load_and_merge_files(
     ///     &mut config,
     ///     vec![
     ///         // Required system config
     ///         FileDefinition::new("/etc/app/config.yaml")
     ///             .with_source(ConfigSource::System)
     ///             .with_scope(ConfigScope::System)
-    ///             .require_exists(),
+    ///             .require_exists(true),
     ///         // Optional path config with append strategy
     ///         FileDefinition::new("/etc/app/paths.yaml")
     ///             .with_source(ConfigSource::System)
@@ -616,17 +620,21 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
     ///             .with_scope(ConfigScope::User),
     ///     ],
     /// )?;
+    ///
+    /// println!("Loaded {} config files", loaded.len());
     /// ```
     pub fn load_and_merge_files<'a>(
         &self,
         base: &mut ConfigValue<S, C>,
         files: impl IntoIterator<Item = FileDefinition<'a, S, C>>,
-    ) -> io::Result<()>
+    ) -> io::Result<Vec<String>>
     where
         S: Clone + Default + 'a,
         C: Clone + Default + 'a,
     {
         use std::path::Path;
+
+        let mut loaded_files = Vec::new();
 
         for file_spec in files {
             let file_path = file_spec.path();
@@ -673,9 +681,12 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
                     return Err(err);
                 }
             }
+
+            // Track successfully loaded file
+            loaded_files.push(file_path.to_string());
         }
 
-        Ok(())
+        Ok(loaded_files)
     }
 
     /// Edit a configuration file with auto-detected format
@@ -772,7 +783,7 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
         // Load configuration WITHOUT transformations
         let mut config_value = if contents.is_empty() {
             // Empty file, create null config
-            ConfigValue::new_null(source, scope)
+            ConfigValue::new_null_with(source, scope)
         } else {
             // Parse existing content with detected format
             format
@@ -855,7 +866,7 @@ impl<S: Source, C: Scope> ConfigLoader<S, C> {
         // Load configuration WITHOUT transformations
         let mut config_value = if contents.is_empty() {
             // Empty file, create null config
-            ConfigValue::new_null(source, scope)
+            ConfigValue::new_null_with(source, scope)
         } else {
             // Parse existing content with detected format
             format
@@ -963,5 +974,55 @@ mod test_file_definition_api {
             .require_valid(false);
         assert!(f.is_require_exists());
         assert!(!f.is_require_valid());
+    }
+
+    #[test]
+    fn test_load_tracking() {
+        use super::ConfigLoader;
+        use crate::value::ConfigValue;
+        use std::fs;
+        use std::io::Write;
+
+        // Create temp directory and files
+        let temp_dir = std::env::temp_dir().join("config_value_test_tracking");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let file1 = temp_dir.join("config1.yaml");
+        let file2 = temp_dir.join("config2.yaml");
+        let file3 = temp_dir.join("missing.yaml");
+
+        // Write test files
+        fs::File::create(&file1)
+            .unwrap()
+            .write_all(b"key1: value1")
+            .unwrap();
+        fs::File::create(&file2)
+            .unwrap()
+            .write_all(b"key2: value2")
+            .unwrap();
+        // file3 intentionally not created
+
+        let loader = ConfigLoader::<DefaultSource, DefaultScope>::new();
+        let mut config = ConfigValue::new_null();
+
+        let loaded = loader
+            .load_and_merge_files(
+                &mut config,
+                vec![
+                    FileDefinition::new(file1.to_str().unwrap()),
+                    FileDefinition::new(file2.to_str().unwrap()),
+                    FileDefinition::new(file3.to_str().unwrap()), // Missing, but optional
+                ],
+            )
+            .unwrap();
+
+        // Should have loaded 2 files (file3 was skipped)
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded.contains(&file1.to_string_lossy().to_string()));
+        assert!(loaded.contains(&file2.to_string_lossy().to_string()));
+        assert!(!loaded.contains(&file3.to_string_lossy().to_string()));
+
+        // Cleanup
+        fs::remove_dir_all(&temp_dir).ok();
     }
 }

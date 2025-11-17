@@ -195,7 +195,7 @@ impl ConfigLoader {
     fn new_global() -> Self {
         let mut new_config_loader = Self {
             loaded_config_files: vec![],
-            raw_config: ConfigValue::empty(ConfigSource::Default, ConfigScope::Default),
+            raw_config: ConfigValue::empty_with(ConfigSource::Default, ConfigScope::Default),
         };
 
         new_config_loader
@@ -212,7 +212,7 @@ impl ConfigLoader {
     pub fn new_empty() -> Self {
         Self {
             loaded_config_files: vec![],
-            raw_config: ConfigValue::new_null(ConfigSource::Null, ConfigScope::Null),
+            raw_config: ConfigValue::new_null_with(ConfigSource::Null, ConfigScope::Null),
         }
     }
 
@@ -367,18 +367,12 @@ impl ConfigLoader {
             })
             .collect();
 
-        // Track which files we're about to load
-        let loading_files: Vec<String> = files_to_load
-            .iter()
-            .map(|file| file.path().to_string())
-            .collect();
-
         // Use the generic load_and_merge_files method
         let loader = omni_config_loader();
         match loader.load_and_merge_files(&mut self.raw_config, files_to_load) {
-            Ok(_) => {
+            Ok(loaded_files) => {
                 // Add successfully loaded files to the list
-                self.loaded_config_files.extend(loading_files);
+                self.loaded_config_files.extend(loaded_files);
             }
             Err(err) => {
                 // Individual file errors are handled by load_and_merge_files

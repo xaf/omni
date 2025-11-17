@@ -224,7 +224,7 @@ impl PromptConfig {
         match render_config_template(&template, &template_context) {
             Ok(value) => {
                 // Load the template as config value
-                let config_value = match ConfigValue::from_str(Default::default(), Default::default(), &value) {
+                let config_value = match ConfigValue::from_str_with(Default::default(), Default::default(),&value) {
                     Ok(value) => value,
                     Err(err) => {
                         return Err(format!(
@@ -801,7 +801,7 @@ impl PromptChoicesConfig {
     pub fn choices(&self) -> Result<Vec<PromptChoiceConfig>, String> {
         match self {
             Self::ChoicesAsArray(choices) => Ok(choices.clone()),
-            Self::ChoicesAsString(template) => match ConfigValue::from_str(Default::default(), Default::default(), template) {
+            Self::ChoicesAsString(template) => match ConfigValue::from_str_with(Default::default(), Default::default(),template) {
                 Ok(config_value) => {
                     let choices = match config_value.as_array() {
                         Some(choices) => choices,

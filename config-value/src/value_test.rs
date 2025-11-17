@@ -5,19 +5,13 @@ use crate::scope::DefaultScope;
 
 #[test]
 fn test_new_null() {
-    let value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::new_null(
-        DefaultSource,
-        DefaultScope,
-    );
+    let value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::new_null();
     assert!(value.is_null());
 }
 
 #[test]
 fn test_empty() {
-    let value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::empty(
-        DefaultSource,
-        DefaultScope,
-    );
+    let value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::empty();
     assert!(value.is_table());
     assert_eq!(value.as_table().unwrap().len(), 0);
 }
@@ -28,11 +22,7 @@ fn test_from_str() {
 key: value
 number: 42
 "#;
-    let value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        yaml,
-    ).unwrap();
+    let value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(yaml).unwrap();
 
     assert!(value.is_table());
     assert_eq!(value.get("key").unwrap().as_str(), Some("value".to_string()));
@@ -46,11 +36,7 @@ a:
   b:
     c: deep_value
 "#;
-    let value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        yaml,
-    ).unwrap();
+    let value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(yaml).unwrap();
 
     let deep = value.dig(vec!["a", "b", "c"]).unwrap();
     assert_eq!(deep.as_str(), Some("deep_value".to_string()));
@@ -58,17 +44,9 @@ a:
 
 #[test]
 fn test_extend_append() {
-    let mut base: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        "items: [1, 2]",
-    ).unwrap();
+    let mut base: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str("items: [1, 2]").unwrap();
 
-    let other: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        "items__toappend: [3, 4]",
-    ).unwrap();
+    let other: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str("items__toappend: [3, 4]").unwrap();
 
     base.extend(other, ExtendStrategy::Default);
 
@@ -78,17 +56,9 @@ fn test_extend_append() {
 
 #[test]
 fn test_extend_keep() {
-    let mut base: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        "key: original",
-    ).unwrap();
+    let mut base: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str("key: original").unwrap();
 
-    let other: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        "key__ifnone: replacement",
-    ).unwrap();
+    let other: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str("key__ifnone: replacement").unwrap();
 
     base.extend(other, ExtendStrategy::Default);
 
@@ -104,11 +74,7 @@ count: 42
 nested:
   items: [1, 2, 3]
 "#;
-    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        yaml,
-    ).unwrap();
+    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(yaml).unwrap();
 
     let value = config_value.unwrap();
 
@@ -133,11 +99,7 @@ z_key: last
 a_key: first
 m_key: middle
 "#;
-    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        yaml,
-    ).unwrap();
+    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(yaml).unwrap();
 
     let yaml_output = config_value.as_yaml();
 
@@ -155,11 +117,7 @@ z_key: last
 a_key: first
 m_key: middle
 "#;
-    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(
-        DefaultSource,
-        DefaultScope,
-        yaml,
-    ).unwrap();
+    let config_value: ConfigValue<DefaultSource, DefaultScope> = ConfigValue::from_str(yaml).unwrap();
 
     let json_output = config_value.as_json();
 

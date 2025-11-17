@@ -135,7 +135,7 @@ impl UpConfigCargoInstalls {
             let mut crates = Vec::new();
             for crate_name_str in table.keys().sorted() {
                 let value = table.get(crate_name_str).expect("crate config not found");
-                let crate_name = match ConfigValue::from_str(Default::default(), Default::default(), crate_name_str) {
+                let crate_name = match ConfigValue::from_str_with(Default::default(), Default::default(),crate_name_str) {
                     Ok(value) => value,
                     Err(_) => continue,
                 };
@@ -144,7 +144,7 @@ impl UpConfigCargoInstalls {
                     table.clone()
                 } else if let Some(version) = value.as_str_forced() {
                     let mut crate_config = HashMap::new();
-                    let value = match ConfigValue::from_str(Default::default(), Default::default(), &version) {
+                    let value = match ConfigValue::from_str_with(Default::default(), Default::default(),&version) {
                         Ok(value) => value,
                         Err(_) => continue,
                     };
@@ -587,13 +587,13 @@ impl UpConfigCargoInstall {
                             ..UpConfigCargoInstall::default()
                         };
                     } else if let (Some(table), Ok(crate_name_config_value)) =
-                        (value.as_table(), ConfigValue::from_str(Default::default(), Default::default(), key))
+                        (value.as_table(), ConfigValue::from_str_with(Default::default(), Default::default(),key))
                     {
                         let mut crate_name_config = table.clone();
                         crate_name_config.insert("crate_name".to_string(), crate_name_config_value);
                         return UpConfigCargoInstall::from_table(&crate_name_config, error_handler);
                     } else if let (true, Ok(crate_name_config_value)) =
-                        (value.is_null(), ConfigValue::from_str(Default::default(), Default::default(), key))
+                        (value.is_null(), ConfigValue::from_str_with(Default::default(), Default::default(),key))
                     {
                         let crate_name_config = HashMap::from_iter(vec![(
                             "crate".to_string(),

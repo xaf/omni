@@ -264,7 +264,7 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
             };
 
             // Now get a ConfigValue object from the yaml
-            let new_config_value = match config_value::ConfigValue::from_str(ConfigSource::Default, ConfigScope::User, &yaml) {
+            let new_config_value = match config_value::ConfigValue::from_str_with(ConfigSource::Default, ConfigScope::User, &yaml) {
                 Ok(config_value) => config_value,
                 Err(err) => {
                     omni_error!(format!("failed to parse configuration: {}", err));

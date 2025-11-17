@@ -50,8 +50,8 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         }
     }
 
-    /// Create a null ConfigValue
-    pub fn new_null(source: S, scope: C) -> Self {
+    /// Create a new null ConfigValue with the given source and scope
+    pub fn new_null_with(source: S, scope: C) -> Self {
         Self::new(
             source,
             scope,
@@ -59,13 +59,31 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         )
     }
 
-    /// Create an empty ConfigValue (empty mapping)
-    pub fn empty(source: S, scope: C) -> Self {
+    /// Create a new null ConfigValue with default source and scope
+    pub fn new_null() -> Self
+    where
+        S: Default,
+        C: Default,
+    {
+        Self::new_null_with(S::default(), C::default())
+    }
+
+    /// Create an empty ConfigValue (empty mapping) with the given source and scope
+    pub fn empty_with(source: S, scope: C) -> Self {
         Self::from_value(
             source,
             scope,
             serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
         )
+    }
+
+    /// Create an empty ConfigValue (empty mapping) with default source and scope
+    pub fn empty() -> Self
+    where
+        S: Default,
+        C: Default,
+    {
+        Self::empty_with(S::default(), C::default())
     }
 
     /// Check if this value is null
@@ -109,10 +127,19 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
         Self::new(source, scope, Some(Box::new(config_data)))
     }
 
-    /// Create a ConfigValue from a YAML string
-    pub fn from_str(source: S, scope: C, value: &str) -> Result<Self, serde_yaml::Error> {
+    /// Create a ConfigValue from a YAML string with the given source and scope
+    pub fn from_str_with(source: S, scope: C, value: &str) -> Result<Self, serde_yaml::Error> {
         let value = Value::from_yaml_str(value)?;
         Ok(Self::from_config_value(source, scope, value))
+    }
+
+    /// Create a ConfigValue from a YAML string with default source and scope
+    pub fn from_str(value: &str) -> Result<Self, serde_yaml::Error>
+    where
+        S: Default,
+        C: Default,
+    {
+        Self::from_str_with(S::default(), C::default(), value)
     }
 
     /// Create a ConfigValue from a HashMap
@@ -900,7 +927,7 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
                         if let Some(self_value) = self_mapping.get_mut(&key) {
                             self_value.extend(value, children_strategy);
                         } else {
-                            let mut new_value = ConfigValue::new_null(other.source.clone(), other.scope.clone());
+                            let mut new_value = ConfigValue::new_null_with(other.source.clone(), other.scope.clone());
                             new_value.extend(value, children_strategy);
                             self_mapping.insert(key, new_value);
                         }
@@ -919,7 +946,7 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
 
                     let mut new_sequence = Vec::new();
                     for (_index, value) in other_sequence.iter().enumerate() {
-                        let mut new_value = ConfigValue::new_null(other.source.clone(), other.scope.clone());
+                        let mut new_value = ConfigValue::new_null_with(other.source.clone(), other.scope.clone());
                         new_value.extend(value.clone(), extend_strategy.clone());
                         new_sequence.push(new_value);
                     }
@@ -963,7 +990,7 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
                         let (key, key_strategy) = ExtendStrategy::from_key(&orig_key);
                         let children_strategy = key_strategy.unwrap_or(extend_strategy.clone());
 
-                        let mut new_value = ConfigValue::new_null(other.source.clone(), other.scope.clone());
+                        let mut new_value = ConfigValue::new_null_with(other.source.clone(), other.scope.clone());
                         new_value.extend(value, children_strategy);
                         new_mapping.insert(key, new_value);
                     }
@@ -974,7 +1001,7 @@ impl<S: Source, C: Scope> ConfigValue<S, C> {
                 {
                     let mut new_sequence = Vec::new();
                     for (_index, value) in other_sequence.iter().enumerate() {
-                        let mut new_value = ConfigValue::new_null(other.source.clone(), other.scope.clone());
+                        let mut new_value = ConfigValue::new_null_with(other.source.clone(), other.scope.clone());
                         new_value.extend(value.clone(), extend_strategy.clone());
                         new_sequence.push(new_value);
                     }
@@ -1071,7 +1098,7 @@ impl<S: Source, C: Scope> From<&ConfigValue<S, C>> for serde_yaml::Value {
 
 impl<S: Source + Default, C: Scope + Default> Default for ConfigValue<S, C> {
     fn default() -> Self {
-        Self::new_null(S::default(), C::default())
+        Self::new_null()
     }
 }
 

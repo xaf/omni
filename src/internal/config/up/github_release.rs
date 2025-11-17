@@ -200,7 +200,7 @@ impl UpConfigGithubReleases {
             let mut releases = Vec::new();
             for repo in table.keys().sorted() {
                 let value = table.get(repo).expect("repo config not found");
-                let repository = match ConfigValue::from_str(Default::default(), Default::default(), repo) {
+                let repository = match ConfigValue::from_str_with(Default::default(), Default::default(),repo) {
                     Ok(value) => value,
                     Err(_) => continue,
                 };
@@ -209,7 +209,7 @@ impl UpConfigGithubReleases {
                     table.clone()
                 } else if let Some(version) = value.as_str_forced() {
                     let mut repo_config = HashMap::new();
-                    let value = match ConfigValue::from_str(Default::default(), Default::default(), &version) {
+                    let value = match ConfigValue::from_str_with(Default::default(), Default::default(),&version) {
                         Ok(value) => value,
                         Err(_) => continue,
                     };
@@ -733,13 +733,13 @@ impl UpConfigGithubRelease {
                             ..Self::default()
                         };
                     } else if let (Some(table), Ok(repo_config_value)) =
-                        (value.as_table(), ConfigValue::from_str(Default::default(), Default::default(), key))
+                        (value.as_table(), ConfigValue::from_str_with(Default::default(), Default::default(),key))
                     {
                         let mut repo_config = table.clone();
                         repo_config.insert("repository".to_string(), repo_config_value);
                         return Self::from_table(&repo_config, error_handler);
                     } else if let (true, Ok(repo_config_value)) =
-                        (value.is_null(), ConfigValue::from_str(Default::default(), Default::default(), key))
+                        (value.is_null(), ConfigValue::from_str_with(Default::default(), Default::default(),key))
                     {
                         let repo_config =
                             HashMap::from_iter(vec![("repository".to_string(), repo_config_value)]);

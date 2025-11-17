@@ -178,11 +178,11 @@ impl PathEntryConfig {
             let mut map = HashMap::new();
             map.insert(
                 "path".to_string(),
-                ConfigValue::from_str(ConfigSource::Null, ConfigScope::Null, &self.path).expect("path should be a string"),
+                ConfigValue::from_str_with(ConfigSource::Null, ConfigScope::Null, &self.path).expect("path should be a string"),
             );
             map.insert(
                 "package".to_string(),
-                ConfigValue::from_str(ConfigSource::Null, ConfigScope::Null, package).expect("package should be a string"),
+                ConfigValue::from_str_with(ConfigSource::Null, ConfigScope::Null, package).expect("package should be a string"),
             );
             ConfigValue::new(
                 ConfigSource::Null,
@@ -190,7 +190,7 @@ impl PathEntryConfig {
                 Some(Box::new(ConfigData::Mapping(map))),
             )
         } else {
-            ConfigValue::from_str(ConfigSource::Null, ConfigScope::Null, &self.full_path).expect("full_path should be a string")
+            ConfigValue::from_str_with(ConfigSource::Null, ConfigScope::Null, &self.full_path).expect("full_path should be a string")
         }
     }
 
