@@ -116,8 +116,15 @@ impl ParsedRepoUrl {
                 name = parts.last().unwrap().to_string();
                 owner = Some(parts[..parts.len() - 1].join("/"));
             } else if parts.len() == 1 {
-                owner = Some(parts[0].to_string());
-                name.clear();
+                // If the URL had a .git suffix, treat it as a complete repo URL
+                // with no owner, otherwise treat it as owner-only (incomplete URL)
+                if git_suffix {
+                    name = parts[0].to_string();
+                    owner = None;
+                } else {
+                    owner = Some(parts[0].to_string());
+                    name.clear();
+                }
             }
         }
 
