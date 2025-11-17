@@ -892,10 +892,14 @@ impl GitRepoEnv {
         self.id
             .get_or_init(|| {
                 if let Some(origin) = &self.origin {
+                    eprintln!("Debug: Computing git repo id from origin: {}", origin);
                     if let Ok(url) = safe_git_url_parse(origin) {
+                        eprintln!("Debug: Parsed git url: {:?}", url);
                         return id_from_git_url(&url);
                     }
+                    eprintln!("Debug: Failed to parse git url from origin: {}", origin);
                 }
+                eprintln!("Debug: No origin found for git repo at path");
                 None
             })
             .clone()
@@ -940,8 +944,11 @@ impl WorkDirEnv {
     fn new(path: &str) -> Self {
         let mut workdir_env = Self::default();
 
+        eprintln!("Debug: Initializing WorkDirEnv for path '{}'", path);
         let git = git_env(path);
+        eprintln!("Debug: Git environment for path '{}': {:?}", path, git);
         if git.in_repo() {
+            eprintln!("Debug: Path '{}' is inside a Git repository", path);
             workdir_env.in_workdir = true;
             workdir_env.in_git = true;
             workdir_env.root = git.root().map(|s| s.to_string());
@@ -1021,16 +1028,17 @@ impl WorkDirEnv {
     pub fn trust_id(&self) -> Option<String> {
         self.id
             .get_or_init(|| {
-                self.root.as_ref()?;
-
-                if let Some(id) = Self::read_id_file(self.root.as_ref().unwrap()) {
+                if let Some(id) = Self::read_id_file(self.root.as_ref()?) {
+                    eprintln!("Debug: Found workdir id from file: {}", id);
                     return Some(id);
                 }
 
-                if let Some(id) = git_env(self.root.as_ref().unwrap()).id() {
+                if let Some(id) = git_env(self.root.as_ref()?).id() {
+                    eprintln!("Debug: Found workdir id from git origin: {}", id);
                     return Some(id);
                 }
 
+                eprintln!("Debug: No workdir id found for root: {:?}", self.root);
                 None
             })
             .clone()

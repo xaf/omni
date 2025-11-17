@@ -82,10 +82,9 @@ pub fn safe_git_url_parse(url: &str) -> Result<ParsedRepoUrl, GitUrlError> {
 
 pub fn id_from_git_url(url: &ParsedRepoUrl) -> Option<String> {
     let host = url.host.as_ref()?.to_string();
-    if let (Some(owner), name) = (&url.owner, &url.name) {
-        if !name.is_empty() {
-            return Some(format!("{host}:{owner}/{name}"));
-        }
+    match (&url.owner, &url.name) {
+        (Some(owner), name) if !name.is_empty() => Some(format!("{host}:{owner}/{name}")),
+        (None, name) if !name.is_empty() => Some(format!("{host}:/{name}", name)),
     }
     None
 }
