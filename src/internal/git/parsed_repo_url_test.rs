@@ -182,7 +182,8 @@ fn generic_host_https_and_ssh() {
 fn single_repo_with_git_suffix() {
     // Test that URLs in the format https://<host>/<repo>.git parse correctly
     // The .git suffix signals the URL is complete, so we have a repo name but no owner
-    let p = ParsedRepoUrl::parse("https://example.com/test-repo.git").expect("parse should succeed");
+    let p =
+        ParsedRepoUrl::parse("https://example.com/test-repo.git").expect("parse should succeed");
     assert_eq!(p.scheme.as_deref(), Some("https"));
     assert_eq!(p.host.as_deref(), Some("example.com"));
     assert_eq!(p.owner.as_deref(), None);
