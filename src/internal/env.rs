@@ -1021,13 +1021,11 @@ impl WorkDirEnv {
     pub fn trust_id(&self) -> Option<String> {
         self.id
             .get_or_init(|| {
-                self.root.as_ref()?;
-
-                if let Some(id) = Self::read_id_file(self.root.as_ref().unwrap()) {
+                if let Some(id) = Self::read_id_file(self.root.as_ref()?) {
                     return Some(id);
                 }
 
-                if let Some(id) = git_env(self.root.as_ref().unwrap()).id() {
+                if let Some(id) = git_env(self.root.as_ref()?).id() {
                     return Some(id);
                 }
 

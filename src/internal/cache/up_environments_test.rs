@@ -384,7 +384,8 @@ mod up_environments_cache {
             let retention_stale = 60;
             if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
                 *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s").as_str(),
+                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s")
+                        .as_str(),
                 )
                 .expect("Failed to create config value");
                 true
@@ -439,7 +440,8 @@ mod up_environments_cache {
             let retention_stale = 60;
             if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
                 *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s").as_str(),
+                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s")
+                        .as_str(),
                 )
                 .expect("Failed to create config value");
                 true
@@ -477,7 +479,8 @@ mod up_environments_cache {
             let retention_stale = 60;
             if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
                 *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s").as_str(),
+                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s")
+                        .as_str(),
                 )
                 .expect("Failed to create config value");
                 true

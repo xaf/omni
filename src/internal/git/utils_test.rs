@@ -95,6 +95,42 @@ mod id_from_git_url_tests {
 
         assert_eq!(result, None);
     }
+
+    #[test]
+    fn test_id_from_git_url_with_git_suffix_no_owner() {
+        // URL with .git suffix and single path component should have no owner
+        let git_url = safe_git_url_parse("https://example.com/test-repo.git").unwrap();
+        let result = id_from_git_url(&git_url);
+
+        // Should format as "host:/repo" (owner is empty)
+        assert_eq!(result, Some("example.com:/test-repo".to_string()));
+    }
+
+    #[test]
+    fn test_id_from_git_url_without_git_suffix_no_name() {
+        // URL without .git suffix and single path component should have no name
+        let git_url = safe_git_url_parse("https://example.com/test-repo").unwrap();
+        let result = id_from_git_url(&git_url);
+
+        // Should return None because name is empty
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_id_from_git_url_ssh_with_git_suffix() {
+        let git_url = safe_git_url_parse("git@github.com:owner/repo.git").unwrap();
+        let result = id_from_git_url(&git_url);
+
+        assert_eq!(result, Some("github.com:owner/repo".to_string()));
+    }
+
+    #[test]
+    fn test_id_from_git_url_gitlab_subgroups() {
+        let git_url = safe_git_url_parse("https://gitlab.com/group/subgroup/repo.git").unwrap();
+        let result = id_from_git_url(&git_url);
+
+        assert_eq!(result, Some("gitlab.com:group/subgroup/repo".to_string()));
+    }
 }
 
 mod full_git_url_parse_tests {
