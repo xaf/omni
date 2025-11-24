@@ -47,7 +47,7 @@ jobs:
       pages_environment: ${{ env.PAGES_ENVIRONMENT }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -90,7 +90,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Get release version
         run: |
@@ -130,7 +130,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -192,7 +192,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -224,7 +224,7 @@ jobs:
 
     steps:
       - name: Checkout current commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -311,7 +311,7 @@ jobs:
 
     steps:
       - name: Checkout current commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Enable auto-merge if Dependabot
         env:

@@ -54,7 +54,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Check if pull request already exists
         env:
@@ -82,7 +82,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Get rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -139,7 +139,7 @@ jobs:
           private-key: ${{ secrets.OMNICLI_PRIVATE_KEY }}
 
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 
