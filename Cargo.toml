@@ -27,7 +27,7 @@ self-update-check = ["self-update"]
 time = { version = "0.3.43", features = ["serde-well-known"] }
 
 [dev-dependencies]
-mockito = "1.7.0"
+mockito = "1.7.1"
 temp-env = "0.3.6"
 
 [dependencies]
