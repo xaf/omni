@@ -233,7 +233,7 @@ jobs:
           git config --global --add safe.directory '*'
 
       - name: Download artifact for ${{ inputs.suffix }}
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: ${{ env.BUILD_FILENAME }}
 
