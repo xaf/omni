@@ -747,8 +747,7 @@ impl UpConfigCargoInstall {
         // Get the last, non-empty part of the crate_name
         self.crate_name
             .split('/')
-            .filter(|part| !part.is_empty())
-            .next_back()
+            .rfind(|part| !part.is_empty())
             .unwrap_or("")
             .to_string()
     }

@@ -1004,7 +1004,7 @@ impl ConfigValue {
                         new_value.extend(value, options.with_strategy(children_strategy), keypath);
                         new_mapping.insert(key, new_value);
                     }
-                    *self_value = Box::new(ConfigData::Mapping(new_mapping));
+                    **self_value = ConfigData::Mapping(new_mapping);
                 }
                 (ConfigData::Value(self_null), ConfigData::Sequence(other_sequence))
                     if self_null.is_null() || options.strategy != ConfigExtendStrategy::Keep =>
@@ -1026,14 +1026,14 @@ impl ConfigValue {
 
                         new_sequence.push(new_value);
                     }
-                    *self_value = Box::new(ConfigData::Sequence(new_sequence));
+                    **self_value = ConfigData::Sequence(new_sequence);
                 }
                 (ConfigData::Value(self_null), ConfigData::Value(other_val))
                     if self_null.is_null() || options.strategy != ConfigExtendStrategy::Keep =>
                 {
                     self.source = other.source.clone();
                     self.scope = other.scope.clone();
-                    *self_value = Box::new(ConfigData::Value(other_val));
+                    **self_value = ConfigData::Value(other_val);
                     if options.transform {
                         self.transform(&keypath);
                     }
