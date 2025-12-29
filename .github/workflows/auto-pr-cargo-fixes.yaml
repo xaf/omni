@@ -163,7 +163,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Download cargo-fix.zip from update job
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: cargo-fix
 
