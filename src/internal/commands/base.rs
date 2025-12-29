@@ -145,7 +145,6 @@ impl Command {
         self.all_names()
             .iter()
             .filter(|name| name.starts_with(&prefix))
-            .cloned()
             .map(|name| name[prefix.len()..].to_vec())
             .collect()
     }

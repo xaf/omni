@@ -747,8 +747,7 @@ impl UpConfigGoInstall {
         // Get the last, non-empty part of the path
         self.path
             .split('/')
-            .filter(|part| !part.is_empty())
-            .next_back()
+            .rfind(|part| !part.is_empty())
             .unwrap_or("")
             .to_string()
     }
