@@ -175,7 +175,7 @@ jobs:
             ${{ env.BUILD_FILENAME }}.tar.gz
 
       - name: Publish artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.BUILD_FILENAME }}
           path: ${{ env.BUILD_FILENAME }}[.-]*
