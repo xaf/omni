@@ -475,7 +475,7 @@ fn compute_omni_tmpdir() -> String {
                 Ok(tmpdir) if !tmpdir.is_empty() && tmpdir.starts_with('/') => tmpdir,
                 _ => "/tmp".to_string(),
             };
-            let user = whoami::username();
+            let user = whoami::username().unwrap_or_else(|_| "unknown".to_string());
 
             format!("{tmpdir}/omni.{user}")
         }
