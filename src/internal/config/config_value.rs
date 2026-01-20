@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -56,6 +57,32 @@ impl ConfigSource {
     }
 }
 
+impl From<ConfigSource> for compote::ConfigSource {
+    fn from(source: ConfigSource) -> Self {
+        match source {
+            ConfigSource::File(path) => compote::ConfigSource::File(PathBuf::from(path)),
+            ConfigSource::Package(entry) => {
+                compote::ConfigSource::Package(entry.package.unwrap_or_default())
+            }
+            ConfigSource::Default => compote::ConfigSource::Default,
+            ConfigSource::Null => compote::ConfigSource::Default,
+        }
+    }
+}
+
+impl From<&ConfigSource> for compote::ConfigSource {
+    fn from(source: &ConfigSource) -> Self {
+        match source {
+            ConfigSource::File(path) => compote::ConfigSource::File(PathBuf::from(path)),
+            ConfigSource::Package(entry) => {
+                compote::ConfigSource::Package(entry.package.clone().unwrap_or_default())
+            }
+            ConfigSource::Default => compote::ConfigSource::Default,
+            ConfigSource::Null => compote::ConfigSource::Default,
+        }
+    }
+}
+
 // Omni-specific scope type
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq, Ord, PartialOrd)]
 pub enum ConfigScope {
@@ -70,6 +97,30 @@ pub enum ConfigScope {
 impl Scope for ConfigScope {
     fn description(&self) -> String {
         format!("{:?}", self)
+    }
+}
+
+impl From<ConfigScope> for compote::ConfigLevel {
+    fn from(scope: ConfigScope) -> Self {
+        match scope {
+            ConfigScope::System => compote::ConfigLevel::System,
+            ConfigScope::User => compote::ConfigLevel::User,
+            ConfigScope::Workdir => compote::ConfigLevel::Local,
+            ConfigScope::Default => compote::ConfigLevel::Local,
+            ConfigScope::Null => compote::ConfigLevel::Local,
+        }
+    }
+}
+
+impl From<&ConfigScope> for compote::ConfigLevel {
+    fn from(scope: &ConfigScope) -> Self {
+        match scope {
+            ConfigScope::System => compote::ConfigLevel::System,
+            ConfigScope::User => compote::ConfigLevel::User,
+            ConfigScope::Workdir => compote::ConfigLevel::Local,
+            ConfigScope::Default => compote::ConfigLevel::Local,
+            ConfigScope::Null => compote::ConfigLevel::Local,
+        }
     }
 }
 
@@ -266,17 +317,7 @@ fn to_compote_inner_value(
 
 /// Convert old ConfigValue's context to compote ConfigContext
 fn to_compote_context(old_value: &ConfigValue) -> compote::ConfigContext {
-    let source = match old_value.source().path() {
-        Some(path) => compote::ConfigSource::File(std::path::PathBuf::from(path)),
-        None => compote::ConfigSource::Programmatic,
-    };
-
-    let level = match old_value.scope() {
-        ConfigScope::System => compote::ConfigLevel::System,
-        ConfigScope::User => compote::ConfigLevel::User,
-        ConfigScope::Workdir => compote::ConfigLevel::Local,
-        _ => compote::ConfigLevel::Local,
-    };
-
+    let source: compote::ConfigSource = old_value.source().into();
+    let level: compote::ConfigLevel = old_value.scope().into();
     compote::ConfigContext::new(source, level)
 }
