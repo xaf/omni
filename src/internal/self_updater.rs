@@ -25,7 +25,6 @@ use crate::internal::env::homebrew_prefix;
 use crate::internal::env::homebrew_repository;
 use crate::internal::user_interface::colors::StringColor;
 use crate::internal::ConfigLoader;
-use crate::internal::ConfigValue;
 use crate::omni_error;
 use crate::omni_info;
 
@@ -374,33 +373,8 @@ impl OmniRelease {
     }
 
     fn edit_config_file_self_update(&self, self_update: bool) -> bool {
-        if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-            let insert_value = if self_update { "true" } else { "false" };
-
-            // Clone source and scope before getting mutable borrows
-            let source = config_value.source().clone();
-            let scope = config_value.scope().clone();
-
-            if let Some(config_path) = config_value.get_as_table_mut("path_repo_updates") {
-                config_path.insert(
-                    "self_update".to_string(),
-                    ConfigValue::from_str_with(source, scope, insert_value).expect("failed to create config value"),
-                );
-            } else if let Some(config_value_table) = config_value.as_table_mut() {
-                config_value_table.insert(
-                    "path_repo_updates".to_string(),
-                    ConfigValue::from_str_with(source, scope, format!("self_update: {insert_value}").as_str())
-                        .expect("failed to create config value"),
-                );
-            } else {
-                *config_value = ConfigValue::from_str_with(
-                    source,
-                    scope,
-                    format!("path_repo_updates:\n  self_update: {insert_value}").as_str(),
-                )
-                .expect("failed to create config value");
-            }
-
+        if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            config.at("path_repo_updates.self_update").set(self_update).ok();
             true
         }) {
             omni_error!(format!("failed to update configuration file: {:?}", err,));

@@ -87,6 +87,7 @@ pub fn omni_config_loader() -> OmniConfigLoader {
 }
 
 // Omni-specific helper functions for ConfigValue
+#[allow(dead_code)]
 pub fn omni_from_str(value: &str) -> Result<ConfigValue, serde_yaml::Error> {
     let value_obj = Value::from_yaml_str(value)?;
     Ok(config_value::ConfigValue::from_config_value(
@@ -96,6 +97,7 @@ pub fn omni_from_str(value: &str) -> Result<ConfigValue, serde_yaml::Error> {
     ))
 }
 
+#[allow(dead_code)]
 pub fn omni_from_table(table: HashMap<String, ConfigValue>) -> ConfigValue {
     config_value::ConfigValue::from_table(ConfigSource::Null, ConfigScope::Null, table)
 }
@@ -201,3 +203,80 @@ fn should_transform_keypath(keypath: &[String]) -> bool {
 
 // All ConfigValue methods are now provided by the config-value crate
 // No wrapper functions needed here anymore
+
+/// Convert omni's ConfigValue to compote's ConfigValue for use with compote's FromConfigValue trait.
+///
+/// This is needed when deserializing from the old ConfigLoader's raw_config into types
+/// that derive `compote::Config`.
+pub fn to_compote_config_value(old_value: &ConfigValue) -> compote::ConfigValue {
+    let context = to_compote_context(old_value);
+    let value = to_compote_inner_value(old_value, &context);
+    compote::ConfigValue { value, context }
+}
+
+/// Convert old ConfigValue's inner value to compote Value
+fn to_compote_inner_value(
+    old_value: &ConfigValue,
+    _parent_context: &compote::ConfigContext,
+) -> compote::Value {
+    if old_value.is_null() {
+        compote::Value::Null
+    } else if let Some(b) = old_value.as_bool() {
+        compote::Value::Bool(b)
+    } else if let Some(i) = old_value.as_integer() {
+        compote::Value::Int(i)
+    } else if let Some(f) = old_value.as_float() {
+        compote::Value::Float(f)
+    } else if let Some(s) = old_value.as_str() {
+        compote::Value::String(s)
+    } else if let Some(array) = old_value.as_array() {
+        let converted: Vec<compote::ConfigValue> = array
+            .iter()
+            .map(|item| {
+                let context = to_compote_context(&item);
+                let inner = to_compote_inner_value(&item, &context);
+                compote::ConfigValue {
+                    value: inner,
+                    context,
+                }
+            })
+            .collect();
+        compote::Value::Array(converted)
+    } else if let Some(table) = old_value.as_table() {
+        let converted: indexmap::IndexMap<String, compote::ConfigValue> = table
+            .iter()
+            .map(|(k, v)| {
+                let context = to_compote_context(v);
+                let inner = to_compote_inner_value(v, &context);
+                (
+                    k.clone(),
+                    compote::ConfigValue {
+                        value: inner,
+                        context,
+                    },
+                )
+            })
+            .collect();
+        compote::Value::Object(converted)
+    } else {
+        // Fallback to null for unknown types
+        compote::Value::Null
+    }
+}
+
+/// Convert old ConfigValue's context to compote ConfigContext
+fn to_compote_context(old_value: &ConfigValue) -> compote::ConfigContext {
+    let source = match old_value.source().path() {
+        Some(path) => compote::ConfigSource::File(std::path::PathBuf::from(path)),
+        None => compote::ConfigSource::Programmatic,
+    };
+
+    let level = match old_value.scope() {
+        ConfigScope::System => compote::ConfigLevel::System,
+        ConfigScope::User => compote::ConfigLevel::User,
+        ConfigScope::Workdir => compote::ConfigLevel::Local,
+        _ => compote::ConfigLevel::Local,
+    };
+
+    compote::ConfigContext::new(source, level)
+}

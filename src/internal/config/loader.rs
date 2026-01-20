@@ -302,6 +302,7 @@ impl ConfigLoader {
         Self::edit_config_file(file_path, ConfigScope::User, edit_fn)
     }
 
+    #[allow(dead_code)]
     pub fn edit_workdir_config_file<F>(file_path: String, edit_fn: F) -> io::Result<()>
     where
         F: FnOnce(&mut ConfigValue) -> bool,
@@ -320,6 +321,32 @@ impl ConfigLoader {
 
         // Use the auto-detecting edit_file - it will detect YAML/JSON format automatically
         loader.edit_file(&file_path, source, scope, edit_fn)
+    }
+
+    /// Edit using compote's Config API - finds first writeable user config
+    pub fn edit_main_user_config_file_compote<F>(edit_fn: F) -> io::Result<()>
+    where
+        F: FnOnce(&mut compote::Config) -> bool,
+    {
+        let candidates = Self::user_config_files()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>();
+        match compote::Config::edit_first_writeable(&candidates, edit_fn)? {
+            Some(_path) => Ok(()),
+            None => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "no writeable user config file found",
+            )),
+        }
+    }
+
+    /// Edit a workdir config file using compote's Config API
+    pub fn edit_workdir_config_file_compote<F>(file_path: &str, edit_fn: F) -> io::Result<()>
+    where
+        F: FnOnce(&mut compote::Config) -> bool,
+    {
+        compote::Config::edit_file(file_path, edit_fn).map(|_| ())
     }
 
     // fn new_local_only(path: &str) -> Self {

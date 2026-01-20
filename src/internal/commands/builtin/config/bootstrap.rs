@@ -9,7 +9,6 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
 
-use config_value::Value;
 use itertools::Itertools;
 use regex::Regex;
 use serde::Deserialize;
@@ -23,11 +22,7 @@ use crate::internal::commands::Command;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigExtendStrategy;
 use crate::internal::config::ConfigLoader;
-use crate::internal::config::ConfigScope;
-use crate::internal::config::ConfigSource;
-use crate::internal::config::omni_config_loader;
 use crate::internal::config::OrgConfig;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
@@ -246,39 +241,36 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
             org: orgs,
         };
 
-        if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-            // Convert our config object to Value and then to yaml
-            let value = match Value::to_value(&config) {
-                Ok(value) => value,
-                Err(err) => {
-                    omni_error!(format!("failed to convert configuration to value: {}", err));
-                    return false;
-                }
-            };
-            let yaml = match value.to_yaml_string() {
-                Ok(yaml) => yaml,
-                Err(err) => {
-                    omni_error!(format!("failed to serialize configuration: {}", err));
+        if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|compote_config| {
+            // Convert our config object to YAML using serde
+            let yaml = match serde_json::to_value(&config)
+                .ok()
+                .and_then(|v| serde_yaml::to_string(&v).ok())
+            {
+                Some(yaml) => yaml,
+                None => {
+                    omni_error!("failed to serialize configuration to YAML");
                     return false;
                 }
             };
 
-            // Now get a ConfigValue object from the yaml
-            let new_config_value = match config_value::ConfigValue::from_str_with(ConfigSource::Default, ConfigScope::User, &yaml) {
-                Ok(config_value) => config_value,
+            // Parse the YAML into a compote ConfigValue
+            let context = compote::ConfigContext::new(
+                compote::ConfigSource::Programmatic,
+                compote::ConfigLevel::User,
+            );
+            let new_config_value = match compote::loader::load_yaml(&yaml, context) {
+                Ok(value) => value,
                 Err(err) => {
                     omni_error!(format!("failed to parse configuration: {}", err));
                     return false;
                 }
             };
 
-            // Apply it over the existing configuration
-            let loader = omni_config_loader()
-                .with_default_extend_strategy(ConfigExtendStrategy::Replace)
-                .with_transform_enabled(false);
-            loader.merge(config_value, new_config_value);
+            // Merge the new values into the existing config
+            compote_config.merge(new_config_value);
 
-            // And return true to save the configuration
+            // Return true to save the configuration
             true
         }) {
             return Err(format!("Failed to update user configuration: {err}"));

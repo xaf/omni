@@ -18,11 +18,8 @@ use crate::internal::commands::utils::validate_sandbox_name;
 use crate::internal::commands::Command;
 use crate::internal::config::config;
 use crate::internal::config::loader::ConfigLoader;
-use crate::internal::config::omni_from_str;
-use crate::internal::config::omni_from_table;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigValue;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
 use crate::internal::env::omni_cmd_file;
@@ -310,63 +307,52 @@ impl SandboxCommand {
             .ok_or_else(|| "failed to convert config path to string".to_string())?;
 
         let mut changes_made = false;
-        ConfigLoader::edit_workdir_config_file(config_path_str.to_string(), |config_value| {
-            // Ensure config_value is a table
-            if !config_value.is_table() {
-                let empty_table = std::collections::HashMap::new();
-                *config_value = omni_from_table(empty_table);
-            }
-
-            // Ensure 'up' exists as an array
-            if config_value.get("up").is_none() {
-                if let Some(table) = config_value.as_table_mut() {
-                    table.insert(
-                        "up".to_string(),
-                        omni_from_str("[]").expect("failed to create empty array"),
-                    );
-                }
-            }
-
-            // Get the 'up' array
-            let up_array = match config_value.get_as_array_mut("up") {
-                Some(array) => array,
-                None => {
-                    // If 'up' exists but is not an array, we can't modify it
-                    omni_error!(
-                        "the 'up' key in .omni.yaml is not an array and cannot be modified"
-                    );
-                    exit(1);
-                }
-            };
+        ConfigLoader::edit_workdir_config_file_compote(config_path_str, |config| {
+            // Create default context for parsing YAML
+            let context = compote::ConfigContext::new(
+                compote::ConfigSource::Programmatic,
+                compote::ConfigLevel::Local,
+            );
 
             // Collect existing dependencies as YAML strings for comparison
             let mut current_deps: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
-            for item in up_array.iter() {
-                // Serialize each dependency to YAML for comparison
-                let dep_yaml = item.as_yaml();
-                current_deps.insert(dep_yaml);
+
+            if let Some(compote::Value::Array(arr)) = config.at("up").get() {
+                for item in arr.iter() {
+                    // Serialize each dependency to YAML for comparison
+                    if let Ok(yaml) = item.to_yaml() {
+                        current_deps.insert(yaml);
+                    }
+                }
+            } else if config.at("up").exists() {
+                // 'up' exists but is not an array
+                omni_error!(
+                    "the 'up' key in .omni.yaml is not an array and cannot be modified"
+                );
+                exit(1);
             }
 
-            // Use filter_map to both check and parse in one pass
-            let new_deps: Vec<ConfigValue> = dependencies
+            // Parse and filter new dependencies
+            let new_deps: Vec<compote::Value> = dependencies
                 .iter()
                 .filter_map(|dep| {
                     // Parse the dependency as YAML to handle both simple strings and complex structures
                     // like "go: latest" or just "go"
-                    let dep_value = omni_from_str(dep).unwrap_or_else(|_| {
-                        // If parsing fails, treat it as a simple string
-                        omni_from_str(&format!("\"{dep}\""))
-                            .expect("failed to create config value")
-                    });
+                    let dep_value = compote::loader::load_yaml(dep, context.clone())
+                        .or_else(|_| {
+                            // If parsing fails, treat it as a simple string
+                            compote::loader::load_yaml(&format!("\"{dep}\""), context.clone())
+                        })
+                        .ok()?;
 
                     // Check if this dependency already exists by comparing YAML
-                    let dep_yaml = dep_value.as_yaml();
-                    if current_deps.contains(&dep_yaml) {
-                        None
-                    } else {
-                        Some(dep_value)
+                    if let Ok(dep_yaml) = dep_value.to_yaml() {
+                        if current_deps.contains(&dep_yaml) {
+                            return None;
+                        }
                     }
+                    Some(dep_value.value)
                 })
                 .collect();
 
@@ -375,9 +361,12 @@ impl SandboxCommand {
                 return false; // No new dependencies to add
             }
 
-            // Insert new dependencies at the end
+            // Push new dependencies to the 'up' array
             for dep_value in new_deps {
-                up_array.push(dep_value);
+                if config.at("up").push(dep_value).is_err() {
+                    omni_error!("failed to add dependency to 'up' array");
+                    return false;
+                }
             }
 
             changes_made = true;
