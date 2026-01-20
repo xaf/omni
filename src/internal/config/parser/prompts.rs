@@ -1,4 +1,4 @@
-use config_value::Value;
+use compote::Value as CompoteValue;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -6,15 +6,21 @@ use tera::Tera;
 
 use crate::internal::cache::utils::Empty;
 use crate::internal::cache::PromptsCache;
-use crate::internal::config::parser::errors::ConfigErrorHandler;
-use crate::internal::config::parser::errors::ConfigErrorKind;
 use crate::internal::config::template::config_template_context;
 use crate::internal::config::template::render_config_template;
 use crate::internal::config::template::tera_render_error_message;
-use crate::internal::config::ConfigValue;
 use crate::internal::git_env;
 use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
+
+// Compote imports
+use compote::ConfigContext as CompoteConfigContext;
+use compote::ConfigError as CompoteConfigError;
+use compote::ConfigLevel as CompoteConfigLevel;
+use compote::ConfigSource as CompoteConfigSource;
+use compote::ConfigValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromConfigValue as CompoteFromConfigValue;
 
 #[derive(Default, Debug, Deserialize, Clone)]
 pub struct PromptsConfig {
@@ -28,6 +34,12 @@ impl Empty for PromptsConfig {
     }
 }
 
+impl compote::IsEmpty for PromptsConfig {
+    fn is_empty(&self) -> bool {
+        Empty::is_empty(self)
+    }
+}
+
 impl Serialize for PromptsConfig {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -38,35 +50,6 @@ impl Serialize for PromptsConfig {
 }
 
 impl PromptsConfig {
-    pub fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        if let Some(config_value) = config_value {
-            if let Some(array) = config_value.as_array() {
-                let prompts = array
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, config_value)| {
-                        PromptConfig::from_config_value(
-                            config_value,
-                            &error_handler.with_index(idx),
-                        )
-                    })
-                    .collect();
-
-                return Self { prompts };
-            } else {
-                error_handler
-                    .with_expected("array")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
-            }
-        }
-
-        Self::default()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &PromptConfig> {
         self.prompts.iter()
     }
@@ -77,10 +60,10 @@ pub struct PromptConfig {
     pub id: String,
     pub prompt: String,
     #[serde(
-        skip_serializing_if = "Value::is_null",
-        default
+        skip_serializing_if = "compote_value_is_null",
+        default = "compote_value_null"
     )]
-    pub default: Value,
+    pub default: CompoteValue,
     #[serde(
         flatten,
         skip_serializing_if = "PromptType::is_default",
@@ -97,90 +80,6 @@ pub struct PromptConfig {
 }
 
 impl PromptConfig {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        // We need to have an id and a prompt:
-        // - id is used to identify the answer to the prompt
-        // - prompt is the message that will be displayed to the user
-
-        let id = match config_value
-            .get_as_str_or_none("id", &error_handler.with_key("id"))
-            .map(|id| id.trim().to_string())
-        {
-            Some(id) if id.is_empty() => {
-                error_handler
-                    .with_key("id")
-                    .error(ConfigErrorKind::EmptyKey);
-
-                None
-            }
-            Some(id) => Some(id),
-            None => {
-                error_handler
-                    .with_key("id")
-                    .error(ConfigErrorKind::MissingKey);
-
-                None
-            }
-        }?;
-
-        let prompt = match config_value
-            .get_as_str_or_none("prompt", &error_handler.with_key("prompt"))
-            .map(|prompt| prompt.trim().to_string())
-        {
-            Some(prompt) if prompt.is_empty() => {
-                error_handler
-                    .with_key("prompt")
-                    .error(ConfigErrorKind::EmptyKey);
-
-                None
-            }
-            Some(prompt) => Some(prompt),
-            None => {
-                error_handler
-                    .with_key("prompt")
-                    .error(ConfigErrorKind::MissingKey);
-
-                None
-            }
-        }?;
-
-        let prompt_type = PromptType::from_config_value(config_value, error_handler)?;
-
-        // if is used to conditionally prompt the user.
-        let if_condition = config_value.get_as_str_forced("if");
-
-        // We keep the default value as a Value so that we can
-        // serialize it as a string if it's a string, or as a boolean if it's a
-        // boolean, etc. and interpret it as the correct type when we use it
-        // as default value for the prompt.
-        let default = match config_value.get("default") {
-            Some(default) => default.unwrap(),
-            None => Value::Null,
-        };
-
-        // Scope is used to determine how prompts answers are stored. For
-        // example, if the scope is "repo", the prompt will be considered
-        // as answered only for the current repository. If the scope is
-        // "org", the prompt will be considered as answered for the whole
-        // organization. If a repository has a prompt with the same id as
-        // an organization prompt, the repository prompt will take
-        // precedence and be re-asked, but won't override the organization
-        // answer.
-        let scope = PromptScope::from_config_value(config_value, error_handler);
-
-        Some(Self {
-            id,
-            prompt,
-            default,
-            prompt_type,
-            scope,
-            if_condition,
-        })
-    }
-
     pub fn should_prompt(&self) -> bool {
         match &self.if_condition {
             Some(if_condition) => {
@@ -196,20 +95,11 @@ impl PromptConfig {
         let template_context = config_template_context(".");
 
         // Dump self as yaml string
-        let value = match Value::to_value(self) {
-            Ok(value) => value,
-            Err(err) => {
-                return Err(format!(
-                    "failed to serialize prompt {} to value: {}",
-                    &self.id, err
-                ))
-            }
-        };
-        let yaml = match value.to_yaml_string() {
+        let yaml = match serde_yaml::to_string(self) {
             Ok(yaml) => yaml,
             Err(err) => {
                 return Err(format!(
-                    "failed to dump prompt {} as yaml: {}",
+                    "failed to serialize prompt {} to yaml: {}",
                     &self.id, err
                 ))
             }
@@ -223,9 +113,13 @@ impl PromptConfig {
 
         match render_config_template(&template, &template_context) {
             Ok(value) => {
-                // Load the template as config value
-                let config_value = match ConfigValue::from_str_with(Default::default(), Default::default(),&value) {
-                    Ok(value) => value,
+                // Parse YAML using compote
+                let context = CompoteConfigContext::new(
+                    CompoteConfigSource::Programmatic,
+                    CompoteConfigLevel::Local,
+                );
+                let config_value = match compote::loader::load_yaml(&value, context) {
+                    Ok(cv) => cv,
                     Err(err) => {
                         return Err(format!(
                             "failed to parse prompt {} as yaml: {}",
@@ -234,16 +128,13 @@ impl PromptConfig {
                     }
                 };
 
-                let error_handler = ConfigErrorHandler::new();
-                match Self::from_config_value(&config_value, &error_handler) {
-                    Some(prompt) => Ok(prompt),
-                    None => Err(format!(
+                // Use compote's FromConfigValue implementation
+                let mut tracker = CompoteErrorTracker::new();
+                match <Self as CompoteFromConfigValue>::from_config_value(&config_value, &mut tracker) {
+                    Ok(prompt) => Ok(prompt),
+                    Err(err) => Err(format!(
                         "failed to parse prompt {} from rendered template: {}",
-                        &self.id,
-                        error_handler
-                            .last_error()
-                            .map(|err| err.message().to_string())
-                            .unwrap_or("unknown error".to_string())
+                        &self.id, err
                     )),
                 }
             }
@@ -271,31 +162,6 @@ pub enum PromptScope {
 }
 
 impl PromptScope {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let scope = match config_value.get_as_str_or_none("scope", &error_handler.with_key("scope"))
-        {
-            Some(scope) => scope.trim().to_lowercase(),
-            None => return Self::default(),
-        };
-
-        match scope.as_str() {
-            "repo" | "repository" => Self::Repository,
-            "org" | "organization" => Self::Organization,
-            _ => {
-                error_handler
-                    .with_key("scope")
-                    .with_expected("repo or org")
-                    .with_actual(scope)
-                    .error(ConfigErrorKind::InvalidValue);
-
-                Self::default()
-            }
-        }
-    }
-
     pub fn is_default(&self) -> bool {
         matches!(self, Self::Repository)
     }
@@ -332,83 +198,6 @@ pub enum PromptType {
 }
 
 impl PromptType {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let prompt_type = match config_value
-            .get_as_str_or_none("type", &error_handler.with_key("type"))
-            .map(|s| s.trim().to_lowercase())
-        {
-            Some(prompt_type) if prompt_type.is_empty() => {
-                error_handler
-                    .with_key("type")
-                    .error(ConfigErrorKind::EmptyKey);
-
-                return Some(Self::default());
-            }
-            Some(prompt_type) => prompt_type,
-            None => {
-                error_handler
-                    .with_key("type")
-                    .error(ConfigErrorKind::MissingKey);
-
-                return Some(Self::default());
-            }
-        };
-
-        match prompt_type.as_str() {
-            "text" => Some(Self::Text),
-            "password" => Some(Self::Password),
-            "confirm" | "boolean" => Some(Self::Confirm),
-            "choice" | "select" | "choices" | "multichoice" | "multiselect" => {
-                if let Some(choices) = config_value.get("choices") {
-                    let choices = PromptChoicesConfig::from_config_value(
-                        &choices,
-                        &error_handler.with_key("choices"),
-                    )?;
-
-                    return match prompt_type.as_str() {
-                        "choice" | "select" => Some(Self::Choice { choices }),
-                        "choices" | "multichoice" | "multiselect" => {
-                            Some(Self::MultiChoice { choices })
-                        }
-                        _ => unreachable!("invalid prompt type for choices"),
-                    };
-                }
-
-                error_handler
-                    .with_key("choices")
-                    .error(ConfigErrorKind::MissingKey);
-
-                None
-            }
-            "int" => {
-                let min =
-                    config_value.get_as_integer_or_none("min", &error_handler.with_key("min"));
-                let max =
-                    config_value.get_as_integer_or_none("max", &error_handler.with_key("max"));
-
-                Some(Self::Int { min, max })
-            }
-            "float" => {
-                let min = config_value.get_as_float_or_none("min", &error_handler.with_key("min"));
-                let max = config_value.get_as_float_or_none("max", &error_handler.with_key("max"));
-
-                Some(Self::Float { min, max })
-            }
-            _ => {
-                error_handler
-                    .with_key("type")
-                    .with_expected("text, password, confirm, choice, multichoice, int, or float")
-                    .with_actual(prompt_type)
-                    .error(ConfigErrorKind::InvalidValue);
-
-                None
-            }
-        }
-    }
-
     pub fn is_default(&self) -> bool {
         matches!(self, Self::Text)
     }
@@ -417,13 +206,14 @@ impl PromptType {
         &self,
         id: &str,
         prompt: &str,
-        default: Value,
+        default: CompoteValue,
         scope: PromptScope,
     ) -> bool {
         // Override the default value with the cached answer if there is one
         // for the current scope; otherwise, use the default value.
+        // The cache returns config_value::Value, so we convert it to CompoteValue.
         let default = match PromptsCache::get().answers(".").get(id) {
-            Some(answer) => answer.clone(),
+            Some(answer) => config_value_to_compote_value(answer),
             None => default,
         };
 
@@ -516,11 +306,12 @@ impl PromptType {
                     .collect::<Vec<_>>();
 
                 if !default.is_null() {
-                    let defaults = match default.clone() {
-                        Value::Sequence(defaults) => defaults,
-                        Value::String(_) => vec![default],
-                        Value::Integer(_) => vec![default],
-                        Value::UnsignedInteger(_) => vec![default],
+                    let defaults: Vec<CompoteValue> = match default.clone() {
+                        CompoteValue::Array(defaults) => {
+                            defaults.into_iter().map(|cv| cv.value).collect()
+                        }
+                        CompoteValue::String(_) => vec![default],
+                        CompoteValue::Int(_) => vec![default],
                         _ => vec![],
                     };
 
@@ -686,12 +477,13 @@ impl PromptType {
             }
         };
 
-        let answer_value = match requestty::prompt_one(question) {
+        // Create the answer value as config_value::Value for cache storage
+        let answer_value: config_value::Value = match requestty::prompt_one(question) {
             Ok(answer) => match answer {
-                requestty::Answer::String(answer) => Value::to_value(answer),
-                requestty::Answer::Bool(answer) => Value::to_value(answer),
-                requestty::Answer::Int(answer) => Value::to_value(answer),
-                requestty::Answer::Float(answer) => Value::to_value(answer),
+                requestty::Answer::String(answer) => config_value::Value::String(answer),
+                requestty::Answer::Bool(answer) => config_value::Value::Bool(answer),
+                requestty::Answer::Int(answer) => config_value::Value::Integer(answer),
+                requestty::Answer::Float(answer) => config_value::Value::Float(answer),
                 requestty::Answer::ListItem(answer) => {
                     let choices = match self {
                         Self::Choice { choices } => match choices.choices() {
@@ -712,7 +504,7 @@ impl PromptType {
                         }
                     };
 
-                    Value::to_value(selected_choice)
+                    config_value::Value::String(selected_choice)
                 }
                 requestty::Answer::ListItems(answers) => {
                     let choices = match self {
@@ -726,26 +518,18 @@ impl PromptType {
                         }
                     };
 
-                    let selected_choices = answers
+                    let selected_choices: Vec<config_value::Value> = answers
                         .iter()
                         .filter_map(|answer| choices.get(answer.index))
-                        .map(|choice| choice.id.to_string())
-                        .collect::<Vec<_>>();
+                        .map(|choice| config_value::Value::String(choice.id.to_string()))
+                        .collect();
 
-                    Value::to_value(selected_choices)
+                    config_value::Value::Sequence(selected_choices)
                 }
                 _ => unimplemented!(),
             },
             Err(err) => {
                 println!("{}", format!("[✘] {err:?}").red());
-                return false;
-            }
-        };
-
-        let answer_value = match answer_value {
-            Ok(answer_value) => answer_value,
-            Err(err) => {
-                omni_warning!(format!("failed to serialize answer: {}", err));
                 return false;
             }
         };
@@ -768,66 +552,38 @@ pub enum PromptChoicesConfig {
 }
 
 impl PromptChoicesConfig {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if let Some(array) = config_value.as_array() {
-            let choices = array
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, value)| {
-                    PromptChoiceConfig::from_config_value(value, &error_handler.with_index(idx))
-                })
-                .collect::<Vec<PromptChoiceConfig>>();
-
-            if choices.is_empty() {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                None
-            } else {
-                Some(Self::ChoicesAsArray(choices))
-            }
-        } else if let Some(string) = config_value.as_str_forced() {
-            Some(Self::ChoicesAsString(string.to_string()))
-        } else {
-            error_handler
-                .with_expected("array or template of array")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            None
-        }
-    }
-
     pub fn choices(&self) -> Result<Vec<PromptChoiceConfig>, String> {
         match self {
             Self::ChoicesAsArray(choices) => Ok(choices.clone()),
-            Self::ChoicesAsString(template) => match ConfigValue::from_str_with(Default::default(), Default::default(),template) {
-                Ok(config_value) => {
-                    let choices = match config_value.as_array() {
-                        Some(choices) => choices,
-                        None => {
-                            return Err("choices template must be an array".to_string());
-                        }
-                    };
-
-                    let choices = choices
-                        .iter()
-                        .filter_map(|value| {
-                            PromptChoiceConfig::from_config_value(
-                                value,
-                                &ConfigErrorHandler::noop(),
-                            )
-                        })
-                        .collect::<Vec<PromptChoiceConfig>>();
-
-                    if choices.is_empty() {
-                        Err("choices template must be a non-empty array".to_string())
-                    } else {
-                        Ok(choices)
+            Self::ChoicesAsString(template) => {
+                // Parse YAML using compote
+                let context = CompoteConfigContext::new(
+                    CompoteConfigSource::Programmatic,
+                    CompoteConfigLevel::Local,
+                );
+                let config_value = match compote::loader::load_yaml(template, context) {
+                    Ok(cv) => cv,
+                    Err(err) => {
+                        return Err(format!("failed to parse choices template as yaml: {err}"));
                     }
+                };
+
+                // Convert to Vec<PromptChoiceConfig> using compote's FromConfigValue
+                let mut tracker = CompoteErrorTracker::new();
+                match <Vec<PromptChoiceConfig> as CompoteFromConfigValue>::from_config_value(
+                    &config_value,
+                    &mut tracker,
+                ) {
+                    Ok(choices) => {
+                        if choices.is_empty() {
+                            Err("choices template must be a non-empty array".to_string())
+                        } else {
+                            Ok(choices)
+                        }
+                    }
+                    Err(_) => Err("choices template must be an array".to_string()),
                 }
-                Err(err) => Err(format!("failed to parse choices template as yaml: {err}")),
-            },
+            }
         }
     }
 }
@@ -850,50 +606,6 @@ pub struct PromptChoiceConfig {
     pub choice: String,
 }
 
-impl PromptChoiceConfig {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if let Some(table) = config_value.as_table() {
-            let id = table.get("id").and_then(|id| id.as_str());
-            let choice = table.get("choice").and_then(|choice| choice.as_str());
-
-            match (id, choice) {
-                (Some(id), Some(choice)) => Some(Self { id, choice }),
-                (Some(id), None) => Some(Self {
-                    id: id.clone(),
-                    choice: id,
-                }),
-                (None, Some(choice)) => Some(Self {
-                    id: choice.clone(),
-                    choice,
-                }),
-                _ => {
-                    error_handler
-                        .with_expected("id or choice")
-                        .with_actual(config_value)
-                        .error(ConfigErrorKind::MissingKey);
-
-                    None
-                }
-            }
-        } else if let Some(choice) = config_value.as_str_forced() {
-            Some(Self {
-                id: choice.to_string(),
-                choice: choice.to_string(),
-            })
-        } else {
-            error_handler
-                .with_expected("table or string")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            None
-        }
-    }
-}
-
 impl From<PromptChoiceConfig> for String {
     fn from(choice: PromptChoiceConfig) -> String {
         choice.choice
@@ -903,5 +615,520 @@ impl From<PromptChoiceConfig> for String {
 impl From<&PromptChoiceConfig> for String {
     fn from(choice: &PromptChoiceConfig) -> String {
         choice.choice.clone()
+    }
+}
+
+// ============================================================================
+// CompoteValue helper functions
+// ============================================================================
+
+/// Helper function for serde skip_serializing_if
+fn compote_value_is_null(value: &CompoteValue) -> bool {
+    matches!(value, CompoteValue::Null)
+}
+
+/// Helper function for serde default
+fn compote_value_null() -> CompoteValue {
+    CompoteValue::Null
+}
+
+/// Convert config_value::Value to compote::Value
+fn config_value_to_compote_value(value: &config_value::Value) -> CompoteValue {
+    match value {
+        config_value::Value::Null => CompoteValue::Null,
+        config_value::Value::Bool(b) => CompoteValue::Bool(*b),
+        config_value::Value::Integer(i) => CompoteValue::Int(*i),
+        config_value::Value::UnsignedInteger(u) => CompoteValue::Int(*u as i64),
+        config_value::Value::Float(f) => CompoteValue::Float(*f),
+        config_value::Value::String(s) => CompoteValue::String(s.clone()),
+        config_value::Value::Sequence(arr) => {
+            let items: Vec<compote::ConfigValue> = arr
+                .iter()
+                .map(|v| compote::ConfigValue {
+                    value: config_value_to_compote_value(v),
+                    context: compote::ConfigContext::new(
+                        compote::ConfigSource::Programmatic,
+                        compote::ConfigLevel::Local,
+                    ),
+                })
+                .collect();
+            CompoteValue::Array(items)
+        }
+        config_value::Value::Mapping(map) => {
+            let items: indexmap::IndexMap<String, compote::ConfigValue> = map
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        compote::ConfigValue {
+                            value: config_value_to_compote_value(v),
+                            context: compote::ConfigContext::new(
+                                compote::ConfigSource::Programmatic,
+                                compote::ConfigLevel::Local,
+                            ),
+                        },
+                    )
+                })
+                .collect();
+            CompoteValue::Object(items)
+        }
+    }
+}
+
+/// Convert compote::Value to config_value::Value
+#[allow(dead_code)]
+fn compote_value_to_config_value(value: &CompoteValue) -> config_value::Value {
+    match value {
+        CompoteValue::Null => config_value::Value::Null,
+        CompoteValue::Bool(b) => config_value::Value::Bool(*b),
+        CompoteValue::Int(i) => config_value::Value::Integer(*i),
+        CompoteValue::Float(f) => config_value::Value::Float(*f),
+        CompoteValue::String(s) => config_value::Value::String(s.clone()),
+        CompoteValue::Array(arr) => {
+            let items: Vec<config_value::Value> = arr
+                .iter()
+                .map(|v| compote_value_to_config_value(&v.value))
+                .collect();
+            config_value::Value::Sequence(items)
+        }
+        CompoteValue::Object(map) => {
+            let items: std::collections::HashMap<String, config_value::Value> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), compote_value_to_config_value(&v.value)))
+                .collect();
+            config_value::Value::Mapping(items)
+        }
+    }
+}
+
+// Helper trait to add methods to CompoteValue (compote::Value)
+// Note: as_str() is already provided by Value natively, so not included here
+trait CompoteValueExt {
+    fn is_null(&self) -> bool;
+    fn as_bool(&self) -> Option<bool>;
+    fn as_i64(&self) -> Option<i64>;
+    fn as_f64(&self) -> Option<f64>;
+}
+
+impl CompoteValueExt for CompoteValue {
+    fn is_null(&self) -> bool {
+        matches!(self, CompoteValue::Null)
+    }
+
+    fn as_bool(&self) -> Option<bool> {
+        match self {
+            CompoteValue::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    fn as_i64(&self) -> Option<i64> {
+        match self {
+            CompoteValue::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    fn as_f64(&self) -> Option<f64> {
+        match self {
+            CompoteValue::Float(f) => Some(*f),
+            CompoteValue::Int(i) => Some(*i as f64),
+            _ => None,
+        }
+    }
+}
+
+// ============================================================================
+// Compote FromConfigValue implementations
+// ============================================================================
+
+impl CompoteFromConfigValue for PromptsConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match &value.value {
+            CompoteValue::Array(arr) => {
+                let mut prompts = Vec::new();
+                for (idx, item) in arr.iter().enumerate() {
+                    tracker.push_index(idx);
+                    match <PromptConfig as CompoteFromConfigValue>::from_config_value(item, tracker) {
+                        Ok(prompt) => prompts.push(prompt),
+                        Err(e) => tracker.record(e),
+                    }
+                    tracker.pop();
+                }
+                Ok(Self { prompts })
+            }
+            CompoteValue::Null => Ok(Self::default()),
+            _ => Err(CompoteConfigError::TypeMismatch {
+                expected: "array".to_string(),
+                actual: format!("{:?}", value.value),
+                path: tracker.current_path(),
+            }),
+        }
+    }
+}
+
+impl CompoteFromConfigValue for PromptConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let table = match &value.value {
+            CompoteValue::Object(map) => map,
+            _ => {
+                return Err(CompoteConfigError::TypeMismatch {
+                    expected: "table".to_string(),
+                    actual: format!("{:?}", value.value),
+                    path: tracker.current_path(),
+                });
+            }
+        };
+
+        // Required: id
+        let id = if let Some(v) = table.get("id") {
+            tracker.push_field("id");
+            let result = match &v.value {
+                CompoteValue::String(s) => {
+                    let trimmed = s.trim().to_string();
+                    if trimmed.is_empty() {
+                        Err(CompoteConfigError::InvalidValue {
+                            message: "id cannot be empty".to_string(),
+                            path: tracker.current_path(),
+                        })
+                    } else {
+                        Ok(trimmed)
+                    }
+                }
+                _ => Err(CompoteConfigError::TypeMismatch {
+                    expected: "string".to_string(),
+                    actual: format!("{:?}", v.value),
+                    path: tracker.current_path(),
+                }),
+            };
+            tracker.pop();
+            result?
+        } else {
+            tracker.push_field("id");
+            let path = tracker.current_path();
+            tracker.pop();
+            return Err(CompoteConfigError::MissingField { path });
+        };
+
+        // Required: prompt
+        let prompt = if let Some(v) = table.get("prompt") {
+            tracker.push_field("prompt");
+            let result = match &v.value {
+                CompoteValue::String(s) => {
+                    let trimmed = s.trim().to_string();
+                    if trimmed.is_empty() {
+                        Err(CompoteConfigError::InvalidValue {
+                            message: "prompt cannot be empty".to_string(),
+                            path: tracker.current_path(),
+                        })
+                    } else {
+                        Ok(trimmed)
+                    }
+                }
+                _ => Err(CompoteConfigError::TypeMismatch {
+                    expected: "string".to_string(),
+                    actual: format!("{:?}", v.value),
+                    path: tracker.current_path(),
+                }),
+            };
+            tracker.pop();
+            result?
+        } else {
+            tracker.push_field("prompt");
+            let path = tracker.current_path();
+            tracker.pop();
+            return Err(CompoteConfigError::MissingField { path });
+        };
+
+        // Optional: type (defaults to text)
+        let prompt_type = <PromptType as CompoteFromConfigValue>::from_config_value(value, tracker)?;
+
+        // Optional: default
+        let default = if let Some(v) = table.get("default") {
+            v.value.clone()
+        } else {
+            CompoteValue::Null
+        };
+
+        // Optional: scope
+        let scope = <PromptScope as CompoteFromConfigValue>::from_config_value(value, tracker)?;
+
+        // Optional: if
+        let if_condition = if let Some(v) = table.get("if") {
+            match &v.value {
+                CompoteValue::String(s) => Some(s.clone()),
+                CompoteValue::Bool(b) => Some(b.to_string()),
+                CompoteValue::Int(i) => Some(i.to_string()),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        Ok(Self {
+            id,
+            prompt,
+            default,
+            prompt_type,
+            scope,
+            if_condition,
+        })
+    }
+}
+
+impl CompoteFromConfigValue for PromptScope {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let table = match &value.value {
+            CompoteValue::Object(map) => map,
+            _ => return Ok(Self::default()),
+        };
+
+        let scope_value = match table.get("scope") {
+            Some(v) => v,
+            None => return Ok(Self::default()),
+        };
+
+        match &scope_value.value {
+            CompoteValue::String(s) => {
+                let scope = s.trim().to_lowercase();
+                match scope.as_str() {
+                    "repo" | "repository" => Ok(Self::Repository),
+                    "org" | "organization" => Ok(Self::Organization),
+                    _ => {
+                        tracker.push_field("scope");
+                        tracker.record(CompoteConfigError::InvalidValue {
+                            message: format!(
+                                "invalid scope '{}': expected 'repo' or 'org'",
+                                scope
+                            ),
+                            path: tracker.current_path(),
+                        });
+                        tracker.pop();
+                        Ok(Self::default())
+                    }
+                }
+            }
+            _ => {
+                tracker.push_field("scope");
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    expected: "string".to_string(),
+                    actual: format!("{:?}", scope_value.value),
+                    path: tracker.current_path(),
+                });
+                tracker.pop();
+                Ok(Self::default())
+            }
+        }
+    }
+}
+
+impl CompoteFromConfigValue for PromptType {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let table = match &value.value {
+            CompoteValue::Object(map) => map,
+            _ => return Ok(Self::default()),
+        };
+
+        let type_value = match table.get("type") {
+            Some(v) => v,
+            None => return Ok(Self::default()),
+        };
+
+        let type_str = match &type_value.value {
+            CompoteValue::String(s) => s.trim().to_lowercase(),
+            _ => {
+                tracker.push_field("type");
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    expected: "string".to_string(),
+                    actual: format!("{:?}", type_value.value),
+                    path: tracker.current_path(),
+                });
+                tracker.pop();
+                return Ok(Self::default());
+            }
+        };
+
+        if type_str.is_empty() {
+            tracker.push_field("type");
+            tracker.record(CompoteConfigError::InvalidValue {
+                message: "type cannot be empty".to_string(),
+                path: tracker.current_path(),
+            });
+            tracker.pop();
+            return Ok(Self::default());
+        }
+
+        match type_str.as_str() {
+            "text" => Ok(Self::Text),
+            "password" => Ok(Self::Password),
+            "confirm" | "boolean" => Ok(Self::Confirm),
+            "choice" | "select" | "choices" | "multichoice" | "multiselect" => {
+                if let Some(choices_value) = table.get("choices") {
+                    tracker.push_field("choices");
+                    let choices = <PromptChoicesConfig as CompoteFromConfigValue>::from_config_value(
+                        choices_value,
+                        tracker,
+                    )?;
+                    tracker.pop();
+
+                    match type_str.as_str() {
+                        "choice" | "select" => Ok(Self::Choice { choices }),
+                        _ => Ok(Self::MultiChoice { choices }),
+                    }
+                } else {
+                    tracker.push_field("choices");
+                    let path = tracker.current_path();
+                    tracker.pop();
+                    Err(CompoteConfigError::MissingField { path })
+                }
+            }
+            "int" => {
+                let min = if let Some(v) = table.get("min") {
+                    match &v.value {
+                        CompoteValue::Int(i) => Some(*i),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let max = if let Some(v) = table.get("max") {
+                    match &v.value {
+                        CompoteValue::Int(i) => Some(*i),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                Ok(Self::Int { min, max })
+            }
+            "float" => {
+                let min = if let Some(v) = table.get("min") {
+                    match &v.value {
+                        CompoteValue::Float(f) => Some(*f),
+                        CompoteValue::Int(i) => Some(*i as f64),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let max = if let Some(v) = table.get("max") {
+                    match &v.value {
+                        CompoteValue::Float(f) => Some(*f),
+                        CompoteValue::Int(i) => Some(*i as f64),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                Ok(Self::Float { min, max })
+            }
+            _ => {
+                tracker.push_field("type");
+                tracker.record(CompoteConfigError::InvalidValue {
+                    message: format!(
+                        "invalid type '{}': expected text, password, confirm, choice, multichoice, int, or float",
+                        type_str
+                    ),
+                    path: tracker.current_path(),
+                });
+                tracker.pop();
+                Ok(Self::default())
+            }
+        }
+    }
+}
+
+impl CompoteFromConfigValue for PromptChoicesConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match &value.value {
+            CompoteValue::Array(arr) => {
+                let mut choices = Vec::new();
+                for (idx, item) in arr.iter().enumerate() {
+                    tracker.push_index(idx);
+                    match <PromptChoiceConfig as CompoteFromConfigValue>::from_config_value(
+                        item, tracker,
+                    ) {
+                        Ok(choice) => choices.push(choice),
+                        Err(e) => tracker.record(e),
+                    }
+                    tracker.pop();
+                }
+
+                if choices.is_empty() {
+                    Err(CompoteConfigError::InvalidValue {
+                        message: "choices cannot be empty".to_string(),
+                        path: tracker.current_path(),
+                    })
+                } else {
+                    Ok(Self::ChoicesAsArray(choices))
+                }
+            }
+            CompoteValue::String(s) => Ok(Self::ChoicesAsString(s.clone())),
+            _ => Err(CompoteConfigError::TypeMismatch {
+                expected: "array or template string".to_string(),
+                actual: format!("{:?}", value.value),
+                path: tracker.current_path(),
+            }),
+        }
+    }
+}
+
+impl CompoteFromConfigValue for PromptChoiceConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match &value.value {
+            CompoteValue::Object(table) => {
+                let id = table.get("id").and_then(|v| match &v.value {
+                    CompoteValue::String(s) => Some(s.clone()),
+                    _ => None,
+                });
+                let choice = table.get("choice").and_then(|v| match &v.value {
+                    CompoteValue::String(s) => Some(s.clone()),
+                    _ => None,
+                });
+
+                match (id, choice) {
+                    (Some(id), Some(choice)) => Ok(Self { id, choice }),
+                    (Some(id), None) => Ok(Self {
+                        id: id.clone(),
+                        choice: id,
+                    }),
+                    (None, Some(choice)) => Ok(Self {
+                        id: choice.clone(),
+                        choice,
+                    }),
+                    (None, None) => Err(CompoteConfigError::InvalidValue {
+                        message: "choice must have 'id' or 'choice' field".to_string(),
+                        path: tracker.current_path(),
+                    }),
+                }
+            }
+            CompoteValue::String(s) => Ok(Self {
+                id: s.clone(),
+                choice: s.clone(),
+            }),
+            _ => Err(CompoteConfigError::TypeMismatch {
+                expected: "table or string".to_string(),
+                actual: format!("{:?}", value.value),
+                path: tracker.current_path(),
+            }),
+        }
     }
 }
