@@ -3,6 +3,9 @@ use thiserror::Error;
 
 use crate::Value;
 
+// Re-export compote's ConfigError for use in the mapping
+pub use compote::ConfigError as CompoteConfigError;
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("Failed to parse configuration: {0}")]
@@ -513,5 +516,306 @@ impl ConfigErrorKind {
         };
 
         Ok(message)
+    }
+
+    /// Maps this `ConfigErrorKind` to a `compote::ConfigError`.
+    ///
+    /// This provides backward compatibility by allowing existing error handling
+    /// code to internally use compote's error system while maintaining the
+    /// existing public API.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - The context map containing error details (key, file, expected, actual, etc.)
+    ///
+    /// # Error Code Mapping
+    ///
+    /// | ConfigErrorKind | Compote Error | Code |
+    /// |-----------------|---------------|------|
+    /// | EmptyKey | MissingField | C001 |
+    /// | MissingKey | MissingField | C001 |
+    /// | InvalidValueType | TypeMismatch | C101 |
+    /// | InvalidValue | InvalidValue | C102 |
+    /// | InvalidRange | InvalidValue | C102 |
+    /// | InvalidPackage | InvalidValue | C102 |
+    /// | NotExactlyOneKeyInTable | InvalidValue | C102 |
+    /// | UnsupportedValueInContext | InvalidValue | C102 |
+    /// | ParsingError | ParseError | C120 |
+    /// | OmniPathFileNotExecutable | FileNotExecutable | C130 |
+    /// | OmniPathFileFailedToLoadMetadata | FileMetadataError | C131 |
+    /// | OmniPathNotFound | PathNotFound | C132 |
+    /// | MetadataHeader* variants | C140-C143 | varies |
+    /// | UserDefined* variants | C150-C152 | varies |
+    pub fn to_compote_error(&self, context: &HashMap<String, Value>) -> CompoteConfigError {
+        // Helper to get string from context
+        let get_str = |key: &str| -> String {
+            context
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+
+        // Helper to format a value for display
+        let format_value = |v: &Value| -> String {
+            if let Some(s) = v.as_str() {
+                s.to_string()
+            } else {
+                format!("{:?}", v)
+            }
+        };
+
+        // Get path from key or file context
+        let path = get_str("key");
+        let file = get_str("file");
+
+        match self {
+            // C001 - MissingField
+            ConfigErrorKind::EmptyKey | ConfigErrorKind::MissingKey => {
+                CompoteConfigError::MissingField { path }
+            }
+
+            // C101 - TypeMismatch
+            ConfigErrorKind::InvalidValueType => {
+                let expected = context
+                    .get("expected")
+                    .map(|v| {
+                        if let Some(s) = v.as_str() {
+                            s.to_string()
+                        } else if let Some(seq) = v.as_sequence() {
+                            seq.iter()
+                                .filter_map(|item| item.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" or ")
+                        } else {
+                            format!("{:?}", v)
+                        }
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let actual = context
+                    .get("actual")
+                    .map(format_value)
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                CompoteConfigError::TypeMismatch {
+                    path,
+                    expected,
+                    actual,
+                }
+            }
+
+            // C102 - InvalidValue
+            ConfigErrorKind::InvalidValue => {
+                let expected = context
+                    .get("expected")
+                    .map(|v| {
+                        if let Some(s) = v.as_str() {
+                            format!("'{}'", s)
+                        } else if let Some(seq) = v.as_sequence() {
+                            let values: Vec<String> = seq
+                                .iter()
+                                .filter_map(|item| item.as_str().map(|s| format!("'{}'", s)))
+                                .collect();
+                            format!("one of [{}]", values.join(", "))
+                        } else {
+                            format!("{:?}", v)
+                        }
+                    })
+                    .unwrap_or_else(|| "valid value".to_string());
+
+                let actual = context
+                    .get("actual")
+                    .map(format_value)
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                CompoteConfigError::InvalidValue {
+                    path,
+                    message: format!("expected {}, got {}", expected, actual),
+                }
+            }
+
+            ConfigErrorKind::InvalidRange => {
+                let min = context
+                    .get("min")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let max = context
+                    .get("max")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+
+                CompoteConfigError::InvalidValue {
+                    path,
+                    message: format!("invalid range [{}, {}[", min, max),
+                }
+            }
+
+            ConfigErrorKind::InvalidPackage => {
+                let package = get_str("package");
+                CompoteConfigError::InvalidValue {
+                    path,
+                    message: format!("invalid package '{}'", package),
+                }
+            }
+
+            ConfigErrorKind::NotExactlyOneKeyInTable => {
+                let actual = context
+                    .get("actual")
+                    .map(format_value)
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                CompoteConfigError::InvalidValue {
+                    path,
+                    message: format!(
+                        "expected table with single key-value pair, got {}",
+                        actual
+                    ),
+                }
+            }
+
+            ConfigErrorKind::UnsupportedValueInContext => {
+                let actual = context
+                    .get("actual")
+                    .map(format_value)
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                CompoteConfigError::InvalidValue {
+                    path,
+                    message: format!("value {} not supported in this context", actual),
+                }
+            }
+
+            // C120 - ParseError
+            ConfigErrorKind::ParsingError => {
+                let actual = context
+                    .get("actual")
+                    .map(format_value)
+                    .unwrap_or_default();
+                let error = get_str("error");
+
+                CompoteConfigError::Custom {
+                    code: "C120".to_string(),
+                    path: if file.is_empty() { path } else { file },
+                    message: format!("unable to parse value '{}': {}", actual, error),
+                }
+            }
+
+            // C130 - FileNotExecutable
+            ConfigErrorKind::OmniPathFileNotExecutable => CompoteConfigError::FileNotExecutable {
+                path: if file.is_empty() { path } else { file },
+            },
+
+            // C131 - FileMetadataError
+            ConfigErrorKind::OmniPathFileFailedToLoadMetadata => {
+                CompoteConfigError::FileMetadataError {
+                    path: if file.is_empty() { path } else { file },
+                    message: "failed to load metadata".to_string(),
+                }
+            }
+
+            // C132 - PathNotFound
+            ConfigErrorKind::OmniPathNotFound => CompoteConfigError::PathNotFound {
+                path: if file.is_empty() { path } else { file },
+                message: "path not found".to_string(),
+            },
+
+            // C140 - MetadataHeaderParseError (generic metadata errors)
+            ConfigErrorKind::MetadataHeaderMissingSubkey
+            | ConfigErrorKind::MetadataHeaderContinueWithoutKey
+            | ConfigErrorKind::MetadataHeaderUnknownKey
+            | ConfigErrorKind::MetadataHeaderDuplicateKey
+            | ConfigErrorKind::MetadataHeaderInvalidValueType => {
+                let message = self
+                    .message_from_context(context)
+                    .unwrap_or_else(|_| "metadata header parse error".to_string());
+                CompoteConfigError::MetadataHeaderParseError {
+                    path: if file.is_empty() { path } else { file },
+                    message,
+                }
+            }
+
+            // C141 - MetadataHeaderEmptyPart
+            ConfigErrorKind::MetadataHeaderGroupEmptyPart
+            | ConfigErrorKind::MetadataHeaderParameterEmptyPart => {
+                let group = context
+                    .get("group")
+                    .or_else(|| context.get("parameter"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                CompoteConfigError::MetadataHeaderEmptyPart {
+                    path: if file.is_empty() { path } else { file },
+                    group,
+                }
+            }
+
+            // C142 - MetadataHeaderMissingField
+            ConfigErrorKind::MetadataHeaderMissingHelp => {
+                CompoteConfigError::MetadataHeaderMissingField {
+                    path: if file.is_empty() { path } else { file },
+                    field: "help".to_string(),
+                }
+            }
+
+            ConfigErrorKind::MetadataHeaderMissingSyntax => {
+                CompoteConfigError::MetadataHeaderMissingField {
+                    path: if file.is_empty() { path } else { file },
+                    field: "syntax".to_string(),
+                }
+            }
+
+            ConfigErrorKind::MetadataHeaderGroupMissingParameters => {
+                let group = get_str("group");
+                CompoteConfigError::MetadataHeaderMissingField {
+                    path: if file.is_empty() { path } else { file },
+                    field: format!("parameters for group '{}'", group),
+                }
+            }
+
+            ConfigErrorKind::MetadataHeaderParameterMissingDescription => {
+                let parameter = get_str("parameter");
+                CompoteConfigError::MetadataHeaderMissingField {
+                    path: if file.is_empty() { path } else { file },
+                    field: format!("description for parameter '{}'", parameter),
+                }
+            }
+
+            // C143 - MetadataHeaderInvalidSyntax
+            ConfigErrorKind::MetadataHeaderGroupUnknownConfigKey
+            | ConfigErrorKind::MetadataHeaderParameterUnknownConfigKey
+            | ConfigErrorKind::MetadataHeaderParameterInvalidKeyValue => {
+                let message = self
+                    .message_from_context(context)
+                    .unwrap_or_else(|_| "invalid metadata header syntax".to_string());
+                CompoteConfigError::MetadataHeaderInvalidSyntax {
+                    path: if file.is_empty() { path } else { file },
+                    message,
+                }
+            }
+
+            // C150-C152 - UserDefinedCommand errors
+            ConfigErrorKind::UserDefinedPathCommandMissingTag
+            | ConfigErrorKind::UserDefinedConfigCommandMissingTag => {
+                let tag = get_str("tag");
+                CompoteConfigError::UserDefinedCommandMissingField {
+                    path: if file.is_empty() { path } else { file },
+                    field: tag,
+                }
+            }
+
+            ConfigErrorKind::UserDefinedPathCommandInvalidTagValue
+            | ConfigErrorKind::UserDefinedConfigCommandInvalidTagValue => {
+                let tag = get_str("tag");
+                let expected = get_str("expected");
+                let actual = get_str("actual");
+                CompoteConfigError::UserDefinedCommandInvalidValue {
+                    path: if file.is_empty() { path } else { file },
+                    field: tag,
+                    message: format!("expected value to {}, got '{}'", expected, actual),
+                }
+            }
+        }
     }
 }
