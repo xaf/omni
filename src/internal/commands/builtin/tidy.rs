@@ -24,7 +24,6 @@ use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::parser::PathEntryConfig;
 use crate::internal::config::up::utils::directory::safe_rename;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigSource;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
 use crate::internal::env::shell_is_interactive;
@@ -786,23 +785,28 @@ impl TidyGitRepo {
     where
         T: Fn(String),
     {
+        use crate::internal::config::config_value::to_compote_config_value;
+
         let mut files_to_edit = HashSet::new();
 
         let config = global_config_loader().raw_config.clone();
+        let compote_config = to_compote_config_value(&config);
         let current_path = path_entry_config(self.current_path.to_str().unwrap());
 
-        if let Some(config_path) = config.get_as_table("path") {
-            for key in config_path.keys() {
-                if let Some(path_list) = config_path.get(key) {
-                    if let Some(path_list) = path_list.as_array() {
-                        for value in path_list {
-                            if let Some(path_entry) = PathEntryConfig::from_config_value(
-                                &value,
+        // Access path table using compote's Value API
+        if let Some(path_config_value) = compote_config.value.as_object().and_then(|obj| obj.get("path")) {
+            if let compote::Value::Object(path_table) = &path_config_value.value {
+                for (_key, path_list_value) in path_table.iter() {
+                    if let compote::Value::Array(path_list) = &path_list_value.value {
+                        for value in path_list.iter() {
+                            if let Some(path_entry) = PathEntryConfig::from_compote_value(
+                                value,
                                 &ConfigErrorHandler::noop(),
                             ) {
                                 if path_entry.starts_with(&current_path) {
-                                    if let ConfigSource::File(path) = value.source() {
-                                        files_to_edit.insert(path.clone());
+                                    // Extract source from compote context
+                                    if let compote::ConfigSource::File(path) = &value.context.source {
+                                        files_to_edit.insert(path.to_string_lossy().to_string());
                                     }
                                 }
                             }
@@ -828,18 +832,22 @@ impl TidyGitRepo {
         let current_path = path_entry_config(self.current_path.to_str().unwrap());
         let expected_path = path_entry_config(self.expected_path.to_str().unwrap());
 
-        let result = ConfigLoader::edit_user_config_file(file_path.to_string(), |config_value| {
-            if let Some(config_path) = config_value.get_as_table_mut("path") {
-                for (_key, path_list) in config_path.iter_mut() {
-                    if let Some(path_list) = path_list.as_array_mut() {
-                        for value in path_list.iter_mut() {
-                            if let Some(mut path_entry) = PathEntryConfig::from_config_value(
-                                value,
-                                &ConfigErrorHandler::noop(),
-                            ) {
-                                if path_entry.replace(&current_path, &expected_path) {
-                                    *value = path_entry.as_config_value().clone();
-                                    edited = true;
+        let result = ConfigLoader::edit_user_config_file_compote(file_path, |config| {
+            // Use compote's mutable access via get_mut("path")
+            if let Some(path_config_value) = config.get_mut("path") {
+                if let compote::Value::Object(path_table) = &mut path_config_value.value {
+                    for (_key, path_list_value) in path_table.iter_mut() {
+                        if let compote::Value::Array(path_list) = &mut path_list_value.value {
+                            for value in path_list.iter_mut() {
+                                if let Some(mut path_entry) = PathEntryConfig::from_compote_value(
+                                    value,
+                                    &ConfigErrorHandler::noop(),
+                                ) {
+                                    if path_entry.replace(&current_path, &expected_path) {
+                                        // Convert back using to_compote_value
+                                        value.value = path_entry.to_compote_value();
+                                        edited = true;
+                                    }
                                 }
                             }
                         }

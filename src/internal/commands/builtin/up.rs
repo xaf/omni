@@ -369,51 +369,57 @@ impl UpCommand {
     }
 
     fn suggest_config(&self, suggest_config: ConfigValue) {
+        use crate::internal::config::config_value::to_compote_config_value;
+
         if !self.should_suggest_config() && !self.auto_bootstrap_config() {
             return;
         }
 
+        // Convert old ConfigValue to compote ConfigValue for merging
+        let suggest_config_compote = to_compote_config_value(&suggest_config);
+
         let mut any_change_to_apply = false;
         let mut any_change_applied = false;
 
-        let result = ConfigLoader::edit_main_user_config_file(|config_value| {
-            let before = config_value.clone();
+        let result = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            // Clone root for comparison
+            let before_root = config.root().clone();
 
-            let suggest_config = suggest_config.clone();
-            let mut after = config_value.clone();
-            let loader = omni_config_loader();
-            loader.merge(&mut after, suggest_config.clone());
+            // Create a copy for after
+            let mut after_config = compote::Config::default();
+            after_config.merge(before_root.clone());
+            after_config.merge(suggest_config_compote.clone());
 
             // Get the yaml representation of the before and after config
-            let before_yaml = before.as_yaml();
-            let after_yaml = after.as_yaml();
+            let before_yaml = config.to_yaml().unwrap_or_default();
+            let after_yaml = after_config.to_yaml().unwrap_or_default();
 
             // Prepare the unified diff
             let input = InternedInput::new(before_yaml.as_str(), after_yaml.as_str());
-            let diff = diff(
+            let diff_result = diff(
                 Algorithm::Histogram,
                 &input,
                 UnifiedDiffBuilder::new(&input),
             );
 
-            if diff.is_empty() {
+            if diff_result.is_empty() {
                 // No diff, nothing to do!
                 return false;
             }
             any_change_to_apply = true;
 
             // If we got there, there is a diff, so color the lines
-            let diff = color_diff(&diff);
+            let diff_result = color_diff(&diff_result);
 
             omni_info!("The current repository is suggesting configuration changes.");
             omni_info!(format!(
                 "The following is going to be changed in your {} configuration:",
                 "omni".underline()
             ));
-            eprintln!("  {}", diff.replace('\n', "\n  "));
+            eprintln!("  {}", diff_result.replace('\n', "\n  "));
 
             if self.cli_args().update_user_config == UpCommandArgsUpdateUserConfigOptions::Yes {
-                *config_value = after;
+                config.merge(suggest_config_compote.clone());
                 any_change_applied = true;
                 return true;
             }
@@ -435,16 +441,19 @@ impl UpCommand {
                 Ok(answer) => match answer {
                     requestty::Answer::ExpandItem(expanditem) => match expanditem.key {
                         'y' => {
-                            *config_value = after;
+                            config.merge(suggest_config_compote.clone());
                             any_change_applied = true;
                             true
                         }
                         'n' => false,
                         's' => {
-                            let after =
-                                self.suggest_config_split(before.clone(), suggest_config.clone());
-                            if after != before {
-                                *config_value = after;
+                            // Use the split function which returns the changes to apply
+                            let changes_to_apply =
+                                self.suggest_config_split_compote(config, &suggest_config_compote);
+                            if !changes_to_apply.is_empty() {
+                                for change in changes_to_apply {
+                                    config.merge(change);
+                                }
                                 any_change_applied = true;
                                 true
                             } else {
@@ -485,6 +494,87 @@ impl UpCommand {
         }
     }
 
+    /// Helper to split config suggestions using compote's API
+    /// Returns a list of compote ConfigValues to apply
+    fn suggest_config_split_compote(
+        &self,
+        before_config: &compote::Config,
+        suggest_config: &compote::ConfigValue,
+    ) -> Vec<compote::ConfigValue> {
+        // Get the keys from the suggest_config
+        let keys: Vec<String> = match &suggest_config.value {
+            compote::Value::Object(map) => map.keys().cloned().collect(),
+            _ => return vec![],
+        };
+
+        let before_yaml = before_config.to_yaml().unwrap_or_default();
+
+        let mut choices = vec![];
+        let mut split_suggestions = vec![];
+
+        // Create a temporary Config from suggest_config to use select_keys
+        let mut suggest_config_container = compote::Config::default();
+        suggest_config_container.merge(suggest_config.clone());
+
+        for key in keys.iter() {
+            let key_str: &str = key.as_str();
+            if let Some(key_suggest_config) = suggest_config_container.select_keys(&[key_str]) {
+                let mut after_config = compote::Config::default();
+                after_config.merge(before_config.root().clone());
+                after_config.merge(key_suggest_config.root().clone());
+
+                // Get the yaml representation of the specific change
+                let after_yaml = after_config.to_yaml().unwrap_or_default();
+
+                // Prepare the unified diff
+                let input = InternedInput::new(before_yaml.as_str(), after_yaml.as_str());
+                let diff_result = diff(
+                    Algorithm::Histogram,
+                    &input,
+                    UnifiedDiffBuilder::new(&input),
+                );
+
+                if diff_result.is_empty() {
+                    // No diff, nothing to do!
+                    continue;
+                }
+
+                choices.push((color_diff(&diff_result), true));
+                split_suggestions.push(key_suggest_config.root().clone());
+            }
+        }
+
+        let question = requestty::Question::multi_select("select_suggestions")
+            .ask_if_answered(true)
+            .on_esc(requestty::OnEsc::Terminate)
+            .message("Which changes do you want to apply?")
+            .transform(|selected, _, backend| {
+                write!(backend, "{} selected", format!("{}", selected.len()).bold())
+            })
+            .choices_with_default(choices)
+            .should_loop(false)
+            .build();
+
+        let mut selected = vec![];
+        match requestty::prompt_one(question) {
+            Ok(answer) => match answer {
+                requestty::Answer::ListItems(items) => {
+                    for item in items {
+                        selected.push(split_suggestions[item.index].clone());
+                    }
+                }
+                _ => unreachable!(),
+            },
+            Err(err) => {
+                println!("{}", format!("[✘] {err:?}").red());
+            }
+        };
+
+        selected
+    }
+
+    // Keep the old method signature for compatibility but mark as deprecated
+    #[allow(dead_code)]
     fn suggest_config_split(
         &self,
         before: ConfigValue,
@@ -509,18 +599,18 @@ impl UpCommand {
 
                 // Prepare the unified diff
                 let input = InternedInput::new(before_yaml.as_str(), after_yaml.as_str());
-                let diff = diff(
+                let diff_result = diff(
                     Algorithm::Histogram,
                     &input,
                     UnifiedDiffBuilder::new(&input),
                 );
 
-                if diff.is_empty() {
+                if diff_result.is_empty() {
                     // No diff, nothing to do!
                     continue;
                 }
 
-                choices.push((color_diff(&diff), true));
+                choices.push((color_diff(&diff_result), true));
                 split_suggestions.push(key_suggest_config.clone());
             }
         }
@@ -1410,7 +1500,7 @@ impl BuiltinCommand for UpCommand {
 
         let mut suggest_config = None;
         let mut suggest_config_updated = false;
-        let suggest_config_value = cfg.suggest_config.config();
+        let suggest_config_value = cfg.suggest_config.config_value();
         if self.is_up() && !suggest_config_value.is_null() {
             if self.should_suggest_config() {
                 suggest_config = Some(suggest_config_value);

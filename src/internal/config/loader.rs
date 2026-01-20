@@ -349,6 +349,14 @@ impl ConfigLoader {
         compote::Config::edit_file(file_path, edit_fn).map(|_| ())
     }
 
+    /// Edit a user config file using compote's Config API (specific file)
+    pub fn edit_user_config_file_compote<F>(file_path: &str, edit_fn: F) -> io::Result<()>
+    where
+        F: FnOnce(&mut compote::Config) -> bool,
+    {
+        compote::Config::edit_file(file_path, edit_fn).map(|_| ())
+    }
+
     // fn new_local_only(path: &str) -> Self {
     // ConfigLoader::new_empty().get_local(path)
     // }
