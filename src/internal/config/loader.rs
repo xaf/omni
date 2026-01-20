@@ -222,6 +222,8 @@ impl ConfigLoader {
         loader
     }
 
+    #[deprecated(since = "0.1.0", note = "Use edit_main_user_config_file_compote instead")]
+    #[allow(deprecated)]
     pub fn edit_main_user_config_file<F>(edit_fn: F) -> io::Result<()>
     where
         F: FnOnce(&mut ConfigValue) -> bool,
@@ -295,6 +297,8 @@ impl ConfigLoader {
         Self::edit_user_config_file(file_path, edit_fn)
     }
 
+    #[deprecated(since = "0.1.0", note = "Use edit_user_config_file_compote instead")]
+    #[allow(deprecated)]
     pub fn edit_user_config_file<F>(file_path: String, edit_fn: F) -> io::Result<()>
     where
         F: FnOnce(&mut ConfigValue) -> bool,
@@ -303,6 +307,8 @@ impl ConfigLoader {
     }
 
     #[allow(dead_code)]
+    #[deprecated(since = "0.1.0", note = "Use edit_workdir_config_file_compote instead")]
+    #[allow(deprecated)]
     pub fn edit_workdir_config_file<F>(file_path: String, edit_fn: F) -> io::Result<()>
     where
         F: FnOnce(&mut ConfigValue) -> bool,
@@ -310,6 +316,7 @@ impl ConfigLoader {
         Self::edit_config_file(file_path, ConfigScope::Workdir, edit_fn)
     }
 
+    #[deprecated(since = "0.1.0", note = "Use the compote-based edit functions instead")]
     pub fn edit_config_file<F>(file_path: String, scope: ConfigScope, edit_fn: F) -> io::Result<()>
     where
         F: FnOnce(&mut ConfigValue) -> bool,

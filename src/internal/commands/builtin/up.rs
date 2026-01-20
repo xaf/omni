@@ -40,7 +40,6 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::config::CommandSyntax;
 use crate::internal::config::ConfigLoader;
 use crate::internal::config::ConfigValue;
-use crate::internal::config::omni_config_loader;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
 use crate::internal::config::SyntaxOptArgType;
@@ -565,77 +564,6 @@ impl UpCommand {
         };
 
         selected
-    }
-
-    // Keep the old method signature for compatibility but mark as deprecated
-    #[allow(dead_code)]
-    fn suggest_config_split(
-        &self,
-        before: ConfigValue,
-        suggest_config: ConfigValue,
-    ) -> ConfigValue {
-        // We can consider this unwrap safe, since we checked the value before
-        let table = suggest_config.as_table().unwrap();
-        let keys = table.keys().collect::<Vec<_>>();
-
-        let before_yaml = before.as_yaml();
-
-        let mut choices = vec![];
-        let mut split_suggestions = vec![];
-        let loader = omni_config_loader();
-        for key in keys.iter() {
-            if let Some(key_suggest_config) = suggest_config.select_keys(vec![key.to_string()]) {
-                let mut after = before.clone();
-                loader.merge(&mut after, key_suggest_config.clone());
-
-                // Get the yaml representation of the specific change
-                let after_yaml = after.as_yaml();
-
-                // Prepare the unified diff
-                let input = InternedInput::new(before_yaml.as_str(), after_yaml.as_str());
-                let diff_result = diff(
-                    Algorithm::Histogram,
-                    &input,
-                    UnifiedDiffBuilder::new(&input),
-                );
-
-                if diff_result.is_empty() {
-                    // No diff, nothing to do!
-                    continue;
-                }
-
-                choices.push((color_diff(&diff_result), true));
-                split_suggestions.push(key_suggest_config.clone());
-            }
-        }
-
-        let question = requestty::Question::multi_select("select_suggestions")
-            .ask_if_answered(true)
-            .on_esc(requestty::OnEsc::Terminate)
-            .message("Which changes do you want to apply?")
-            .transform(|selected, _, backend| {
-                write!(backend, "{} selected", format!("{}", selected.len()).bold())
-            })
-            .choices_with_default(choices)
-            .should_loop(false)
-            .build();
-
-        let mut after = before.clone();
-        match requestty::prompt_one(question) {
-            Ok(answer) => match answer {
-                requestty::Answer::ListItems(items) => {
-                    for item in items {
-                        loader.merge(&mut after, split_suggestions[item.index].clone());
-                    }
-                }
-                _ => unreachable!(),
-            },
-            Err(err) => {
-                println!("{}", format!("[✘] {err:?}").red());
-            }
-        };
-
-        after
     }
 
     fn suggest_clone(&self) {
