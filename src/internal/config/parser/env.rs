@@ -8,11 +8,13 @@ use serde::Serialize;
 
 use crate::internal::cache::utils::Empty;
 use crate::internal::commands::utils::abs_path_from_path;
-use crate::internal::config::config_value::ConfigData;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
-use crate::internal::config::ConfigSource;
-use crate::internal::config::ConfigValue;
+
+use compote::ConfigError as CompoteConfigError;
+use compote::ConfigSource as CompoteConfigSource;
+use compote::ConfigValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromConfigValue as CompoteFromConfigValue;
+use compote::Value as CompoteValue;
 
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct EnvConfig {
@@ -53,51 +55,62 @@ impl Empty for EnvConfig {
     }
 }
 
-impl EnvConfig {
-    pub fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let operations = if let Some(config_value) = config_value {
-            let operations_array = if let Some(array) = config_value.as_array() {
-                array
-            } else if let Some(table) = config_value.as_table() {
-                // If this is a map, create a list of individual maps for each
-                // key/value pair, sorted by key for deterministic output.
-                table
-                    .iter()
-                    .sorted_by_key(|(key, _)| key.to_string())
-                    .map(|(key, value)| {
-                        let mut map = HashMap::new();
-                        map.insert(key.to_string(), value.clone());
-                        ConfigValue::new(
-                            config_value.source().clone(),
-                            config_value.scope().clone(),
-                            Some(Box::new(ConfigData::Mapping(map))),
-                        )
-                    })
-                    .collect::<Vec<ConfigValue>>()
-            } else {
-                error_handler
-                    .with_expected(vec!["array", "table"])
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
+impl compote::IsEmpty for EnvConfig {
+    fn is_empty(&self) -> bool {
+        Empty::is_empty(self)
+    }
+}
 
-                vec![]
-            };
-
-            operations_array
-                .iter()
-                .enumerate()
-                .flat_map(|(idx, item)| {
-                    EnvOperationConfig::from_config_value(item, &error_handler.with_index(idx))
-                })
-                .collect()
-        } else {
-            vec![]
+impl CompoteFromConfigValue for EnvConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let operations = match &value.value {
+            CompoteValue::Array(array) => {
+                let mut ops = Vec::new();
+                for (idx, item) in array.iter().enumerate() {
+                    tracker.push_index(idx);
+                    match EnvOperationConfig::parse_entry(item, tracker) {
+                        Ok(parsed_ops) => ops.extend(parsed_ops),
+                        Err(e) => tracker.record(e),
+                    }
+                    tracker.pop();
+                }
+                ops
+            }
+            CompoteValue::Object(table) => {
+                // If this is a map, create a list sorted by key for deterministic output
+                let mut ops = Vec::new();
+                for key in table.keys().sorted() {
+                    let item_value = table.get(key).unwrap();
+                    tracker.push_field(key);
+                    // Create a single-key object for parsing
+                    let mut single_entry = indexmap::IndexMap::new();
+                    single_entry.insert(key.clone(), item_value.clone());
+                    let entry_value = CompoteConfigValue {
+                        value: CompoteValue::Object(single_entry),
+                        context: value.context.clone(),
+                    };
+                    match EnvOperationConfig::parse_entry(&entry_value, tracker) {
+                        Ok(parsed_ops) => ops.extend(parsed_ops),
+                        Err(e) => tracker.record(e),
+                    }
+                    tracker.pop();
+                }
+                ops
+            }
+            CompoteValue::Null => Vec::new(),
+            _ => {
+                return Err(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "array or object".to_string(),
+                    actual: value.value.type_name().to_string(),
+                });
+            }
         };
 
-        Self { operations }
+        Ok(Self { operations })
     }
 }
 
@@ -109,261 +122,300 @@ pub struct EnvOperationConfig {
 }
 
 impl EnvOperationConfig {
-    fn from_config_value_multi(
-        name: &str,
-        config_value: &ConfigValue,
-        operation: EnvOperationEnum,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        if let Some(array) = config_value.as_array() {
-            array
-                .iter()
-                .map(|config_value| match config_value.as_table() {
-                    Some(table) => table,
-                    None => {
-                        let mut table = HashMap::new();
-                        table.insert("value".to_string(), config_value.clone());
-
-                        table
-                    }
-                })
-                .enumerate()
-                .filter_map(|(index, table)| {
-                    Self::from_table(name, table, operation, &error_handler.with_index(index))
-                })
-                .collect()
-        } else if let Some(table) = config_value.as_table() {
-            match Self::from_table(name, table, operation, &error_handler.with_key(name)) {
-                Some(value) => vec![value],
-                None => vec![],
+    /// Parse a single entry from the env config.
+    /// The entry should be a single-key object where the key is the env var name.
+    fn parse_entry(
+        config_value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Vec<Self>, CompoteConfigError> {
+        let table = match &config_value.value {
+            CompoteValue::Object(obj) => obj,
+            _ => {
+                return Err(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "object".to_string(),
+                    actual: config_value.value.type_name().to_string(),
+                });
             }
-        } else {
-            let mut table = HashMap::new();
-            table.insert("value".to_string(), config_value.clone());
+        };
 
-            match Self::from_table(name, table, operation, error_handler) {
-                Some(value) => vec![value],
-                None => vec![],
+        // There should be exactly one key/value pair
+        if table.len() != 1 {
+            return Err(CompoteConfigError::InvalidValue {
+                path: tracker.current_path(),
+                message: format!("expected exactly one key in env entry, got {}", table.len()),
+            });
+        }
+
+        let (name, value) = table.iter().next().unwrap();
+
+        // Parse the value based on its structure
+        Self::parse_value(name, value, &config_value.context, tracker)
+    }
+
+    /// Parse the value for an env var entry.
+    fn parse_value(
+        name: &str,
+        value: &CompoteConfigValue,
+        context: &compote::ConfigContext,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Vec<Self>, CompoteConfigError> {
+        match &value.value {
+            CompoteValue::Object(table) => {
+                // Check for operation keys
+                if let Some(set_value) = table.get("set") {
+                    tracker.push_field("set");
+                    let result = Self::parse_operation_value(
+                        name,
+                        set_value,
+                        EnvOperationEnum::Set,
+                        context,
+                        tracker,
+                    );
+                    tracker.pop();
+                    return result.map(|op| op.into_iter().take(1).collect());
+                }
+
+                let mut operations = Vec::new();
+                let mut matched_any = false;
+
+                for (op_key, op_enum) in [
+                    ("remove", EnvOperationEnum::Remove),
+                    ("prepend", EnvOperationEnum::Prepend),
+                    ("append", EnvOperationEnum::Append),
+                    ("prefix", EnvOperationEnum::Prefix),
+                    ("suffix", EnvOperationEnum::Suffix),
+                ] {
+                    if let Some(op_value) = table.get(op_key) {
+                        matched_any = true;
+                        tracker.push_field(op_key);
+                        match Self::parse_operation_value(name, op_value, op_enum, context, tracker)
+                        {
+                            Ok(ops) => operations.extend(ops),
+                            Err(e) => tracker.record(e),
+                        }
+                        tracker.pop();
+                    }
+                }
+
+                if matched_any {
+                    return Ok(operations);
+                }
+
+                // No operation keys found, treat as a "set" with value/type fields
+                Self::parse_table_value(name, table, context, tracker)
+            }
+            // Simple scalar value means "set"
+            _ => Self::parse_operation_value(name, value, EnvOperationEnum::Set, context, tracker),
+        }
+    }
+
+    /// Parse operation value (can be scalar, array, or table with value/type)
+    fn parse_operation_value(
+        name: &str,
+        value: &CompoteConfigValue,
+        operation: EnvOperationEnum,
+        context: &compote::ConfigContext,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Vec<Self>, CompoteConfigError> {
+        match &value.value {
+            CompoteValue::Array(array) => {
+                let mut operations = Vec::new();
+                for (idx, item) in array.iter().enumerate() {
+                    tracker.push_index(idx);
+                    match Self::parse_single_operation(name, item, operation, context, tracker) {
+                        Ok(op) => operations.push(op),
+                        Err(e) => tracker.record(e),
+                    }
+                    tracker.pop();
+                }
+                Ok(operations)
+            }
+            CompoteValue::Object(table) => {
+                Self::parse_table_value(name, table, context, tracker).map(|ops| {
+                    ops.into_iter()
+                        .map(|mut op| {
+                            op.operation = operation;
+                            op
+                        })
+                        .collect()
+                })
+            }
+            _ => {
+                Self::parse_single_operation(name, value, operation, context, tracker)
+                    .map(|op| vec![op])
             }
         }
     }
 
-    fn from_table(
+    /// Parse a table with value/type fields
+    fn parse_table_value(
         name: &str,
-        table: HashMap<String, ConfigValue>,
-        operation: EnvOperationEnum,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let value_type = match table.get("type") {
-            Some(value_type) => match value_type.as_str() {
-                Some(vtype) if vtype == "text" || vtype == "path" => vtype.to_string(),
-                Some(_) => {
-                    error_handler
-                        .with_key("type")
-                        .with_expected(vec!["text", "path"])
-                        .with_actual(value_type)
-                        .error(ConfigErrorKind::InvalidValue);
-
-                    return None;
+        table: &indexmap::IndexMap<String, CompoteConfigValue>,
+        context: &compote::ConfigContext,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Vec<Self>, CompoteConfigError> {
+        let value_type = if let Some(type_cv) = table.get("type") {
+            match &type_cv.value {
+                CompoteValue::String(s) if s == "text" || s == "path" => s.clone(),
+                CompoteValue::String(s) => {
+                    return Err(CompoteConfigError::InvalidValue {
+                        path: tracker.current_path(),
+                        message: format!("type must be 'text' or 'path', got '{}'", s),
+                    });
                 }
-                None => {
-                    error_handler
-                        .with_key("type")
-                        .with_expected("string")
-                        .with_actual(value_type)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    return None;
+                _ => {
+                    return Err(CompoteConfigError::TypeMismatch {
+                        path: tracker.current_path(),
+                        expected: "string".to_string(),
+                        actual: type_cv.value.type_name().to_string(),
+                    });
                 }
-            },
-            None => "text".to_string(),
+            }
+        } else {
+            "text".to_string()
         };
 
-        let value = if let Some(config_value) = table.get("value") {
-            if let Some(value) = config_value.as_str_forced() {
-                // If the value type is "path", we want to expand the path
-                // before returning it. We can use the value ConfigSource
-                // to determine the current scope.
-                if value_type == "path" {
-                    let source_path = match config_value.source() {
-                        ConfigSource::File(path) => Some(path.to_string()),
-                        ConfigSource::Package(path_entry) => Some(path_entry.to_string()),
-                        _ => {
-                            error_handler
-                                .with_key("type")
-                                .with_actual(value.clone())
-                                .error(ConfigErrorKind::UnsupportedValueInContext);
-
-                            None
-                        }
-                    };
-
-                    match source_path {
-                        Some(source_path) => {
-                            let parent_path = PathBuf::from(source_path)
-                                .parent()
-                                .expect("config file path has no parent")
-                                .to_string_lossy()
-                                .to_string();
-                            Some(
-                                abs_path_from_path(&value, Some(&parent_path))
-                                    .to_string_lossy()
-                                    .to_string(),
-                            )
-                        }
-                        None => Some(value.to_string()),
-                    }
-                } else {
-                    Some(value.to_string())
-                }
-            } else if config_value.is_null()
-                && operation == EnvOperationEnum::Set
-                && value_type == "text"
-            {
-                // Allow null value for "set" operation with "text" type to unset the variable
-                None
-            } else {
-                error_handler
-                    .with_key("value")
-                    .with_expected("string")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
-
-                None
-            }
+        let parsed_value = if let Some(value_cv) = table.get("value") {
+            Self::extract_value(value_cv, &value_type, context, tracker)?
         } else {
             None
         };
 
-        if value.is_none() && operation != EnvOperationEnum::Set {
-            error_handler
-                .with_key("value")
-                .error(ConfigErrorKind::MissingKey);
+        // If no value and operation is not Set, that's an error
+        // (but we can't know the operation here, caller handles it)
 
-            return None;
+        Ok(vec![Self {
+            name: name.to_string(),
+            value: parsed_value,
+            operation: EnvOperationEnum::Set,
+        }])
+    }
+
+    /// Parse a single operation from a scalar or table value
+    fn parse_single_operation(
+        name: &str,
+        value: &CompoteConfigValue,
+        operation: EnvOperationEnum,
+        context: &compote::ConfigContext,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let (parsed_value, value_type) = match &value.value {
+            CompoteValue::Object(table) => {
+                let vtype = if let Some(type_cv) = table.get("type") {
+                    match &type_cv.value {
+                        CompoteValue::String(s) if s == "text" || s == "path" => s.clone(),
+                        CompoteValue::String(s) => {
+                            return Err(CompoteConfigError::InvalidValue {
+                                path: tracker.current_path(),
+                                message: format!("type must be 'text' or 'path', got '{}'", s),
+                            });
+                        }
+                        _ => {
+                            return Err(CompoteConfigError::TypeMismatch {
+                                path: tracker.current_path(),
+                                expected: "string".to_string(),
+                                actual: type_cv.value.type_name().to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    "text".to_string()
+                };
+
+                let val = if let Some(value_cv) = table.get("value") {
+                    Self::extract_value(value_cv, &vtype, context, tracker)?
+                } else {
+                    None
+                };
+
+                (val, vtype)
+            }
+            _ => {
+                let val = Self::extract_value(value, "text", context, tracker)?;
+                (val, "text".to_string())
+            }
+        };
+
+        // Validate: non-Set operations require a value
+        if parsed_value.is_none() && operation != EnvOperationEnum::Set {
+            return Err(CompoteConfigError::InvalidValue {
+                path: tracker.current_path(),
+                message: "missing required 'value' field".to_string(),
+            });
         }
 
-        Some(Self {
+        // Allow null value for "set" operation with "text" type to unset the variable
+        if parsed_value.is_none() && operation == EnvOperationEnum::Set && value_type != "text" {
+            return Err(CompoteConfigError::InvalidValue {
+                path: tracker.current_path(),
+                message: "missing required 'value' field for path type".to_string(),
+            });
+        }
+
+        Ok(Self {
             name: name.to_string(),
-            value,
+            value: parsed_value,
             operation,
         })
     }
 
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        // The config_value should be a table.
-        let table = match config_value.as_table() {
-            Some(table) => table,
-            None => {
-                error_handler
-                    .with_expected("table")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
+    /// Extract a string value, handling path resolution if needed
+    fn extract_value(
+        value: &CompoteConfigValue,
+        value_type: &str,
+        context: &compote::ConfigContext,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Option<String>, CompoteConfigError> {
+        // Handle null for set operations
+        if matches!(value.value, CompoteValue::Null) {
+            return Ok(None);
+        }
 
-                return vec![];
+        // Try to coerce to string
+        let string_value = match &value.value {
+            CompoteValue::String(s) => s.clone(),
+            CompoteValue::Int(i) => i.to_string(),
+            CompoteValue::Float(f) => f.to_string(),
+            CompoteValue::Bool(b) => b.to_string(),
+            _ => {
+                return Err(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "string".to_string(),
+                    actual: value.value.type_name().to_string(),
+                });
             }
         };
 
-        // There should be exactly one key/value pair in the table.
-        if table.len() != 1 {
-            error_handler
-                .with_actual(config_value)
-                .error(ConfigErrorKind::NotExactlyOneKeyInTable);
+        // If path type, resolve relative to config file
+        if value_type == "path" {
+            let source_path = match &context.source {
+                CompoteConfigSource::File(path) => Some(path.clone()),
+                CompoteConfigSource::Custom(desc) => {
+                    // Try to parse as path (for package sources)
+                    Some(PathBuf::from(desc))
+                }
+                _ => {
+                    return Err(CompoteConfigError::InvalidValue {
+                        path: tracker.current_path(),
+                        message: "path type requires file source context".to_string(),
+                    });
+                }
+            };
 
-            return vec![];
+            if let Some(source_path) = source_path {
+                let parent_path = source_path
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string());
+                let resolved = abs_path_from_path(
+                    string_value.as_str(),
+                    parent_path.as_deref(),
+                );
+                return Ok(Some(resolved.to_string_lossy().to_string()));
+            }
         }
 
-        // Get the unique key, value pair; we can unwrap here because we know
-        // there is exactly one pair.
-        let (name, value) = table.iter().next().unwrap();
-
-        // Now we can try and figure out how to parse the value
-        if let Some(table) = value.as_table() {
-            if let Some(config_value) = table.get("set") {
-                return match Self::from_config_value_multi(
-                    name,
-                    config_value,
-                    EnvOperationEnum::Set,
-                    &error_handler.with_key("set"),
-                )
-                .pop()
-                {
-                    Some(value) => vec![value],
-                    _ => vec![],
-                };
-            }
-
-            let mut operations = vec![];
-            let mut matched_any = false;
-
-            if let Some(config_value) = table.get("remove") {
-                matched_any = true;
-                operations.extend(Self::from_config_value_multi(
-                    name,
-                    config_value,
-                    EnvOperationEnum::Remove,
-                    &error_handler.with_key("remove"),
-                ))
-            }
-
-            if let Some(config_value) = table.get("prepend") {
-                matched_any = true;
-                operations.extend(Self::from_config_value_multi(
-                    name,
-                    config_value,
-                    EnvOperationEnum::Prepend,
-                    &error_handler.with_key("prepend"),
-                ))
-            }
-
-            if let Some(config_value) = table.get("append") {
-                matched_any = true;
-                operations.extend(Self::from_config_value_multi(
-                    name,
-                    config_value,
-                    EnvOperationEnum::Append,
-                    &error_handler.with_key("append"),
-                ))
-            }
-
-            if let Some(config_value) = table.get("prefix") {
-                matched_any = true;
-                operations.extend(Self::from_config_value_multi(
-                    name,
-                    config_value,
-                    EnvOperationEnum::Prefix,
-                    &error_handler.with_key("prefix"),
-                ))
-            }
-
-            if let Some(config_value) = table.get("suffix") {
-                matched_any = true;
-                operations.extend(Self::from_config_value_multi(
-                    name,
-                    config_value,
-                    EnvOperationEnum::Suffix,
-                    &error_handler.with_key("suffix"),
-                ))
-            }
-
-            if matched_any {
-                return operations;
-            }
-
-            match Self::from_table(name, table, EnvOperationEnum::Set, error_handler) {
-                Some(value) => vec![value],
-                None => vec![],
-            }
-        } else if let Some(value) =
-            Self::from_config_value_multi(name, value, EnvOperationEnum::Set, error_handler).pop()
-        {
-            vec![value]
-        } else {
-            vec![]
-        }
+        Ok(Some(string_value))
     }
 }
 

@@ -39,6 +39,9 @@ use crate::internal::config::global_config;
 use crate::internal::config::parser::ConfigErrorHandler;
 use config_value::ConfigErrorKind;
 use crate::internal::config::parser::EnvConfig;
+use crate::internal::config::to_compote_config_value;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromConfigValue as CompoteFromConfigValue;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::parser::GithubAuthConfig;
 use crate::internal::config::template::config_template_context;
@@ -853,8 +856,15 @@ impl UpConfigGithubRelease {
             table.get("auth").cloned(),
             &error_handler.with_key("auth"),
         );
-        let env =
-            EnvConfig::from_config_value(table.get("env").cloned(), &error_handler.with_key("env"));
+        let env = match table.get("env") {
+            Some(env_value) => {
+                let compote_value = to_compote_config_value(env_value);
+                let mut tracker = CompoteErrorTracker::new();
+                CompoteFromConfigValue::from_config_value(&compote_value, &mut tracker)
+                    .unwrap_or_default()
+            }
+            None => EnvConfig::default(),
+        };
 
         let dirs = config_value
             .get_as_str_array("dir", &error_handler.with_key("dir"))
