@@ -501,24 +501,18 @@ impl UpCommand {
         before_config: &compote::Config,
         suggest_config: &compote::ConfigValue,
     ) -> Vec<compote::ConfigValue> {
-        // Get the keys from the suggest_config
-        let keys: Vec<String> = match &suggest_config.value {
-            compote::Value::Object(map) => map.keys().cloned().collect(),
-            _ => return vec![],
-        };
-
         let before_yaml = before_config.to_yaml().unwrap_or_default();
 
         let mut choices = vec![];
         let mut split_suggestions = vec![];
 
-        // Create a temporary Config from suggest_config to use select_keys
+        // Create a temporary Config from suggest_config to use split_by_key
         let mut suggest_config_container = compote::Config::default();
         suggest_config_container.merge(suggest_config.clone());
 
-        for key in keys.iter() {
-            let key_str: &str = key.as_str();
-            if let Some(key_suggest_config) = suggest_config_container.select_keys(&[key_str]) {
+        // Use split_by_key to iterate over each key as a separate Config
+        if let Some(parts) = suggest_config_container.split_by_key() {
+            for (_key, key_suggest_config) in parts {
                 let mut after_config = compote::Config::default();
                 after_config.merge(before_config.root().clone());
                 after_config.merge(key_suggest_config.root().clone());
