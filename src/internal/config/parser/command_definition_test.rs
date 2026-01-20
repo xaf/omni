@@ -2680,16 +2680,69 @@ mod parse_arg_name {
 
 mod syntax_opt_arg_type {
     use super::*;
-    use crate::internal::config::ConfigValue;
+    use compote::ConfigValue as CompoteConfigValue;
+    use compote::ErrorTracker as CompoteErrorTracker;
+    use compote::Value as CompoteValue;
+
+    /// Helper function to create a compote ConfigValue from a YAML string
+    fn make_compote_value(yaml: &str) -> CompoteConfigValue {
+        let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        yaml_value_to_compote_value(value)
+    }
+
+    /// Convert a serde_yaml::Value to compote ConfigValue (test version)
+    fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
+        let context = compote::ConfigContext::new(
+            compote::ConfigSource::Default,
+            compote::ConfigLevel::System,
+        );
+        let inner_value = match value {
+            serde_yaml::Value::Null => CompoteValue::Null,
+            serde_yaml::Value::Bool(b) => CompoteValue::Bool(b),
+            serde_yaml::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    CompoteValue::Int(i)
+                } else if let Some(f) = n.as_f64() {
+                    CompoteValue::Float(f)
+                } else {
+                    CompoteValue::Null
+                }
+            }
+            serde_yaml::Value::String(s) => CompoteValue::String(s),
+            serde_yaml::Value::Sequence(seq) => {
+                let arr = seq.into_iter().map(yaml_value_to_compote_value).collect();
+                CompoteValue::Array(arr)
+            }
+            serde_yaml::Value::Mapping(map) => {
+                let obj: indexmap::IndexMap<String, CompoteConfigValue> = map
+                    .into_iter()
+                    .filter_map(|(k, v)| {
+                        let key = match k {
+                            serde_yaml::Value::String(s) => s,
+                            _ => return None,
+                        };
+                        Some((key, yaml_value_to_compote_value(v)))
+                    })
+                    .collect();
+                CompoteValue::Object(obj)
+            }
+            serde_yaml::Value::Tagged(_) => CompoteValue::Null,
+        };
+        CompoteConfigValue::new(inner_value, context)
+    }
 
     #[test]
     fn test_from_config_value_list_as_enum() {
-        let error_handler = ConfigErrorHandler::default();
+        let mut tracker = CompoteErrorTracker::new();
 
         // Test with array of strings as type
-        let type_value = ConfigValue::from_str("[debug, info, warn, error]").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+        let type_value = make_compote_value("[debug, info, warn, error]");
+        let result = SyntaxOptArgType::from_compote_config_value(
+            Some(&type_value),
+            None,
+            None,
+            &mut tracker,
+        );
 
         assert_eq!(
             result,
@@ -2704,16 +2757,16 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_config_value_traditional_enum() {
-        let error_handler = ConfigErrorHandler::default();
+        let mut tracker = CompoteErrorTracker::new();
 
         // Test traditional enum syntax with separate values
-        let type_value = ConfigValue::from_str("enum").unwrap();
-        let values_value = ConfigValue::from_str("[one, two, three]").unwrap();
-        let result = SyntaxOptArgType::from_config_value(
+        let type_value = make_compote_value("enum");
+        let values_value = make_compote_value("[one, two, three]");
+        let result = SyntaxOptArgType::from_compote_config_value(
             Some(&type_value),
             Some(&values_value),
             None,
-            &error_handler,
+            &mut tracker,
         );
 
         assert_eq!(
@@ -2728,12 +2781,16 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_config_value_inline_enum() {
-        let error_handler = ConfigErrorHandler::default();
+        let mut tracker = CompoteErrorTracker::new();
 
         // Test inline enum syntax
-        let type_value = ConfigValue::from_str("enum(fast, safe, rollback)").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+        let type_value = make_compote_value("\"enum(fast, safe, rollback)\"");
+        let result = SyntaxOptArgType::from_compote_config_value(
+            Some(&type_value),
+            None,
+            None,
+            &mut tracker,
+        );
 
         assert_eq!(
             result,
@@ -2747,47 +2804,67 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_config_value_basic_types() {
-        let error_handler = ConfigErrorHandler::default();
+        let mut tracker = CompoteErrorTracker::new();
 
         // Test basic string type
-        let type_value = ConfigValue::from_str("str").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+        let type_value = make_compote_value("str");
+        let result = SyntaxOptArgType::from_compote_config_value(
+            Some(&type_value),
+            None,
+            None,
+            &mut tracker,
+        );
         assert_eq!(result, Some(SyntaxOptArgType::String));
 
         // Test integer type
-        let type_value = ConfigValue::from_str("int").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+        let type_value = make_compote_value("int");
+        let result = SyntaxOptArgType::from_compote_config_value(
+            Some(&type_value),
+            None,
+            None,
+            &mut tracker,
+        );
         assert_eq!(result, Some(SyntaxOptArgType::Integer));
 
         // Test boolean type
-        let type_value = ConfigValue::from_str("bool").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+        let type_value = make_compote_value("bool");
+        let result = SyntaxOptArgType::from_compote_config_value(
+            Some(&type_value),
+            None,
+            None,
+            &mut tracker,
+        );
         assert_eq!(result, Some(SyntaxOptArgType::Boolean));
     }
 
     #[test]
     fn test_from_config_value_empty_list() {
-        let error_handler = ConfigErrorHandler::default();
+        let mut tracker = CompoteErrorTracker::new();
 
         // Test with empty array
-        let type_value = ConfigValue::from_str("[]").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+        let type_value = make_compote_value("[]");
+        let result = SyntaxOptArgType::from_compote_config_value(
+            Some(&type_value),
+            None,
+            None,
+            &mut tracker,
+        );
 
         assert_eq!(result, Some(SyntaxOptArgType::Enum(vec![])));
     }
 
     #[test]
     fn test_from_config_value_single_item_list() {
-        let error_handler = ConfigErrorHandler::default();
+        let mut tracker = CompoteErrorTracker::new();
 
         // Test with single item array
-        let type_value = ConfigValue::from_str("[debug]").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+        let type_value = make_compote_value("[debug]");
+        let result = SyntaxOptArgType::from_compote_config_value(
+            Some(&type_value),
+            None,
+            None,
+            &mut tracker,
+        );
 
         assert_eq!(
             result,
@@ -2797,16 +2874,16 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_config_value_precedence() {
-        let error_handler = ConfigErrorHandler::default();
+        let mut tracker = CompoteErrorTracker::new();
 
         // Test that list syntax takes precedence over values field
-        let type_value = ConfigValue::from_str("[debug, info]").unwrap();
-        let values_value = ConfigValue::from_str("[ignored, values]").unwrap();
-        let result = SyntaxOptArgType::from_config_value(
+        let type_value = make_compote_value("[debug, info]");
+        let values_value = make_compote_value("[ignored, values]");
+        let result = SyntaxOptArgType::from_compote_config_value(
             Some(&type_value),
             Some(&values_value),
             None,
-            &error_handler,
+            &mut tracker,
         );
 
         // Should use the list from type, not values

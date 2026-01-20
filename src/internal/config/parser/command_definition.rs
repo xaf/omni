@@ -17,9 +17,15 @@ use config_value::ConfigErrorKind;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::ConfigScope;
 use crate::internal::config::ConfigSource;
-use crate::internal::config::ConfigValue;
 use crate::internal::user_interface::colors::StringColor;
 use crate::internal::ORG_LOADER;
+
+// Compote imports for FromConfigValue implementation
+use compote::ConfigError as CompoteConfigError;
+use compote::ConfigValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromConfigValue as CompoteFromConfigValue;
+use compote::Value as CompoteValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommandDefinition {
@@ -48,122 +54,6 @@ pub struct CommandDefinition {
     pub scope: ConfigScope,
 }
 
-impl CommandDefinition {
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let desc = config_value.get_as_str_or_none("desc", &error_handler.with_key("desc"));
-
-        let run = config_value
-            .get_as_str_or_none("run", &error_handler.with_key("run"))
-            .unwrap_or_else(|| {
-                error_handler
-                    .with_key("run")
-                    .error(ConfigErrorKind::MissingKey);
-                "true".to_string()
-            });
-
-        let aliases = config_value.get_as_str_array("aliases", &error_handler.with_key("aliases"));
-
-        let syntax = match config_value.get("syntax") {
-            Some(value) => {
-                CommandSyntax::from_config_value(&value, &error_handler.with_key("syntax"))
-            }
-            None => None,
-        };
-
-        let tags = match config_value.get("tags") {
-            Some(value) => {
-                let mut tags = BTreeMap::new();
-                if let Some(table) = value.as_table() {
-                    for (key, value) in table {
-                        if let Some(value) = value.as_str_forced() {
-                            tags.insert(key.to_string(), value.to_string());
-                        } else {
-                            error_handler
-                                .with_key("tags")
-                                .with_key(key)
-                                .with_expected("string")
-                                .with_actual(value)
-                                .error(ConfigErrorKind::InvalidValueType);
-                        }
-                    }
-                } else {
-                    error_handler
-                        .with_key("tags")
-                        .with_expected("table")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-                tags
-            }
-            None => BTreeMap::new(),
-        };
-
-        let category =
-            config_value.get_as_str_array("category", &error_handler.with_key("category"));
-        let category = if category.is_empty() {
-            None
-        } else {
-            Some(category)
-        };
-
-        let dir = config_value.get_as_str_or_none("dir", &error_handler.with_key("dir"));
-
-        let subcommands = match config_value.get("subcommands") {
-            Some(value) => {
-                let mut subcommands = HashMap::new();
-                let subcommands_error_handler = error_handler.with_key("subcommands");
-                if let Some(table) = value.as_table() {
-                    for (key, value) in table {
-                        subcommands.insert(
-                            key.to_string(),
-                            CommandDefinition::from_config_value(
-                                &value,
-                                &subcommands_error_handler.with_key(key),
-                            ),
-                        );
-                    }
-                } else {
-                    subcommands_error_handler
-                        .with_expected("table")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-                Some(subcommands)
-            }
-            None => None,
-        };
-
-        let argparser = config_value.get_as_bool_or_default(
-            "argparser",
-            false, // Disable argparser by default
-            &error_handler.with_key("argparser"),
-        );
-
-        let export = config_value.get_as_bool_or_default(
-            "export",
-            false, // Do not export by default
-            &error_handler.with_key("export"),
-        );
-
-        Self {
-            desc,
-            run,
-            aliases,
-            syntax,
-            category,
-            dir,
-            subcommands,
-            argparser,
-            tags,
-            export,
-            source: config_value.source().clone(),
-            scope: config_value.current_scope().clone(),
-        }
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct CommandSyntax {
@@ -184,106 +74,22 @@ impl CommandSyntax {
 
     pub fn deserialize<'de, D>(
         deserializer: D,
-        error_handler: &ConfigErrorHandler,
+        _error_handler: &ConfigErrorHandler,
     ) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let value = serde_yaml::Value::deserialize(deserializer)?;
-        let config_value = ConfigValue::from_value(ConfigSource::Null, ConfigScope::Null, value);
-        if let Some(command_syntax) = CommandSyntax::from_config_value(&config_value, error_handler)
+        // Convert serde_yaml::Value to compote ConfigValue
+        let compote_value = yaml_value_to_compote_value(value);
+        let mut tracker = CompoteErrorTracker::new();
+        if let Some(command_syntax) =
+            CommandSyntax::from_compote_config_value(&compote_value, &mut tracker)
         {
             Ok(command_syntax)
         } else {
             Err(serde::de::Error::custom("invalid command syntax"))
         }
-    }
-
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let mut usage = None;
-        let mut parameters = vec![];
-        let mut groups = vec![];
-
-        if let Some(array) = config_value.as_array() {
-            parameters.extend(array.iter().enumerate().filter_map(|(idx, value)| {
-                SyntaxOptArg::from_config_value(value, None, &error_handler.with_index(idx))
-            }));
-        } else if let Some(table) = config_value.as_table() {
-            let keys = [
-                ("parameters", None),
-                ("arguments", Some(true)),
-                ("argument", Some(true)),
-                ("options", Some(false)),
-                ("option", Some(false)),
-                ("optional", Some(false)),
-            ];
-
-            for (key, required) in keys {
-                if let Some(value) = table.get(key) {
-                    let param_error_handler = error_handler.with_key(key);
-                    if let Some(value) = value.as_array() {
-                        let arguments = value
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(idx, value)| {
-                                SyntaxOptArg::from_config_value(
-                                    value,
-                                    required,
-                                    &param_error_handler.with_index(idx),
-                                )
-                            })
-                            .collect::<Vec<SyntaxOptArg>>();
-                        parameters.extend(arguments);
-                    } else if let Some(arg) =
-                        SyntaxOptArg::from_config_value(value, required, &param_error_handler)
-                    {
-                        parameters.push(arg);
-                    } else {
-                        param_error_handler
-                            .with_expected("array or table")
-                            .with_actual(value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                }
-            }
-
-            if let Some(value) = table.get("groups") {
-                groups =
-                    SyntaxGroup::from_config_value_multi(value, &error_handler.with_key("groups"));
-            }
-
-            if let Some(value) = table.get("usage") {
-                if let Some(value) = value.as_str_forced() {
-                    usage = Some(value.to_string());
-                } else {
-                    error_handler
-                        .with_key("usage")
-                        .with_expected("string")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-            }
-        } else if let Some(value) = config_value.as_str_forced() {
-            usage = Some(value.to_string());
-        } else {
-            error_handler
-                .with_expected("array, table or string")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-
-        if parameters.is_empty() && groups.is_empty() && usage.is_none() {
-            return None;
-        }
-
-        Some(Self {
-            usage,
-            parameters,
-            groups,
-        })
     }
 
     /// The 'leftovers' parameter is used to capture all the remaining arguments
@@ -846,251 +652,6 @@ impl Default for SyntaxOptArg {
 }
 
 impl SyntaxOptArg {
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        required: Option<bool>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let mut names;
-        let mut arg_type;
-        let mut placeholders;
-        let mut leftovers;
-
-        let mut desc = None;
-        let mut dest = None;
-        let mut required = required;
-        let mut default = None;
-        let mut default_missing_value = None;
-        let mut num_values = None;
-        let mut value_delimiter = None;
-        let mut last_arg_double_hyphen = false;
-        let mut allow_hyphen_values = false;
-        let mut allow_negative_numbers = false;
-        let mut group_occurrences = false;
-        let mut requires = vec![];
-        let mut conflicts_with = vec![];
-        let mut required_without = vec![];
-        let mut required_without_all = vec![];
-        let mut required_if_eq = HashMap::new();
-        let mut required_if_eq_all = HashMap::new();
-
-        if let Some(table) = config_value.as_table() {
-            let value_for_details;
-
-            if let Some(name_value) = table.get("name") {
-                if let Some(name_value) = name_value.as_str() {
-                    (names, arg_type, placeholders, leftovers) = parse_arg_name(&name_value);
-                    value_for_details = Some(config_value.clone());
-                } else {
-                    error_handler
-                        .with_key("name")
-                        .with_expected("string")
-                        .with_actual(name_value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    return None;
-                }
-            } else if table.len() == 1 {
-                if let Some((key, value)) = table.into_iter().next() {
-                    (names, arg_type, placeholders, leftovers) = parse_arg_name(&key);
-                    value_for_details = Some(value);
-                } else {
-                    return None;
-                }
-            } else {
-                error_handler
-                    .with_key("name")
-                    .error(ConfigErrorKind::MissingKey);
-                return None;
-            }
-
-            if let Some(value_for_details) = value_for_details {
-                if let Some(value_str) = value_for_details.as_str() {
-                    desc = Some(value_str.to_string());
-                } else if let Some(value_table) = value_for_details.as_table() {
-                    desc = value_for_details
-                        .get_as_str_or_none("desc", &error_handler.with_key("desc"));
-                    dest = value_for_details
-                        .get_as_str_or_none("dest", &error_handler.with_key("dest"));
-
-                    if required.is_none() {
-                        required = Some(value_for_details.get_as_bool_or_default(
-                            "required",
-                            false,
-                            &error_handler.with_key("required"),
-                        ));
-                    }
-
-                    // Try to load the placeholders from the placeholders key,
-                    // if not found, try to load it from the placeholder key
-                    for key in &["placeholders", "placeholder"] {
-                        let ph =
-                            value_for_details.get_as_str_array(key, &error_handler.with_key(key));
-                        if !ph.is_empty() {
-                            placeholders = ph;
-                            break;
-                        }
-                    }
-
-                    default = value_for_details
-                        .get_as_str_or_none("default", &error_handler.with_key("default"));
-                    default_missing_value = value_for_details.get_as_str_or_none(
-                        "default_missing_value",
-                        &error_handler.with_key("default_missing_value"),
-                    );
-                    num_values = SyntaxOptArgNumValues::from_config_value(
-                        value_table.get("num_values"),
-                        &error_handler.with_key("num_values"),
-                    );
-                    value_delimiter = value_for_details
-                        .get_as_str_or_none("delimiter", &error_handler.with_key("delimiter"))
-                        .and_then(|value| {
-                            value.chars().next().or_else(|| {
-                                error_handler
-                                    .with_key("delimiter")
-                                    .with_expected("non-empty string")
-                                    .with_actual(value)
-                                    .error(ConfigErrorKind::InvalidValueType);
-                                None
-                            })
-                        });
-                    last_arg_double_hyphen = value_for_details.get_as_bool_or_default(
-                        "last",
-                        false,
-                        &error_handler.with_key("last"),
-                    );
-                    leftovers = value_for_details.get_as_bool_or_default(
-                        "leftovers",
-                        false,
-                        &error_handler.with_key("leftovers"),
-                    );
-                    allow_hyphen_values = value_for_details.get_as_bool_or_default(
-                        "allow_hyphen_values",
-                        false,
-                        &error_handler.with_key("allow_hyphen_values"),
-                    );
-                    allow_negative_numbers = value_for_details.get_as_bool_or_default(
-                        "allow_negative_numbers",
-                        false,
-                        &error_handler.with_key("allow_negative_numbers"),
-                    );
-                    group_occurrences = value_for_details.get_as_bool_or_default(
-                        "group_occurrences",
-                        false,
-                        &error_handler.with_key("group_occurrences"),
-                    );
-
-                    arg_type = SyntaxOptArgType::from_config_value(
-                        value_table.get("type"),
-                        value_table.get("values"),
-                        value_delimiter,
-                        &error_handler.with_key("type"),
-                    )
-                    .unwrap_or(SyntaxOptArgType::String);
-
-                    requires = value_for_details
-                        .get_as_str_array("requires", &error_handler.with_key("requires"));
-
-                    conflicts_with = value_for_details.get_as_str_array(
-                        "conflicts_with",
-                        &error_handler.with_key("conflicts_with"),
-                    );
-
-                    required_without = value_for_details.get_as_str_array(
-                        "required_without",
-                        &error_handler.with_key("required_without"),
-                    );
-
-                    required_without_all = value_for_details.get_as_str_array(
-                        "required_without_all",
-                        &error_handler.with_key("required_without_all"),
-                    );
-
-                    if let Some(required_if_eq_value) = value_table.get("required_if_eq") {
-                        if let Some(value) = required_if_eq_value.as_table() {
-                            for (key, value) in value {
-                                if let Some(value) = value.as_str_forced() {
-                                    required_if_eq.insert(key.to_string(), value.to_string());
-                                } else {
-                                    error_handler
-                                        .with_key("required_if_eq")
-                                        .with_key(key)
-                                        .with_expected("string")
-                                        .with_actual(value)
-                                        .error(ConfigErrorKind::InvalidValueType);
-                                }
-                            }
-                        } else {
-                            error_handler
-                                .with_key("required_if_eq")
-                                .with_expected("table")
-                                .with_actual(required_if_eq_value)
-                                .error(ConfigErrorKind::InvalidValueType);
-                        }
-                    }
-
-                    if let Some(required_if_eq_all_value) = value_table.get("required_if_eq_all") {
-                        if let Some(value) = required_if_eq_all_value.as_table() {
-                            for (key, value) in value {
-                                if let Some(value) = value.as_str_forced() {
-                                    required_if_eq_all.insert(key.to_string(), value.to_string());
-                                } else {
-                                    error_handler
-                                        .with_key("required_if_eq_all")
-                                        .with_key(key)
-                                        .with_expected("string")
-                                        .with_actual(value)
-                                        .error(ConfigErrorKind::InvalidValueType);
-                                }
-                            }
-                        } else {
-                            error_handler
-                                .with_key("required_if_eq_all")
-                                .with_expected("table")
-                                .with_actual(required_if_eq_all_value)
-                                .error(ConfigErrorKind::InvalidValueType);
-                        }
-                    }
-
-                    let aliases = value_for_details
-                        .get_as_str_array("aliases", &error_handler.with_key("aliases"));
-                    names.extend(aliases);
-                }
-            }
-        } else if let Some(value) = config_value.as_str() {
-            (names, arg_type, placeholders, leftovers) = parse_arg_name(&value);
-        } else {
-            error_handler
-                .with_expected("string or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            return None;
-        }
-
-        Some(Self {
-            names,
-            dest,
-            desc,
-            required: required.unwrap_or(false),
-            placeholders,
-            arg_type,
-            default,
-            default_missing_value,
-            num_values,
-            value_delimiter,
-            last_arg_double_hyphen,
-            leftovers,
-            allow_hyphen_values,
-            allow_negative_numbers,
-            group_occurrences,
-            requires,
-            conflicts_with,
-            required_without,
-            required_without_all,
-            required_if_eq,
-            required_if_eq_all,
-        })
-    }
-
     pub fn arg_type(&self) -> SyntaxOptArgType {
         let convert_to_array = self.leftovers || self.value_delimiter.is_some();
 
@@ -2200,25 +1761,6 @@ impl SyntaxOptArgNumValues {
         }
     }
 
-    fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let config_value = config_value?;
-
-        if let Some(value) = config_value.as_integer() {
-            Some(Self::Exactly(value as usize))
-        } else if let Some(value) = config_value.as_str_forced() {
-            Self::from_str(&value, error_handler)
-        } else {
-            error_handler
-                .with_expected("positive integer or range")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            None
-        }
-    }
-
     fn is_many(&self) -> bool {
         match self {
             Self::Any => true,
@@ -2312,63 +1854,6 @@ impl SyntaxOptArgType {
                 _ => unimplemented!("unsupported array type: {:?}", self),
             },
         }
-    }
-
-    fn from_config_value(
-        config_value_type: Option<&ConfigValue>,
-        config_value_values: Option<&ConfigValue>,
-        value_delimiter: Option<char>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let config_value_type = config_value_type?;
-
-        // Check if type is an array (list) - if so, treat as enum with those values
-        if let Some(array) = config_value_type.as_array() {
-            let values = array
-                .iter()
-                .filter_map(|value| value.as_str_forced())
-                .collect::<Vec<String>>();
-            return Some(Self::Enum(values));
-        }
-
-        let obj = Self::from_str(
-            &config_value_type.as_str_forced().or_else(|| {
-                error_handler
-                    .with_expected("string or array")
-                    .with_actual(config_value_type)
-                    .error(ConfigErrorKind::InvalidValueType);
-                None
-            })?,
-            error_handler,
-        )?;
-
-        match obj {
-            Self::Enum(values) if values.is_empty() => {
-                if let Some(values) = config_value_values {
-                    if let Some(array) = values.as_array() {
-                        let values = array
-                            .iter()
-                            .filter_map(|value| value.as_str_forced())
-                            .collect::<Vec<String>>();
-                        return Some(Self::Enum(values));
-                    } else if let Some(value) = values.as_str_forced() {
-                        if let Some(value_delimiter) = value_delimiter {
-                            let values = value
-                                .split(value_delimiter)
-                                .map(|value| value.to_string())
-                                .collect::<Vec<String>>();
-                            return Some(Self::Enum(values));
-                        } else {
-                            return Some(Self::Enum(vec![value.to_string()]));
-                        }
-                    }
-                }
-                // TODO: add error for empty enum
-            }
-            _ => return Some(obj),
-        }
-
-        None
     }
 
     pub fn from_str(value: &str, error_handler: &ConfigErrorHandler) -> Option<Self> {
@@ -2493,192 +1978,6 @@ impl Default for SyntaxGroup {
 }
 
 impl SyntaxGroup {
-    /// Create a vector of groups from a config value that can contain multiple groups.
-    /// This supports the groups being specified as:
-    ///
-    /// ```yaml
-    /// groups:
-    ///  - name: group1
-    ///    parameters:
-    ///    - param1
-    ///    - param2
-    ///    multiple: true
-    ///    required: true
-    /// - name: group2
-    ///   parameters: param3
-    ///   requires: group1
-    ///   conflicts_with: group3
-    /// - group3:
-    ///     parameters: param4
-    /// ```
-    ///
-    /// Or as:
-    ///
-    /// ```yaml
-    /// groups:
-    ///   group1:
-    ///     parameters:
-    ///     - param1
-    ///     - param2
-    ///     multiple: true
-    ///     required: true
-    ///   group2:
-    ///     parameters: param3
-    ///     requires: group1
-    ///     conflicts_with: group3
-    ///   group3:
-    ///     parameters: param4
-    /// ```
-    ///
-    /// The ConfigValue object received is the contents of the `groups` key in the config file.
-    pub(super) fn from_config_value_multi(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        let mut groups = vec![];
-
-        if let Some(array) = config_value.as_array() {
-            // If this is an array, we can simply iterate over it and create the groups
-            for (idx, value) in array.iter().enumerate() {
-                if let Some(group) =
-                    Self::from_config_value(value, None, &error_handler.with_index(idx))
-                {
-                    groups.push(group);
-                }
-            }
-        } else if let Some(table) = config_value.as_table() {
-            // If this is a table, we need to iterate over the keys and create the groups
-            for (name, value) in table {
-                if let Some(group) = Self::from_config_value(
-                    &value,
-                    Some(name.to_string()),
-                    &error_handler.with_key(name),
-                ) {
-                    groups.push(group);
-                }
-            }
-        } else {
-            error_handler
-                .with_expected("array or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-
-        groups
-    }
-
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        name: Option<String>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        // Exit early if the value is not a table
-        let table = if let Some(table) = config_value.as_table() {
-            // Exit early if the table is empty
-            if table.is_empty() {
-                error_handler
-                    .with_key("name")
-                    .error(ConfigErrorKind::MissingKey);
-                error_handler
-                    .with_key("parameters")
-                    .error(ConfigErrorKind::MissingKey);
-                return None;
-            }
-            table
-        } else {
-            error_handler
-                .with_expected("table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            return None;
-        };
-
-        let mut config_value = config_value;
-        let mut error_handler = error_handler.clone();
-
-        // Handle the group name
-        let name = match name {
-            Some(name) => name,
-            None => {
-                if table.len() == 1 {
-                    // Extract the only key from the table, this will be the name of the group
-                    let key = table.keys().next().unwrap().to_string();
-
-                    // Change the config to be the value of the key, this will be the group's config
-                    config_value = table.get(&key)?;
-                    error_handler = error_handler.with_key(&key);
-
-                    // Exit early if the value is not a table
-                    if !config_value.is_table() {
-                        error_handler
-                            .with_expected("table")
-                            .with_actual(config_value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                        return None;
-                    }
-
-                    // Return the key as the name of the group
-                    key
-                } else if let Some(name_config_value) = config_value.get("name") {
-                    if let Some(name) = name_config_value.as_str_forced() {
-                        name.to_string()
-                    } else {
-                        error_handler
-                            .with_key("name")
-                            .with_expected("string")
-                            .with_actual(name_config_value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                        return None;
-                    }
-                } else {
-                    error_handler
-                        .with_key("name")
-                        .error(ConfigErrorKind::MissingKey);
-                    return None;
-                }
-            }
-        };
-
-        // Handle the group parameters
-        let parameters =
-            config_value.get_as_str_array("parameters", &error_handler.with_key("parameters"));
-        // No parameters, skip this group
-        if parameters.is_empty() {
-            error_handler
-                .with_key("parameters")
-                .error(ConfigErrorKind::MissingKey);
-            return None;
-        }
-
-        // Parse the rest of the group configuration
-        let multiple = config_value.get_as_bool_or_default(
-            "multiple",
-            false,
-            &error_handler.with_key("multiple"),
-        );
-
-        let required = config_value.get_as_bool_or_default(
-            "required",
-            false,
-            &error_handler.with_key("required"),
-        );
-
-        let requires =
-            config_value.get_as_str_array("requires", &error_handler.with_key("requires"));
-
-        let conflicts_with = config_value
-            .get_as_str_array("conflicts_with", &error_handler.with_key("conflicts_with"));
-
-        Some(Self {
-            name,
-            parameters,
-            multiple,
-            required,
-            requires,
-            conflicts_with,
-        })
-    }
-
     fn dest(&self) -> String {
         sanitize_str(&self.name)
     }
@@ -2749,6 +2048,1180 @@ fn sanitize_str(s: &str) -> String {
         .collect::<String>();
 
     s.trim_matches('_').to_string()
+}
+
+// ============================================================================
+// Compote FromConfigValue implementation for CommandDefinition
+// ============================================================================
+//
+// This implementation uses compote types directly for parsing.
+// ============================================================================
+
+impl CompoteFromConfigValue for CommandDefinition {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let table = match &value.value {
+            CompoteValue::Object(map) => map,
+            CompoteValue::Null => {
+                return Err(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "object".to_string(),
+                    actual: "null".to_string(),
+                });
+            }
+            _ => {
+                return Err(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "object".to_string(),
+                    actual: value.value.type_name().to_string(),
+                });
+            }
+        };
+
+        // Parse desc
+        let desc = compote_get_str_or_none(table, "desc", tracker);
+
+        // Parse run (required)
+        let run = compote_get_str_or_none(table, "run", tracker).unwrap_or_else(|| {
+            tracker.push_field("run");
+            tracker.record(CompoteConfigError::MissingField {
+                path: tracker.current_path(),
+            });
+            tracker.pop();
+            "true".to_string()
+        });
+
+        // Parse aliases
+        let aliases = compote_get_str_array(table, "aliases", tracker);
+
+        // Parse syntax
+        let syntax = if let Some(syntax_value) = table.get("syntax") {
+            tracker.push_field("syntax");
+            let result = CommandSyntax::from_compote_config_value(syntax_value, tracker);
+            tracker.pop();
+            result
+        } else {
+            None
+        };
+
+        // Parse tags
+        let tags = if let Some(tags_value) = table.get("tags") {
+            tracker.push_field("tags");
+            let result = compote_parse_string_map(tags_value, tracker);
+            tracker.pop();
+            result
+        } else {
+            BTreeMap::new()
+        };
+
+        // Parse category
+        let category = {
+            let cat = compote_get_str_array(table, "category", tracker);
+            if cat.is_empty() {
+                None
+            } else {
+                Some(cat)
+            }
+        };
+
+        // Parse dir
+        let dir = compote_get_str_or_none(table, "dir", tracker);
+
+        // Parse subcommands (recursive)
+        let subcommands = if let Some(sub_value) = table.get("subcommands") {
+            tracker.push_field("subcommands");
+            let result = match &sub_value.value {
+                CompoteValue::Object(sub_table) => {
+                    let mut subs = HashMap::new();
+                    for (key, sub_def) in sub_table {
+                        tracker.push_field(key);
+                        match CommandDefinition::from_config_value(sub_def, tracker) {
+                            Ok(cmd_def) => {
+                                subs.insert(key.clone(), cmd_def);
+                            }
+                            Err(e) => tracker.record(e),
+                        }
+                        tracker.pop();
+                    }
+                    Some(subs)
+                }
+                CompoteValue::Null => None,
+                _ => {
+                    tracker.record(CompoteConfigError::TypeMismatch {
+                        path: tracker.current_path(),
+                        expected: "object".to_string(),
+                        actual: sub_value.value.type_name().to_string(),
+                    });
+                    None
+                }
+            };
+            tracker.pop();
+            result
+        } else {
+            None
+        };
+
+        // Parse argparser
+        let argparser = compote_get_bool_or_default(table, "argparser", false, tracker);
+
+        // Parse export
+        let export = compote_get_bool_or_default(table, "export", false, tracker);
+
+        // Convert source
+        let source = match &value.context.source {
+            compote::ConfigSource::File(path) => {
+                ConfigSource::File(path.to_string_lossy().to_string())
+            }
+            _ => ConfigSource::Default,
+        };
+
+        // Convert scope/level
+        let scope = match &value.context.level {
+            compote::ConfigLevel::System => ConfigScope::System,
+            compote::ConfigLevel::User => ConfigScope::User,
+            compote::ConfigLevel::Local => ConfigScope::Workdir,
+            compote::ConfigLevel::Custom { .. } => ConfigScope::Default,
+        };
+
+        Ok(Self {
+            desc,
+            run,
+            aliases,
+            syntax,
+            category,
+            dir,
+            subcommands,
+            argparser,
+            tags,
+            export,
+            source,
+            scope,
+        })
+    }
+}
+
+// ============================================================================
+// Compote helper functions for parsing
+// ============================================================================
+
+/// Convert a serde_yaml::Value to compote ConfigValue
+fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
+    let context = compote::ConfigContext::new(compote::ConfigSource::Default, compote::ConfigLevel::System);
+    let inner_value = match value {
+        serde_yaml::Value::Null => CompoteValue::Null,
+        serde_yaml::Value::Bool(b) => CompoteValue::Bool(b),
+        serde_yaml::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                CompoteValue::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                CompoteValue::Float(f)
+            } else {
+                CompoteValue::Null
+            }
+        }
+        serde_yaml::Value::String(s) => CompoteValue::String(s),
+        serde_yaml::Value::Sequence(seq) => {
+            let arr = seq.into_iter().map(yaml_value_to_compote_value).collect();
+            CompoteValue::Array(arr)
+        }
+        serde_yaml::Value::Mapping(map) => {
+            let obj: indexmap::IndexMap<String, CompoteConfigValue> = map
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    let key = match k {
+                        serde_yaml::Value::String(s) => s,
+                        _ => return None,
+                    };
+                    Some((key, yaml_value_to_compote_value(v)))
+                })
+                .collect();
+            CompoteValue::Object(obj)
+        }
+        serde_yaml::Value::Tagged(_) => CompoteValue::Null,
+    };
+    CompoteConfigValue::new(inner_value, context)
+}
+
+/// Get a string value from a compote object, returning None if not present
+fn compote_get_str_or_none(
+    table: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    tracker: &mut CompoteErrorTracker,
+) -> Option<String> {
+    let value = table.get(key)?;
+    match &value.value {
+        CompoteValue::String(s) => Some(s.clone()),
+        CompoteValue::Int(i) => Some(i.to_string()),
+        CompoteValue::Float(f) => Some(f.to_string()),
+        CompoteValue::Bool(b) => Some(b.to_string()),
+        CompoteValue::Null => None,
+        _ => {
+            tracker.push_field(key);
+            tracker.record(CompoteConfigError::TypeMismatch {
+                path: tracker.current_path(),
+                expected: "string".to_string(),
+                actual: value.value.type_name().to_string(),
+            });
+            tracker.pop();
+            None
+        }
+    }
+}
+
+/// Get a boolean value from a compote object with a default
+fn compote_get_bool_or_default(
+    table: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    default: bool,
+    tracker: &mut CompoteErrorTracker,
+) -> bool {
+    let Some(value) = table.get(key) else {
+        return default;
+    };
+    match &value.value {
+        CompoteValue::Bool(b) => *b,
+        CompoteValue::Null => default,
+        _ => {
+            tracker.push_field(key);
+            tracker.record(CompoteConfigError::TypeMismatch {
+                path: tracker.current_path(),
+                expected: "boolean".to_string(),
+                actual: value.value.type_name().to_string(),
+            });
+            tracker.pop();
+            default
+        }
+    }
+}
+
+/// Get an array of strings from a compote object
+fn compote_get_str_array(
+    table: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    tracker: &mut CompoteErrorTracker,
+) -> Vec<String> {
+    let Some(value) = table.get(key) else {
+        return Vec::new();
+    };
+
+    tracker.push_field(key);
+    let result = compote_value_to_str_array(value, tracker);
+    tracker.pop();
+    result
+}
+
+/// Convert a compote value to an array of strings
+fn compote_value_to_str_array(
+    value: &CompoteConfigValue,
+    tracker: &mut CompoteErrorTracker,
+) -> Vec<String> {
+    match &value.value {
+        CompoteValue::Array(arr) => {
+            let mut result = Vec::new();
+            for (idx, item) in arr.iter().enumerate() {
+                match &item.value {
+                    CompoteValue::String(s) => result.push(s.clone()),
+                    CompoteValue::Int(i) => result.push(i.to_string()),
+                    CompoteValue::Float(f) => result.push(f.to_string()),
+                    CompoteValue::Bool(b) => result.push(b.to_string()),
+                    _ => {
+                        tracker.push_index(idx);
+                        tracker.record(CompoteConfigError::TypeMismatch {
+                            path: tracker.current_path(),
+                            expected: "string".to_string(),
+                            actual: item.value.type_name().to_string(),
+                        });
+                        tracker.pop();
+                    }
+                }
+            }
+            result
+        }
+        CompoteValue::String(s) => vec![s.clone()],
+        CompoteValue::Null => Vec::new(),
+        _ => {
+            tracker.record(CompoteConfigError::TypeMismatch {
+                path: tracker.current_path(),
+                expected: "array or string".to_string(),
+                actual: value.value.type_name().to_string(),
+            });
+            Vec::new()
+        }
+    }
+}
+
+/// Parse a string map from a compote value
+fn compote_parse_string_map(
+    value: &CompoteConfigValue,
+    tracker: &mut CompoteErrorTracker,
+) -> BTreeMap<String, String> {
+    let mut result = BTreeMap::new();
+    match &value.value {
+        CompoteValue::Object(map) => {
+            for (key, val) in map {
+                match &val.value {
+                    CompoteValue::String(s) => {
+                        result.insert(key.clone(), s.clone());
+                    }
+                    CompoteValue::Int(i) => {
+                        result.insert(key.clone(), i.to_string());
+                    }
+                    CompoteValue::Float(f) => {
+                        result.insert(key.clone(), f.to_string());
+                    }
+                    CompoteValue::Bool(b) => {
+                        result.insert(key.clone(), b.to_string());
+                    }
+                    _ => {
+                        tracker.push_field(key);
+                        tracker.record(CompoteConfigError::TypeMismatch {
+                            path: tracker.current_path(),
+                            expected: "string".to_string(),
+                            actual: val.value.type_name().to_string(),
+                        });
+                        tracker.pop();
+                    }
+                }
+            }
+        }
+        CompoteValue::Null => {}
+        _ => {
+            tracker.record(CompoteConfigError::TypeMismatch {
+                path: tracker.current_path(),
+                expected: "object".to_string(),
+                actual: value.value.type_name().to_string(),
+            });
+        }
+    }
+    result
+}
+
+// ============================================================================
+// Compote parsing for CommandSyntax
+// ============================================================================
+
+impl CommandSyntax {
+    fn from_compote_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Option<Self> {
+        let mut usage = None;
+        let mut parameters = vec![];
+        let mut groups = vec![];
+
+        match &value.value {
+            CompoteValue::Array(array) => {
+                for (idx, item) in array.iter().enumerate() {
+                    tracker.push_index(idx);
+                    if let Some(param) =
+                        SyntaxOptArg::from_compote_config_value(item, None, tracker)
+                    {
+                        parameters.push(param);
+                    }
+                    tracker.pop();
+                }
+            }
+            CompoteValue::Object(table) => {
+                let keys = [
+                    ("parameters", None),
+                    ("arguments", Some(true)),
+                    ("argument", Some(true)),
+                    ("options", Some(false)),
+                    ("option", Some(false)),
+                    ("optional", Some(false)),
+                ];
+
+                for (key, required) in keys {
+                    if let Some(param_value) = table.get(key) {
+                        tracker.push_field(key);
+                        match &param_value.value {
+                            CompoteValue::Array(arr) => {
+                                for (idx, item) in arr.iter().enumerate() {
+                                    tracker.push_index(idx);
+                                    if let Some(param) = SyntaxOptArg::from_compote_config_value(
+                                        item, required, tracker,
+                                    ) {
+                                        parameters.push(param);
+                                    }
+                                    tracker.pop();
+                                }
+                            }
+                            _ => {
+                                if let Some(param) = SyntaxOptArg::from_compote_config_value(
+                                    param_value,
+                                    required,
+                                    tracker,
+                                ) {
+                                    parameters.push(param);
+                                }
+                            }
+                        }
+                        tracker.pop();
+                    }
+                }
+
+                if let Some(groups_value) = table.get("groups") {
+                    tracker.push_field("groups");
+                    groups = SyntaxGroup::from_compote_config_value_multi(groups_value, tracker);
+                    tracker.pop();
+                }
+
+                if let Some(usage_value) = table.get("usage") {
+                    tracker.push_field("usage");
+                    match &usage_value.value {
+                        CompoteValue::String(s) => usage = Some(s.clone()),
+                        CompoteValue::Int(i) => usage = Some(i.to_string()),
+                        _ => {
+                            tracker.record(CompoteConfigError::TypeMismatch {
+                                path: tracker.current_path(),
+                                expected: "string".to_string(),
+                                actual: usage_value.value.type_name().to_string(),
+                            });
+                        }
+                    }
+                    tracker.pop();
+                }
+            }
+            CompoteValue::String(s) => {
+                usage = Some(s.clone());
+            }
+            CompoteValue::Int(i) => {
+                usage = Some(i.to_string());
+            }
+            CompoteValue::Null => return None,
+            _ => {
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "array, object, or string".to_string(),
+                    actual: value.value.type_name().to_string(),
+                });
+                return None;
+            }
+        }
+
+        if parameters.is_empty() && groups.is_empty() && usage.is_none() {
+            return None;
+        }
+
+        Some(Self {
+            usage,
+            parameters,
+            groups,
+        })
+    }
+}
+
+// ============================================================================
+// Compote parsing for SyntaxOptArg
+// ============================================================================
+
+impl SyntaxOptArg {
+    fn from_compote_config_value(
+        value: &CompoteConfigValue,
+        required: Option<bool>,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Option<Self> {
+        let mut names;
+        let mut arg_type;
+        let mut placeholders;
+        let mut leftovers;
+
+        let mut desc = None;
+        let mut dest = None;
+        let mut required = required;
+        let mut default = None;
+        let mut default_missing_value = None;
+        let mut num_values = None;
+        let mut value_delimiter = None;
+        let mut last_arg_double_hyphen = false;
+        let mut allow_hyphen_values = false;
+        let mut allow_negative_numbers = false;
+        let mut group_occurrences = false;
+        let mut requires = vec![];
+        let mut conflicts_with = vec![];
+        let mut required_without = vec![];
+        let mut required_without_all = vec![];
+        let mut required_if_eq = HashMap::new();
+        let mut required_if_eq_all = HashMap::new();
+
+        match &value.value {
+            CompoteValue::Object(table) => {
+                let value_for_details: Option<&CompoteConfigValue>;
+
+                if let Some(name_value) = table.get("name") {
+                    match &name_value.value {
+                        CompoteValue::String(s) => {
+                            (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
+                            value_for_details = Some(value);
+                        }
+                        _ => {
+                            tracker.push_field("name");
+                            tracker.record(CompoteConfigError::TypeMismatch {
+                                path: tracker.current_path(),
+                                expected: "string".to_string(),
+                                actual: name_value.value.type_name().to_string(),
+                            });
+                            tracker.pop();
+                            return None;
+                        }
+                    }
+                } else if table.len() == 1 {
+                    let (key, val) = table.iter().next()?;
+                    (names, arg_type, placeholders, leftovers) = parse_arg_name(key);
+                    value_for_details = Some(val);
+                } else {
+                    tracker.push_field("name");
+                    tracker.record(CompoteConfigError::MissingField {
+                        path: tracker.current_path(),
+                    });
+                    tracker.pop();
+                    return None;
+                }
+
+                if let Some(details) = value_for_details {
+                    match &details.value {
+                        CompoteValue::String(s) => {
+                            desc = Some(s.clone());
+                        }
+                        CompoteValue::Object(details_table) => {
+                            desc = compote_get_str_or_none(details_table, "desc", tracker);
+                            dest = compote_get_str_or_none(details_table, "dest", tracker);
+
+                            if required.is_none() {
+                                required = Some(compote_get_bool_or_default(
+                                    details_table,
+                                    "required",
+                                    false,
+                                    tracker,
+                                ));
+                            }
+
+                            // Try to load placeholders
+                            for key in &["placeholders", "placeholder"] {
+                                let ph = compote_get_str_array(details_table, key, tracker);
+                                if !ph.is_empty() {
+                                    placeholders = ph;
+                                    break;
+                                }
+                            }
+
+                            default = compote_get_str_or_none(details_table, "default", tracker);
+                            default_missing_value =
+                                compote_get_str_or_none(details_table, "default_missing_value", tracker);
+
+                            num_values = SyntaxOptArgNumValues::from_compote_config_value(
+                                details_table.get("num_values"),
+                                tracker,
+                            );
+
+                            value_delimiter =
+                                compote_get_str_or_none(details_table, "delimiter", tracker)
+                                    .and_then(|v| {
+                                        v.chars().next().or_else(|| {
+                                            tracker.push_field("delimiter");
+                                            tracker.record(CompoteConfigError::InvalidValue {
+                                                path: tracker.current_path(),
+                                                message: "delimiter must be non-empty".to_string(),
+                                            });
+                                            tracker.pop();
+                                            None
+                                        })
+                                    });
+
+                            last_arg_double_hyphen =
+                                compote_get_bool_or_default(details_table, "last", false, tracker);
+                            leftovers =
+                                compote_get_bool_or_default(details_table, "leftovers", false, tracker);
+                            allow_hyphen_values = compote_get_bool_or_default(
+                                details_table,
+                                "allow_hyphen_values",
+                                false,
+                                tracker,
+                            );
+                            allow_negative_numbers = compote_get_bool_or_default(
+                                details_table,
+                                "allow_negative_numbers",
+                                false,
+                                tracker,
+                            );
+                            group_occurrences = compote_get_bool_or_default(
+                                details_table,
+                                "group_occurrences",
+                                false,
+                                tracker,
+                            );
+
+                            arg_type = SyntaxOptArgType::from_compote_config_value(
+                                details_table.get("type"),
+                                details_table.get("values"),
+                                value_delimiter,
+                                tracker,
+                            )
+                            .unwrap_or(SyntaxOptArgType::String);
+
+                            requires = compote_get_str_array(details_table, "requires", tracker);
+                            conflicts_with =
+                                compote_get_str_array(details_table, "conflicts_with", tracker);
+                            required_without =
+                                compote_get_str_array(details_table, "required_without", tracker);
+                            required_without_all =
+                                compote_get_str_array(details_table, "required_without_all", tracker);
+
+                            if let Some(req_if_eq_value) = details_table.get("required_if_eq") {
+                                tracker.push_field("required_if_eq");
+                                match &req_if_eq_value.value {
+                                    CompoteValue::Object(map) => {
+                                        for (k, v) in map {
+                                            match &v.value {
+                                                CompoteValue::String(s) => {
+                                                    required_if_eq.insert(k.clone(), s.clone());
+                                                }
+                                                CompoteValue::Int(i) => {
+                                                    required_if_eq.insert(k.clone(), i.to_string());
+                                                }
+                                                CompoteValue::Float(f) => {
+                                                    required_if_eq.insert(k.clone(), f.to_string());
+                                                }
+                                                CompoteValue::Bool(b) => {
+                                                    required_if_eq.insert(k.clone(), b.to_string());
+                                                }
+                                                _ => {
+                                                    tracker.push_field(k);
+                                                    tracker.record(CompoteConfigError::TypeMismatch {
+                                                        path: tracker.current_path(),
+                                                        expected: "string".to_string(),
+                                                        actual: v.value.type_name().to_string(),
+                                                    });
+                                                    tracker.pop();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        tracker.record(CompoteConfigError::TypeMismatch {
+                                            path: tracker.current_path(),
+                                            expected: "object".to_string(),
+                                            actual: req_if_eq_value.value.type_name().to_string(),
+                                        });
+                                    }
+                                }
+                                tracker.pop();
+                            }
+
+                            if let Some(req_if_eq_all_value) =
+                                details_table.get("required_if_eq_all")
+                            {
+                                tracker.push_field("required_if_eq_all");
+                                match &req_if_eq_all_value.value {
+                                    CompoteValue::Object(map) => {
+                                        for (k, v) in map {
+                                            match &v.value {
+                                                CompoteValue::String(s) => {
+                                                    required_if_eq_all.insert(k.clone(), s.clone());
+                                                }
+                                                CompoteValue::Int(i) => {
+                                                    required_if_eq_all
+                                                        .insert(k.clone(), i.to_string());
+                                                }
+                                                CompoteValue::Float(f) => {
+                                                    required_if_eq_all
+                                                        .insert(k.clone(), f.to_string());
+                                                }
+                                                CompoteValue::Bool(b) => {
+                                                    required_if_eq_all
+                                                        .insert(k.clone(), b.to_string());
+                                                }
+                                                _ => {
+                                                    tracker.push_field(k);
+                                                    tracker.record(CompoteConfigError::TypeMismatch {
+                                                        path: tracker.current_path(),
+                                                        expected: "string".to_string(),
+                                                        actual: v.value.type_name().to_string(),
+                                                    });
+                                                    tracker.pop();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        tracker.record(CompoteConfigError::TypeMismatch {
+                                            path: tracker.current_path(),
+                                            expected: "object".to_string(),
+                                            actual: req_if_eq_all_value.value.type_name().to_string(),
+                                        });
+                                    }
+                                }
+                                tracker.pop();
+                            }
+
+                            let aliases = compote_get_str_array(details_table, "aliases", tracker);
+                            names.extend(aliases);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            CompoteValue::String(s) => {
+                (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
+            }
+            _ => {
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "string or object".to_string(),
+                    actual: value.value.type_name().to_string(),
+                });
+                return None;
+            }
+        }
+
+        Some(Self {
+            names,
+            dest,
+            desc,
+            required: required.unwrap_or(false),
+            placeholders,
+            arg_type,
+            default,
+            default_missing_value,
+            num_values,
+            value_delimiter,
+            last_arg_double_hyphen,
+            leftovers,
+            allow_hyphen_values,
+            allow_negative_numbers,
+            group_occurrences,
+            requires,
+            conflicts_with,
+            required_without,
+            required_without_all,
+            required_if_eq,
+            required_if_eq_all,
+        })
+    }
+}
+
+// ============================================================================
+// Compote parsing for SyntaxOptArgNumValues
+// ============================================================================
+
+impl SyntaxOptArgNumValues {
+    fn from_compote_config_value(
+        value: Option<&CompoteConfigValue>,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Option<Self> {
+        let value = value?;
+
+        tracker.push_field("num_values");
+        let result = match &value.value {
+            CompoteValue::Int(i) => Some(Self::Exactly(*i as usize)),
+            CompoteValue::String(s) => Self::from_str_compote(s, tracker),
+            CompoteValue::Null => None,
+            _ => {
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "integer or string".to_string(),
+                    actual: value.value.type_name().to_string(),
+                });
+                None
+            }
+        };
+        tracker.pop();
+        result
+    }
+
+    fn from_str_compote(value: &str, tracker: &mut CompoteErrorTracker) -> Option<Self> {
+        let value = value.trim();
+
+        if value.contains("..") {
+            let mut parts = value.split("..");
+
+            let min = parts.next()?.trim();
+            let max = parts.next()?.trim();
+            let (max, max_inclusive) = if let Some(max) = max.strip_prefix('=') {
+                (max, true)
+            } else {
+                (max, false)
+            };
+
+            let max = match max {
+                "" => None,
+                value => match value.parse::<usize>() {
+                    Ok(value) => Some(value),
+                    Err(_) => {
+                        tracker.record(CompoteConfigError::InvalidValue {
+                            path: tracker.current_path(),
+                            message: format!("expected positive integer, got '{}'", value),
+                        });
+                        return None;
+                    }
+                },
+            };
+
+            let min = match min {
+                "" => None,
+                value => match value.parse::<usize>() {
+                    Ok(value) => Some(value),
+                    Err(_) => {
+                        tracker.record(CompoteConfigError::InvalidValue {
+                            path: tracker.current_path(),
+                            message: format!("expected positive integer, got '{}'", value),
+                        });
+                        return None;
+                    }
+                },
+            };
+
+            match (min, max, max_inclusive) {
+                (None, None, _) => Some(Self::Any),
+                (None, Some(max), true) => Some(Self::AtMost(max)),
+                (None, Some(max), false) => {
+                    if max > 0 {
+                        Some(Self::AtMost(max - 1))
+                    } else {
+                        tracker.record(CompoteConfigError::InvalidValue {
+                            path: tracker.current_path(),
+                            message: "invalid range: min 0 max 0".to_string(),
+                        });
+                        None
+                    }
+                }
+                (Some(min), None, _) => Some(Self::AtLeast(min)),
+                (Some(min), Some(max), true) => {
+                    if min <= max {
+                        Some(Self::Between(min, max))
+                    } else {
+                        tracker.record(CompoteConfigError::InvalidValue {
+                            path: tracker.current_path(),
+                            message: format!("invalid range: min {} > max {}", min, max),
+                        });
+                        None
+                    }
+                }
+                (Some(min), Some(max), false) => {
+                    if min < max {
+                        Some(Self::Between(min, max - 1))
+                    } else {
+                        tracker.record(CompoteConfigError::InvalidValue {
+                            path: tracker.current_path(),
+                            message: format!("invalid range: min {} >= max {}", min, max),
+                        });
+                        None
+                    }
+                }
+            }
+        } else {
+            match value.parse::<usize>() {
+                Ok(value) => Some(Self::Exactly(value)),
+                Err(_) => {
+                    tracker.record(CompoteConfigError::InvalidValue {
+                        path: tracker.current_path(),
+                        message: format!("expected positive integer, got '{}'", value),
+                    });
+                    None
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Compote parsing for SyntaxOptArgType
+// ============================================================================
+
+impl SyntaxOptArgType {
+    pub(super) fn from_compote_config_value(
+        type_value: Option<&CompoteConfigValue>,
+        values_value: Option<&CompoteConfigValue>,
+        value_delimiter: Option<char>,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Option<Self> {
+        let type_value = type_value?;
+
+        tracker.push_field("type");
+
+        // Check if type is an array - treat as enum with those values
+        if let CompoteValue::Array(arr) = &type_value.value {
+            let values = arr
+                .iter()
+                .filter_map(|v| match &v.value {
+                    CompoteValue::String(s) => Some(s.clone()),
+                    CompoteValue::Int(i) => Some(i.to_string()),
+                    CompoteValue::Float(f) => Some(f.to_string()),
+                    CompoteValue::Bool(b) => Some(b.to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<String>>();
+            tracker.pop();
+            return Some(Self::Enum(values));
+        }
+
+        let type_str = match &type_value.value {
+            CompoteValue::String(s) => s.clone(),
+            CompoteValue::Int(i) => i.to_string(),
+            CompoteValue::Null => {
+                tracker.pop();
+                return None;
+            }
+            _ => {
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "string or array".to_string(),
+                    actual: type_value.value.type_name().to_string(),
+                });
+                tracker.pop();
+                return None;
+            }
+        };
+
+        let obj = Self::from_str_compote(&type_str, tracker)?;
+        tracker.pop();
+
+        match obj {
+            Self::Enum(values) if values.is_empty() => {
+                if let Some(values_val) = values_value {
+                    match &values_val.value {
+                        CompoteValue::Array(arr) => {
+                            let values = arr
+                                .iter()
+                                .filter_map(|v| match &v.value {
+                                    CompoteValue::String(s) => Some(s.clone()),
+                                    CompoteValue::Int(i) => Some(i.to_string()),
+                                    CompoteValue::Float(f) => Some(f.to_string()),
+                                    CompoteValue::Bool(b) => Some(b.to_string()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<String>>();
+                            return Some(Self::Enum(values));
+                        }
+                        CompoteValue::String(s) => {
+                            if let Some(delim) = value_delimiter {
+                                let values = s
+                                    .split(delim)
+                                    .map(|v| v.to_string())
+                                    .collect::<Vec<String>>();
+                                return Some(Self::Enum(values));
+                            } else {
+                                return Some(Self::Enum(vec![s.clone()]));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                None // Empty enum with no values
+            }
+            _ => Some(obj),
+        }
+    }
+
+    fn from_str_compote(value: &str, tracker: &mut CompoteErrorTracker) -> Option<Self> {
+        let mut is_array = false;
+
+        let normalized = value.trim().to_lowercase();
+        let mut value = normalized.trim();
+
+        if value.starts_with("array/") {
+            value = &value[6..];
+            is_array = true;
+        } else if value.starts_with('[') && value.ends_with(']') {
+            value = &value[1..value.len() - 1];
+            is_array = true;
+        } else if value == "array" {
+            return Some(Self::Array(Box::new(Self::String)));
+        }
+
+        let obj = match value.to_lowercase().as_str() {
+            "int" | "integer" => Self::Integer,
+            "float" => Self::Float,
+            "bool" | "boolean" => Self::Boolean,
+            "flag" => Self::Flag,
+            "count" | "counter" => Self::Counter,
+            "str" | "string" => Self::String,
+            "dir" | "path" | "dirpath" => Self::DirPath,
+            "file" | "filepath" => Self::FilePath,
+            "repopath" => Self::RepoPath,
+            "enum" => Self::Enum(vec![]),
+            _ => {
+                // Check for enum formats like enum(xx, yy) or (xx, yy)
+                let mut enum_contents = None;
+
+                if value.starts_with("enum(") && value.ends_with(')') {
+                    enum_contents = Some(&value[5..value.len() - 1]);
+                } else if value.starts_with('(') && value.ends_with(')') {
+                    enum_contents = Some(&value[1..value.len() - 1]);
+                }
+
+                if let Some(contents) = enum_contents {
+                    let values = contents
+                        .split(',')
+                        .map(|v| v.trim().to_string())
+                        .filter(|v| !v.is_empty())
+                        .collect::<Vec<String>>();
+                    Self::Enum(values)
+                } else {
+                    tracker.record(CompoteConfigError::InvalidValue {
+                        path: tracker.current_path(),
+                        message: format!(
+                            "invalid type '{}', expected one of: int, float, bool, flag, count, str, path, enum, array/<type>",
+                            value
+                        ),
+                    });
+                    return None;
+                }
+            }
+        };
+
+        if is_array {
+            Some(Self::Array(Box::new(obj)))
+        } else {
+            Some(obj)
+        }
+    }
+}
+
+// ============================================================================
+// Compote parsing for SyntaxGroup
+// ============================================================================
+
+impl SyntaxGroup {
+    fn from_compote_config_value_multi(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Vec<Self> {
+        let mut groups = vec![];
+
+        match &value.value {
+            CompoteValue::Array(array) => {
+                for (idx, item) in array.iter().enumerate() {
+                    tracker.push_index(idx);
+                    if let Some(group) = Self::from_compote_config_value(item, None, tracker) {
+                        groups.push(group);
+                    }
+                    tracker.pop();
+                }
+            }
+            CompoteValue::Object(table) => {
+                for (name, val) in table {
+                    tracker.push_field(name);
+                    if let Some(group) =
+                        Self::from_compote_config_value(val, Some(name.clone()), tracker)
+                    {
+                        groups.push(group);
+                    }
+                    tracker.pop();
+                }
+            }
+            CompoteValue::Null => {}
+            _ => {
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "array or object".to_string(),
+                    actual: value.value.type_name().to_string(),
+                });
+            }
+        }
+
+        groups
+    }
+
+    fn from_compote_config_value(
+        value: &CompoteConfigValue,
+        name: Option<String>,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Option<Self> {
+        let table = match &value.value {
+            CompoteValue::Object(map) => {
+                if map.is_empty() {
+                    tracker.push_field("name");
+                    tracker.record(CompoteConfigError::MissingField {
+                        path: tracker.current_path(),
+                    });
+                    tracker.pop();
+                    return None;
+                }
+                map
+            }
+            _ => {
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "object".to_string(),
+                    actual: value.value.type_name().to_string(),
+                });
+                return None;
+            }
+        };
+
+        // Handle group name
+        let (name, config_table) = match name {
+            Some(n) => (n, table),
+            None => {
+                if table.len() == 1 {
+                    let (key, val) = table.iter().next().unwrap();
+                    match &val.value {
+                        CompoteValue::Object(inner) => (key.clone(), inner),
+                        _ => {
+                            tracker.push_field(key);
+                            tracker.record(CompoteConfigError::TypeMismatch {
+                                path: tracker.current_path(),
+                                expected: "object".to_string(),
+                                actual: val.value.type_name().to_string(),
+                            });
+                            tracker.pop();
+                            return None;
+                        }
+                    }
+                } else if let Some(name_val) = table.get("name") {
+                    match &name_val.value {
+                        CompoteValue::String(s) => (s.clone(), table),
+                        CompoteValue::Int(i) => (i.to_string(), table),
+                        _ => {
+                            tracker.push_field("name");
+                            tracker.record(CompoteConfigError::TypeMismatch {
+                                path: tracker.current_path(),
+                                expected: "string".to_string(),
+                                actual: name_val.value.type_name().to_string(),
+                            });
+                            tracker.pop();
+                            return None;
+                        }
+                    }
+                } else {
+                    tracker.push_field("name");
+                    tracker.record(CompoteConfigError::MissingField {
+                        path: tracker.current_path(),
+                    });
+                    tracker.pop();
+                    return None;
+                }
+            }
+        };
+
+        // Parse parameters
+        let parameters = compote_get_str_array(config_table, "parameters", tracker);
+        if parameters.is_empty() {
+            tracker.push_field("parameters");
+            tracker.record(CompoteConfigError::MissingField {
+                path: tracker.current_path(),
+            });
+            tracker.pop();
+            return None;
+        }
+
+        let multiple = compote_get_bool_or_default(config_table, "multiple", false, tracker);
+        let required = compote_get_bool_or_default(config_table, "required", false, tracker);
+        let requires = compote_get_str_array(config_table, "requires", tracker);
+        let conflicts_with = compote_get_str_array(config_table, "conflicts_with", tracker);
+
+        Some(Self {
+            name,
+            parameters,
+            multiple,
+            required,
+            requires,
+            conflicts_with,
+        })
+    }
 }
 
 #[cfg(test)]
