@@ -21,7 +21,7 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::internal::ORG_LOADER;
 
 // Compote imports for FromConfigValue implementation
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -2060,18 +2060,18 @@ impl CompoteFromConfigValue for CommandDefinition {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let table = match value {
             CompoteConfigValue::Object(map, _) => map,
             CompoteConfigValue::Null(_) => {
-                return Err(CompoteConfigError::TypeMismatch {
+                return Err(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
                     actual: "null".to_string(),
                 });
             }
             _ => {
-                return Err(CompoteConfigError::TypeMismatch {
+                return Err(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
                     actual: value.type_name().to_string(),
@@ -2085,7 +2085,7 @@ impl CompoteFromConfigValue for CommandDefinition {
         // Parse run (required)
         let run = compote_get_str_or_none(table, "run", tracker).unwrap_or_else(|| {
             tracker.push_field("run");
-            tracker.record(CompoteConfigError::MissingField {
+            tracker.record(CompoteError::MissingField {
                 path: tracker.current_path(),
             });
             tracker.pop();
@@ -2148,7 +2148,7 @@ impl CompoteFromConfigValue for CommandDefinition {
                 }
                 CompoteConfigValue::Null(_) => None,
                 _ => {
-                    tracker.record(CompoteConfigError::TypeMismatch {
+                    tracker.record(CompoteError::TypeMismatch {
                         path: tracker.current_path(),
                         expected: "object".to_string(),
                         actual: sub_value.type_name().to_string(),
@@ -2257,7 +2257,7 @@ fn compote_get_str_or_none(
         CompoteConfigValue::Null(_) => None,
         _ => {
             tracker.push_field(key);
-            tracker.record(CompoteConfigError::TypeMismatch {
+            tracker.record(CompoteError::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "string".to_string(),
                 actual: value.type_name().to_string(),
@@ -2283,7 +2283,7 @@ fn compote_get_bool_or_default(
         CompoteConfigValue::Null(_) => default,
         _ => {
             tracker.push_field(key);
-            tracker.record(CompoteConfigError::TypeMismatch {
+            tracker.record(CompoteError::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "boolean".to_string(),
                 actual: value.type_name().to_string(),
@@ -2326,7 +2326,7 @@ fn compote_value_to_str_array(
                     CompoteConfigValue::Bool(b, _) => result.push(b.to_string()),
                     _ => {
                         tracker.push_index(idx);
-                        tracker.record(CompoteConfigError::TypeMismatch {
+                        tracker.record(CompoteError::TypeMismatch {
                             path: tracker.current_path(),
                             expected: "string".to_string(),
                             actual: item.type_name().to_string(),
@@ -2340,7 +2340,7 @@ fn compote_value_to_str_array(
         CompoteConfigValue::String(s, _) => vec![s.clone()],
         CompoteConfigValue::Null(_) => Vec::new(),
         _ => {
-            tracker.record(CompoteConfigError::TypeMismatch {
+            tracker.record(CompoteError::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "array or string".to_string(),
                 actual: value.type_name().to_string(),
@@ -2374,7 +2374,7 @@ fn compote_parse_string_map(
                     }
                     _ => {
                         tracker.push_field(key);
-                        tracker.record(CompoteConfigError::TypeMismatch {
+                        tracker.record(CompoteError::TypeMismatch {
                             path: tracker.current_path(),
                             expected: "string".to_string(),
                             actual: val.type_name().to_string(),
@@ -2386,7 +2386,7 @@ fn compote_parse_string_map(
         }
         CompoteConfigValue::Null(_) => {}
         _ => {
-            tracker.record(CompoteConfigError::TypeMismatch {
+            tracker.record(CompoteError::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "object".to_string(),
                 actual: value.type_name().to_string(),
@@ -2472,7 +2472,7 @@ impl CommandSyntax {
                         CompoteConfigValue::String(s, _) => usage = Some(s.clone()),
                         CompoteConfigValue::Int(i, _) => usage = Some(i.to_string()),
                         _ => {
-                            tracker.record(CompoteConfigError::TypeMismatch {
+                            tracker.record(CompoteError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
                                 actual: usage_value.type_name().to_string(),
@@ -2490,7 +2490,7 @@ impl CommandSyntax {
             }
             CompoteConfigValue::Null(_) => return None,
             _ => {
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "array, object, or string".to_string(),
                     actual: value.type_name().to_string(),
@@ -2556,7 +2556,7 @@ impl SyntaxOptArg {
                         }
                         _ => {
                             tracker.push_field("name");
-                            tracker.record(CompoteConfigError::TypeMismatch {
+                            tracker.record(CompoteError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
                                 actual: name_value.type_name().to_string(),
@@ -2571,7 +2571,7 @@ impl SyntaxOptArg {
                     value_for_details = Some(val);
                 } else {
                     tracker.push_field("name");
-                    tracker.record(CompoteConfigError::MissingField {
+                    tracker.record(CompoteError::MissingField {
                         path: tracker.current_path(),
                     });
                     tracker.pop();
@@ -2619,7 +2619,7 @@ impl SyntaxOptArg {
                                     .and_then(|v| {
                                         v.chars().next().or_else(|| {
                                             tracker.push_field("delimiter");
-                                            tracker.record(CompoteConfigError::InvalidValue {
+                                            tracker.record(CompoteError::InvalidValue {
                                                 path: tracker.current_path(),
                                                 message: "delimiter must be non-empty".to_string(),
                                             });
@@ -2687,7 +2687,7 @@ impl SyntaxOptArg {
                                                 }
                                                 _ => {
                                                     tracker.push_field(k);
-                                                    tracker.record(CompoteConfigError::TypeMismatch {
+                                                    tracker.record(CompoteError::TypeMismatch {
                                                         path: tracker.current_path(),
                                                         expected: "string".to_string(),
                                                         actual: v.type_name().to_string(),
@@ -2698,7 +2698,7 @@ impl SyntaxOptArg {
                                         }
                                     }
                                     _ => {
-                                        tracker.record(CompoteConfigError::TypeMismatch {
+                                        tracker.record(CompoteError::TypeMismatch {
                                             path: tracker.current_path(),
                                             expected: "object".to_string(),
                                             actual: req_if_eq_value.type_name().to_string(),
@@ -2733,7 +2733,7 @@ impl SyntaxOptArg {
                                                 }
                                                 _ => {
                                                     tracker.push_field(k);
-                                                    tracker.record(CompoteConfigError::TypeMismatch {
+                                                    tracker.record(CompoteError::TypeMismatch {
                                                         path: tracker.current_path(),
                                                         expected: "string".to_string(),
                                                         actual: v.type_name().to_string(),
@@ -2744,7 +2744,7 @@ impl SyntaxOptArg {
                                         }
                                     }
                                     _ => {
-                                        tracker.record(CompoteConfigError::TypeMismatch {
+                                        tracker.record(CompoteError::TypeMismatch {
                                             path: tracker.current_path(),
                                             expected: "object".to_string(),
                                             actual: req_if_eq_all_value.type_name().to_string(),
@@ -2765,7 +2765,7 @@ impl SyntaxOptArg {
                 (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
             }
             _ => {
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string or object".to_string(),
                     actual: value.type_name().to_string(),
@@ -2817,7 +2817,7 @@ impl SyntaxOptArgNumValues {
             CompoteConfigValue::String(s, _) => Self::from_str_compote(s, tracker),
             CompoteConfigValue::Null(_) => None,
             _ => {
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "integer or string".to_string(),
                     actual: value.type_name().to_string(),
@@ -2848,7 +2848,7 @@ impl SyntaxOptArgNumValues {
                 value => match value.parse::<usize>() {
                     Ok(value) => Some(value),
                     Err(_) => {
-                        tracker.record(CompoteConfigError::InvalidValue {
+                        tracker.record(CompoteError::InvalidValue {
                             path: tracker.current_path(),
                             message: format!("expected positive integer, got '{}'", value),
                         });
@@ -2862,7 +2862,7 @@ impl SyntaxOptArgNumValues {
                 value => match value.parse::<usize>() {
                     Ok(value) => Some(value),
                     Err(_) => {
-                        tracker.record(CompoteConfigError::InvalidValue {
+                        tracker.record(CompoteError::InvalidValue {
                             path: tracker.current_path(),
                             message: format!("expected positive integer, got '{}'", value),
                         });
@@ -2878,7 +2878,7 @@ impl SyntaxOptArgNumValues {
                     if max > 0 {
                         Some(Self::AtMost(max - 1))
                     } else {
-                        tracker.record(CompoteConfigError::InvalidValue {
+                        tracker.record(CompoteError::InvalidValue {
                             path: tracker.current_path(),
                             message: "invalid range: min 0 max 0".to_string(),
                         });
@@ -2890,7 +2890,7 @@ impl SyntaxOptArgNumValues {
                     if min <= max {
                         Some(Self::Between(min, max))
                     } else {
-                        tracker.record(CompoteConfigError::InvalidValue {
+                        tracker.record(CompoteError::InvalidValue {
                             path: tracker.current_path(),
                             message: format!("invalid range: min {} > max {}", min, max),
                         });
@@ -2901,7 +2901,7 @@ impl SyntaxOptArgNumValues {
                     if min < max {
                         Some(Self::Between(min, max - 1))
                     } else {
-                        tracker.record(CompoteConfigError::InvalidValue {
+                        tracker.record(CompoteError::InvalidValue {
                             path: tracker.current_path(),
                             message: format!("invalid range: min {} >= max {}", min, max),
                         });
@@ -2913,7 +2913,7 @@ impl SyntaxOptArgNumValues {
             match value.parse::<usize>() {
                 Ok(value) => Some(Self::Exactly(value)),
                 Err(_) => {
-                    tracker.record(CompoteConfigError::InvalidValue {
+                    tracker.record(CompoteError::InvalidValue {
                         path: tracker.current_path(),
                         message: format!("expected positive integer, got '{}'", value),
                     });
@@ -2963,7 +2963,7 @@ impl SyntaxOptArgType {
                 return None;
             }
             _ => {
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string or array".to_string(),
                     actual: type_value.type_name().to_string(),
@@ -3058,7 +3058,7 @@ impl SyntaxOptArgType {
                         .collect::<Vec<String>>();
                     Self::Enum(values)
                 } else {
-                    tracker.record(CompoteConfigError::InvalidValue {
+                    tracker.record(CompoteError::InvalidValue {
                         path: tracker.current_path(),
                         message: format!(
                             "invalid type '{}', expected one of: int, float, bool, flag, count, str, path, enum, array/<type>",
@@ -3112,7 +3112,7 @@ impl SyntaxGroup {
             }
             CompoteConfigValue::Null(_) => {}
             _ => {
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "array or object".to_string(),
                     actual: value.type_name().to_string(),
@@ -3132,7 +3132,7 @@ impl SyntaxGroup {
             CompoteConfigValue::Object(map, _) => {
                 if map.is_empty() {
                     tracker.push_field("name");
-                    tracker.record(CompoteConfigError::MissingField {
+                    tracker.record(CompoteError::MissingField {
                         path: tracker.current_path(),
                     });
                     tracker.pop();
@@ -3141,7 +3141,7 @@ impl SyntaxGroup {
                 map
             }
             _ => {
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
                     actual: value.type_name().to_string(),
@@ -3160,7 +3160,7 @@ impl SyntaxGroup {
                         CompoteConfigValue::Object(inner, _) => (key.clone(), inner),
                         _ => {
                             tracker.push_field(key);
-                            tracker.record(CompoteConfigError::TypeMismatch {
+                            tracker.record(CompoteError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "object".to_string(),
                                 actual: val.type_name().to_string(),
@@ -3175,7 +3175,7 @@ impl SyntaxGroup {
                         CompoteConfigValue::Int(i, _) => (i.to_string(), table),
                         _ => {
                             tracker.push_field("name");
-                            tracker.record(CompoteConfigError::TypeMismatch {
+                            tracker.record(CompoteError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
                                 actual: name_val.type_name().to_string(),
@@ -3186,7 +3186,7 @@ impl SyntaxGroup {
                     }
                 } else {
                     tracker.push_field("name");
-                    tracker.record(CompoteConfigError::MissingField {
+                    tracker.record(CompoteError::MissingField {
                         path: tracker.current_path(),
                     });
                     tracker.pop();
@@ -3199,7 +3199,7 @@ impl SyntaxGroup {
         let parameters = compote_get_str_array(config_table, "parameters", tracker);
         if parameters.is_empty() {
             tracker.push_field("parameters");
-            tracker.record(CompoteConfigError::MissingField {
+            tracker.record(CompoteError::MissingField {
                 path: tracker.current_path(),
             });
             tracker.pop();

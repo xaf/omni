@@ -19,7 +19,7 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -541,13 +541,13 @@ impl CompoteFromConfigValue for UpConfigCustom {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::Object(map, _) => {
                 let meet = compote_get_str_or_none(map, "meet", tracker)
                     .unwrap_or_else(|| {
                         tracker.push_field("meet");
-                        tracker.record(CompoteConfigError::MissingField {
+                        tracker.record(CompoteError::MissingField {
                             path: tracker.current_path(),
                         });
                         tracker.pop();

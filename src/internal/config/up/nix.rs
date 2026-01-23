@@ -23,7 +23,7 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::env::current_dir;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -238,7 +238,7 @@ fn compote_get_str_array(value: &CompoteConfigValue, errors: &mut CompoteErrorTr
 }
 
 impl CompoteFromConfigValue for UpConfigNix {
-    fn from_config_value(value: &CompoteConfigValue, errors: &mut CompoteErrorTracker) -> Result<Self, CompoteConfigError> {
+    fn from_config_value(value: &CompoteConfigValue, errors: &mut CompoteErrorTracker) -> Result<Self, CompoteError> {
         let result = match value {
             CompoteConfigValue::Object(map, _) => {
                 // Check for 'file' key first
@@ -265,7 +265,7 @@ impl CompoteFromConfigValue for UpConfigNix {
                 } else {
                     // No recognized keys
                     errors.push_field("packages");
-                    errors.record(CompoteConfigError::MissingField {
+                    errors.record(CompoteError::MissingField {
                         path: errors.current_path(),
                     });
                     errors.pop();

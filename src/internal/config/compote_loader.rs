@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use compote::de::MutabilityInfo;
-use compote::ConfigError;
+use compote::Error as ConfigError;
 use compote::ConfigLoaderBuilder;
 use compote::FromContextValue;
 use compote::Level;

@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::internal::cache::utils::Empty;
 
 // Compote imports
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -128,7 +128,7 @@ impl CompoteFromConfigValue for ShellAliasesConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::Array(arr, _) => {
                 let mut aliases = Vec::new();
@@ -146,7 +146,7 @@ impl CompoteFromConfigValue for ShellAliasesConfig {
                 Ok(Self { aliases })
             }
             CompoteConfigValue::Null(_) => Ok(Self::default()),
-            _ => Err(CompoteConfigError::TypeMismatch {
+            _ => Err(CompoteError::TypeMismatch {
                 expected: "array".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -53,7 +53,7 @@ impl CompoteFromConfigValue for UpConfigPythonParams {
     fn from_config_value(
         value: &CompoteConfigValue,
         errors: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let mut pip_files = Vec::new();
         let mut pip_auto = false;
         let mut pip_disabled = false;
@@ -149,7 +149,7 @@ impl CompoteFromConfigValue for UpConfigPython {
     fn from_config_value(
         value: &CompoteConfigValue,
         errors: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let mut backend = UpConfigMise::compote_from_config_value("python", Some(value), errors);
         backend.add_detect_version_func(detect_version_from_pyproject_toml);
         backend.add_post_install_func(setup_python_venv);

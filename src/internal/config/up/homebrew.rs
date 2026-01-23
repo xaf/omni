@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -342,7 +342,7 @@ impl CompoteFromConfigValue for UpConfigHomebrew {
     fn from_config_value(
         value: &CompoteConfigValue,
         error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Extract install array
         let install = if let CompoteConfigValue::Object(map, _) = value {
             if let Some(install_value) = map.get("install") {
@@ -676,7 +676,7 @@ impl HomebrewTap {
         value: &CompoteConfigValue,
         installs: &[HomebrewInstall],
         error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteConfigError> {
+    ) -> Result<Vec<Self>, CompoteError> {
         #[allow(clippy::mutable_key_type)]
         let mut taps = BTreeSet::new();
 
@@ -713,7 +713,7 @@ impl HomebrewTap {
     fn compote_parse_taps(
         value: &CompoteConfigValue,
         error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteConfigError> {
+    ) -> Result<Vec<Self>, CompoteError> {
         let mut parsed_taps = Vec::new();
 
         match value {
@@ -1597,7 +1597,7 @@ impl HomebrewInstall {
     fn compote_from_config_value(
         value: &CompoteConfigValue,
         error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteConfigError> {
+    ) -> Result<Vec<Self>, CompoteError> {
         let mut installs = Vec::new();
 
         // Try to extract from "install" key if value is an object
@@ -1620,7 +1620,7 @@ impl HomebrewInstall {
     fn compote_parse_formulae(
         value: &CompoteConfigValue,
         _error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteConfigError> {
+    ) -> Result<Vec<Self>, CompoteError> {
         let mut installs = Vec::new();
 
         match value {

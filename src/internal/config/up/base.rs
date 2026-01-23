@@ -23,7 +23,7 @@ use crate::internal::workdir;
 use crate::omni_warning;
 
 // Compote imports for FromConfigValue implementation
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -333,7 +333,7 @@ impl CompoteFromConfigValue for UpConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let mut steps = Vec::new();
         let mut up_errors = Vec::new();
 

@@ -37,7 +37,7 @@ use crate::internal::cache::GithubReleases;
 use crate::internal::config;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::EnvConfig;
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::Context as CompoteConfigContext;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
@@ -469,7 +469,7 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Handle string case - single release specified as string
         if let CompoteConfigValue::String(_, _) = value {
             tracker.push_index(0);
@@ -552,7 +552,7 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
             }
 
             if releases.is_empty() {
-                tracker.record(CompoteConfigError::InvalidValue {
+                tracker.record(CompoteError::InvalidValue {
                     message: "at least one release required".to_string(),
                     path: tracker.current_path(),
                 });
@@ -561,7 +561,7 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
             return Ok(Self { releases });
         }
 
-        tracker.record(CompoteConfigError::TypeMismatch {
+        tracker.record(CompoteError::TypeMismatch {
             expected: "string, array, or object".to_string(),
             actual: value.type_name().to_string(),
             path: tracker.current_path(),
@@ -2276,7 +2276,7 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Handle string case - just a repository name
         if let CompoteConfigValue::String(repository, _) = value {
             return Ok(Self {
@@ -2553,7 +2553,7 @@ impl CompoteFromConfigValue for GithubReleaseChecksumConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Handle string case - just a checksum value
         if let CompoteConfigValue::String(s, _) = value {
             return Ok(Self {

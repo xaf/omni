@@ -5,7 +5,7 @@ use crate::internal::config::parser::StringFilter;
 use crate::internal::env::shell_is_interactive;
 
 // Compote imports for FromConfigValue implementation
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -296,7 +296,7 @@ impl CompoteFromConfigValue for PathRepoUpdatesPerRepoConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Get the object fields if this is an object
         let obj = match value {
             CompoteConfigValue::Object(map, _) => map,
@@ -366,7 +366,7 @@ impl CompoteFromConfigValue for PathRepoUpdatesSelfUpdateEnum {
     fn from_config_value(
         value: &CompoteConfigValue,
         _tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Handle boolean
         if let CompoteConfigValue::Bool(b, _) = value {
             return Ok(Self::from_bool(*b));
@@ -391,7 +391,7 @@ impl CompoteFromConfigValue for PathRepoUpdatesOnCommandNotFoundEnum {
     fn from_config_value(
         value: &CompoteConfigValue,
         _tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Handle boolean
         if let CompoteConfigValue::Bool(b, _) = value {
             return Ok(Self::from_bool(*b));

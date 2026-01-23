@@ -42,7 +42,7 @@ use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::StringColor;
 
 // Compote imports
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -91,7 +91,7 @@ impl CompoteFromConfigValue for UpConfigGoInstalls {
     fn from_config_value(
         value: &CompoteConfigValue,
         error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Check if it's a string (single tool)
         if matches!(value, CompoteConfigValue::String(_, _)) {
             let tool = UpConfigGoInstall::compote_from_config_value(value, error_tracker)?;
@@ -508,7 +508,7 @@ impl UpConfigGoInstall {
     fn compote_from_config_value(
         value: &CompoteConfigValue,
         error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // If it's a string, parse it as path@version
         if let CompoteConfigValue::String(s, _) = value {
             let (path, version) = match parse_go_install_path(s) {
@@ -551,7 +551,7 @@ impl UpConfigGoInstall {
         table: &IndexMap<String, CompoteConfigValue>,
         value: &CompoteConfigValue,
         error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let ctx = value.context();
 
         // Extract path

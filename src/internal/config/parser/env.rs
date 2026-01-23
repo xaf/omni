@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::internal::cache::utils::Empty;
 use crate::internal::commands::utils::abs_path_from_path;
 
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -64,7 +64,7 @@ impl CompoteFromConfigValue for EnvConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let operations = match value {
             CompoteConfigValue::Array(array, _) => {
                 let mut ops = Vec::new();
@@ -98,7 +98,7 @@ impl CompoteFromConfigValue for EnvConfig {
             }
             CompoteConfigValue::Null(_) => Vec::new(),
             _ => {
-                return Err(CompoteConfigError::TypeMismatch {
+                return Err(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "array or object".to_string(),
                     actual: value.type_name().to_string(),
@@ -123,11 +123,11 @@ impl EnvOperationConfig {
     fn parse_entry(
         config_value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteConfigError> {
+    ) -> Result<Vec<Self>, CompoteError> {
         let table = match config_value {
             CompoteConfigValue::Object(obj, _) => obj,
             _ => {
-                return Err(CompoteConfigError::TypeMismatch {
+                return Err(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
                     actual: config_value.type_name().to_string(),
@@ -137,7 +137,7 @@ impl EnvOperationConfig {
 
         // There should be exactly one key/value pair
         if table.len() != 1 {
-            return Err(CompoteConfigError::InvalidValue {
+            return Err(CompoteError::InvalidValue {
                 path: tracker.current_path(),
                 message: format!("expected exactly one key in env entry, got {}", table.len()),
             });
@@ -155,7 +155,7 @@ impl EnvOperationConfig {
         value: &CompoteConfigValue,
         context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteConfigError> {
+    ) -> Result<Vec<Self>, CompoteError> {
         match value {
             CompoteConfigValue::Object(table, _) => {
                 // Check for operation keys
@@ -213,7 +213,7 @@ impl EnvOperationConfig {
         operation: EnvOperationEnum,
         context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteConfigError> {
+    ) -> Result<Vec<Self>, CompoteError> {
         match value {
             CompoteConfigValue::Array(array, _) => {
                 let mut operations = Vec::new();
@@ -250,18 +250,18 @@ impl EnvOperationConfig {
         table: &indexmap::IndexMap<String, CompoteConfigValue>,
         context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteConfigError> {
+    ) -> Result<Vec<Self>, CompoteError> {
         let value_type = if let Some(type_cv) = table.get("type") {
             match type_cv {
                 CompoteConfigValue::String(s, _) if s == "text" || s == "path" => s.clone(),
                 CompoteConfigValue::String(s, _) => {
-                    return Err(CompoteConfigError::InvalidValue {
+                    return Err(CompoteError::InvalidValue {
                         path: tracker.current_path(),
                         message: format!("type must be 'text' or 'path', got '{}'", s),
                     });
                 }
                 _ => {
-                    return Err(CompoteConfigError::TypeMismatch {
+                    return Err(CompoteError::TypeMismatch {
                         path: tracker.current_path(),
                         expected: "string".to_string(),
                         actual: type_cv.type_name().to_string(),
@@ -295,20 +295,20 @@ impl EnvOperationConfig {
         operation: EnvOperationEnum,
         context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let (parsed_value, value_type) = match value {
             CompoteConfigValue::Object(table, _) => {
                 let vtype = if let Some(type_cv) = table.get("type") {
                     match type_cv {
                         CompoteConfigValue::String(s, _) if s == "text" || s == "path" => s.clone(),
                         CompoteConfigValue::String(s, _) => {
-                            return Err(CompoteConfigError::InvalidValue {
+                            return Err(CompoteError::InvalidValue {
                                 path: tracker.current_path(),
                                 message: format!("type must be 'text' or 'path', got '{}'", s),
                             });
                         }
                         _ => {
-                            return Err(CompoteConfigError::TypeMismatch {
+                            return Err(CompoteError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
                                 actual: type_cv.type_name().to_string(),
@@ -335,7 +335,7 @@ impl EnvOperationConfig {
 
         // Validate: non-Set operations require a value
         if parsed_value.is_none() && operation != EnvOperationEnum::Set {
-            return Err(CompoteConfigError::InvalidValue {
+            return Err(CompoteError::InvalidValue {
                 path: tracker.current_path(),
                 message: "missing required 'value' field".to_string(),
             });
@@ -343,7 +343,7 @@ impl EnvOperationConfig {
 
         // Allow null value for "set" operation with "text" type to unset the variable
         if parsed_value.is_none() && operation == EnvOperationEnum::Set && value_type != "text" {
-            return Err(CompoteConfigError::InvalidValue {
+            return Err(CompoteError::InvalidValue {
                 path: tracker.current_path(),
                 message: "missing required 'value' field for path type".to_string(),
             });
@@ -362,7 +362,7 @@ impl EnvOperationConfig {
         value_type: &str,
         context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Option<String>, CompoteConfigError> {
+    ) -> Result<Option<String>, CompoteError> {
         // Handle null for set operations
         if matches!(value, CompoteConfigValue::Null(_)) {
             return Ok(None);
@@ -375,7 +375,7 @@ impl EnvOperationConfig {
             CompoteConfigValue::Float(f, _) => f.to_string(),
             CompoteConfigValue::Bool(b, _) => b.to_string(),
             _ => {
-                return Err(CompoteConfigError::TypeMismatch {
+                return Err(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string".to_string(),
                     actual: value.type_name().to_string(),
@@ -392,7 +392,7 @@ impl EnvOperationConfig {
                     Some(PathBuf::from(desc))
                 }
                 _ => {
-                    return Err(CompoteConfigError::InvalidValue {
+                    return Err(CompoteError::InvalidValue {
                         path: tracker.current_path(),
                         message: "path type requires file source context".to_string(),
                     });

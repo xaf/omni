@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::Value;
 
 // Re-export compote's ConfigError for use in the mapping
-pub use compote::ConfigError as CompoteConfigError;
+pub use compote::Error as CompoteError;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -518,7 +518,7 @@ impl ConfigErrorKind {
         Ok(message)
     }
 
-    /// Maps this `ConfigErrorKind` to a `compote::ConfigError`.
+    /// Maps this `ConfigErrorKind` to a `compote::Error`.
     ///
     /// This provides backward compatibility by allowing existing error handling
     /// code to internally use compote's error system while maintaining the
@@ -546,7 +546,7 @@ impl ConfigErrorKind {
     /// | OmniPathNotFound | PathNotFound | C132 |
     /// | MetadataHeader* variants | C140-C143 | varies |
     /// | UserDefined* variants | C150-C152 | varies |
-    pub fn to_compote_error(&self, context: &HashMap<String, Value>) -> CompoteConfigError {
+    pub fn to_compote_error(&self, context: &HashMap<String, Value>) -> CompoteError {
         // Helper to get string from context
         let get_str = |key: &str| -> String {
             context
@@ -572,7 +572,7 @@ impl ConfigErrorKind {
         match self {
             // C001 - MissingField
             ConfigErrorKind::EmptyKey | ConfigErrorKind::MissingKey => {
-                CompoteConfigError::MissingField { path }
+                CompoteError::MissingField { path }
             }
 
             // C101 - TypeMismatch
@@ -598,7 +598,7 @@ impl ConfigErrorKind {
                     .map(format_value)
                     .unwrap_or_else(|| "unknown".to_string());
 
-                CompoteConfigError::TypeMismatch {
+                CompoteError::TypeMismatch {
                     path,
                     expected,
                     actual,
@@ -629,7 +629,7 @@ impl ConfigErrorKind {
                     .map(format_value)
                     .unwrap_or_else(|| "unknown".to_string());
 
-                CompoteConfigError::InvalidValue {
+                CompoteError::InvalidValue {
                     path,
                     message: format!("expected {}, got {}", expected, actual),
                 }
@@ -645,7 +645,7 @@ impl ConfigErrorKind {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
 
-                CompoteConfigError::InvalidValue {
+                CompoteError::InvalidValue {
                     path,
                     message: format!("invalid range [{}, {}[", min, max),
                 }
@@ -653,7 +653,7 @@ impl ConfigErrorKind {
 
             ConfigErrorKind::InvalidPackage => {
                 let package = get_str("package");
-                CompoteConfigError::InvalidValue {
+                CompoteError::InvalidValue {
                     path,
                     message: format!("invalid package '{}'", package),
                 }
@@ -665,7 +665,7 @@ impl ConfigErrorKind {
                     .map(format_value)
                     .unwrap_or_else(|| "unknown".to_string());
 
-                CompoteConfigError::InvalidValue {
+                CompoteError::InvalidValue {
                     path,
                     message: format!(
                         "expected table with single key-value pair, got {}",
@@ -680,7 +680,7 @@ impl ConfigErrorKind {
                     .map(format_value)
                     .unwrap_or_else(|| "unknown".to_string());
 
-                CompoteConfigError::InvalidValue {
+                CompoteError::InvalidValue {
                     path,
                     message: format!("value {} not supported in this context", actual),
                 }
@@ -694,7 +694,7 @@ impl ConfigErrorKind {
                     .unwrap_or_default();
                 let error = get_str("error");
 
-                CompoteConfigError::Custom {
+                CompoteError::Custom {
                     code: "C120".to_string(),
                     path: if file.is_empty() { path } else { file },
                     message: format!("unable to parse value '{}': {}", actual, error),
@@ -702,20 +702,20 @@ impl ConfigErrorKind {
             }
 
             // C130 - FileNotExecutable
-            ConfigErrorKind::OmniPathFileNotExecutable => CompoteConfigError::FileNotExecutable {
+            ConfigErrorKind::OmniPathFileNotExecutable => CompoteError::FileNotExecutable {
                 path: if file.is_empty() { path } else { file },
             },
 
             // C131 - FileMetadataError
             ConfigErrorKind::OmniPathFileFailedToLoadMetadata => {
-                CompoteConfigError::FileMetadataError {
+                CompoteError::FileMetadataError {
                     path: if file.is_empty() { path } else { file },
                     message: "failed to load metadata".to_string(),
                 }
             }
 
             // C132 - PathNotFound
-            ConfigErrorKind::OmniPathNotFound => CompoteConfigError::PathNotFound {
+            ConfigErrorKind::OmniPathNotFound => CompoteError::PathNotFound {
                 path: if file.is_empty() { path } else { file },
                 message: "path not found".to_string(),
             },
@@ -729,7 +729,7 @@ impl ConfigErrorKind {
                 let message = self
                     .message_from_context(context)
                     .unwrap_or_else(|_| "metadata header parse error".to_string());
-                CompoteConfigError::MetadataHeaderParseError {
+                CompoteError::MetadataHeaderParseError {
                     path: if file.is_empty() { path } else { file },
                     message,
                 }
@@ -745,7 +745,7 @@ impl ConfigErrorKind {
                     .unwrap_or("unknown")
                     .to_string();
 
-                CompoteConfigError::MetadataHeaderEmptyPart {
+                CompoteError::MetadataHeaderEmptyPart {
                     path: if file.is_empty() { path } else { file },
                     group,
                 }
@@ -753,14 +753,14 @@ impl ConfigErrorKind {
 
             // C142 - MetadataHeaderMissingField
             ConfigErrorKind::MetadataHeaderMissingHelp => {
-                CompoteConfigError::MetadataHeaderMissingField {
+                CompoteError::MetadataHeaderMissingField {
                     path: if file.is_empty() { path } else { file },
                     field: "help".to_string(),
                 }
             }
 
             ConfigErrorKind::MetadataHeaderMissingSyntax => {
-                CompoteConfigError::MetadataHeaderMissingField {
+                CompoteError::MetadataHeaderMissingField {
                     path: if file.is_empty() { path } else { file },
                     field: "syntax".to_string(),
                 }
@@ -768,7 +768,7 @@ impl ConfigErrorKind {
 
             ConfigErrorKind::MetadataHeaderGroupMissingParameters => {
                 let group = get_str("group");
-                CompoteConfigError::MetadataHeaderMissingField {
+                CompoteError::MetadataHeaderMissingField {
                     path: if file.is_empty() { path } else { file },
                     field: format!("parameters for group '{}'", group),
                 }
@@ -776,7 +776,7 @@ impl ConfigErrorKind {
 
             ConfigErrorKind::MetadataHeaderParameterMissingDescription => {
                 let parameter = get_str("parameter");
-                CompoteConfigError::MetadataHeaderMissingField {
+                CompoteError::MetadataHeaderMissingField {
                     path: if file.is_empty() { path } else { file },
                     field: format!("description for parameter '{}'", parameter),
                 }
@@ -789,7 +789,7 @@ impl ConfigErrorKind {
                 let message = self
                     .message_from_context(context)
                     .unwrap_or_else(|_| "invalid metadata header syntax".to_string());
-                CompoteConfigError::MetadataHeaderInvalidSyntax {
+                CompoteError::MetadataHeaderInvalidSyntax {
                     path: if file.is_empty() { path } else { file },
                     message,
                 }
@@ -799,7 +799,7 @@ impl ConfigErrorKind {
             ConfigErrorKind::UserDefinedPathCommandMissingTag
             | ConfigErrorKind::UserDefinedConfigCommandMissingTag => {
                 let tag = get_str("tag");
-                CompoteConfigError::UserDefinedCommandMissingField {
+                CompoteError::UserDefinedCommandMissingField {
                     path: if file.is_empty() { path } else { file },
                     field: tag,
                 }
@@ -810,7 +810,7 @@ impl ConfigErrorKind {
                 let tag = get_str("tag");
                 let expected = get_str("expected");
                 let actual = get_str("actual");
-                CompoteConfigError::UserDefinedCommandInvalidValue {
+                CompoteError::UserDefinedCommandInvalidValue {
                     path: if file.is_empty() { path } else { file },
                     field: tag,
                     message: format!("expected value to {}, got '{}'", expected, actual),

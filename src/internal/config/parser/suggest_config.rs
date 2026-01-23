@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::internal::cache::utils::Empty;
 
 // Compote imports
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::Context as CompoteConfigContext;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
@@ -89,7 +89,7 @@ impl CompoteFromConfigValue for StoredConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         _tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Convert ContextValue to Value (stripping context)
         Ok(StoredConfig(CompoteValue::from(value)))
     }
@@ -260,7 +260,7 @@ impl CompoteFromConfigValue for SuggestConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Check if it's an object with special keys
         if let CompoteConfigValue::Object(map, _) = value {
             // Check for "config" key - use its value directly

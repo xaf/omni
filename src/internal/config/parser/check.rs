@@ -10,7 +10,7 @@ use crate::internal::commands::utils::abs_path_from_path;
 use crate::internal::config::parser::github::StringFilter;
 
 // Compote imports
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -59,7 +59,7 @@ impl CompoteFromConfigValue for CheckPattern {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Parse the pattern string
         let pattern = String::from_config_value(value, tracker)?;
 
@@ -177,12 +177,12 @@ impl CompoteFromConfigValue for CheckConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let table = match value {
             CompoteConfigValue::Object(map, _) => map,
             CompoteConfigValue::Null(_) => return Ok(Self::default()),
             _ => {
-                return Err(CompoteConfigError::TypeMismatch {
+                return Err(CompoteError::TypeMismatch {
                     expected: "table".to_string(),
                     actual: value.type_name().to_string(),
                     path: tracker.current_path(),
@@ -211,7 +211,7 @@ impl CompoteFromConfigValue for CheckConfig {
                     }
                 }
                 _ => {
-                    tracker.record(CompoteConfigError::TypeMismatch {
+                    tracker.record(CompoteError::TypeMismatch {
                         expected: "string or array of strings".to_string(),
                         actual: v.type_name().to_string(),
                         path: tracker.current_path(),
@@ -272,7 +272,7 @@ fn parse_string_array_to_hashset(
             if let CompoteConfigValue::String(s, _) = item {
                 result.insert(s.clone());
             } else {
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     expected: "string".to_string(),
                     actual: item.type_name().to_string(),
                     path: tracker.current_path(),
@@ -324,7 +324,7 @@ fn parse_tags(
                         }
                     }
                     _ => {
-                        tracker.record(CompoteConfigError::TypeMismatch {
+                        tracker.record(CompoteError::TypeMismatch {
                             expected: "string or table".to_string(),
                             actual: item.type_name().to_string(),
                             path: tracker.current_path(),
@@ -335,7 +335,7 @@ fn parse_tags(
             }
         }
         _ => {
-            tracker.record(CompoteConfigError::TypeMismatch {
+            tracker.record(CompoteError::TypeMismatch {
                 expected: "table or array".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),

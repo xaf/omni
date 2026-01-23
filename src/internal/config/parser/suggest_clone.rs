@@ -14,7 +14,7 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
 // Compote imports
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::Context as CompoteConfigContext;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
@@ -281,9 +281,9 @@ impl CompoteFromConfigValue for SuggestCloneTypeEnum {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let s = String::from_config_value(value, tracker)?;
-        Self::from_str(&s).map_err(|_| CompoteConfigError::InvalidValue {
+        Self::from_str(&s).map_err(|_| CompoteError::InvalidValue {
             message: format!("Invalid clone type '{}', expected 'package' or 'worktree'", s),
             path: tracker.current_path(),
         })
@@ -294,7 +294,7 @@ impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Can be a simple string (handle only) or a table
         match value {
             CompoteConfigValue::String(s, _) => Ok(Self {
@@ -313,7 +313,7 @@ impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
                     tracker.push_field("handle");
                     let path = tracker.current_path();
                     tracker.pop();
-                    return Err(CompoteConfigError::MissingField { path });
+                    return Err(CompoteError::MissingField { path });
                 };
 
                 // args is optional, parse shell words from string
@@ -345,7 +345,7 @@ impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
                     clone_type,
                 })
             }
-            _ => Err(CompoteConfigError::TypeMismatch {
+            _ => Err(CompoteError::TypeMismatch {
                 expected: "string or table".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),
@@ -358,7 +358,7 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // This config only accepts Local (Workdir) scope values
         let filtered = match select_local_scope(value) {
             Some(v) => v,
@@ -434,7 +434,7 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
 
                 Ok(Self::default())
             }
-            _ => Err(CompoteConfigError::TypeMismatch {
+            _ => Err(CompoteError::TypeMismatch {
                 expected: "array or table".to_string(),
                 actual: filtered.type_name().to_string(),
                 path: tracker.current_path(),

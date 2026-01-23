@@ -10,7 +10,7 @@ use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
 
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -143,7 +143,7 @@ impl CompoteFromConfigValue for UpConfigGolang {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let mut version = None;
         let mut version_file = None;
         let mut dirs = BTreeSet::new();
@@ -190,7 +190,7 @@ impl CompoteFromConfigValue for UpConfigGolang {
                     "string, number, or object",
                     value.type_name()
                 );
-                return Err(CompoteConfigError::TypeMismatch {
+                return Err(CompoteError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string, number, or object".to_string(),
                     actual: value.type_name().to_string(),

@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::internal::cache::utils::Empty;
 
 // Compote imports
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -194,7 +194,7 @@ impl CompoteFromConfigValue for StringFilter {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::String(s, _) => {
                 // If a string is provided, use it as a glob pattern by default
@@ -304,7 +304,7 @@ impl CompoteFromConfigValue for GithubAuthConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::Null(_) => Ok(Self::default()),
             CompoteConfigValue::String(s, _) => {
@@ -409,7 +409,7 @@ impl CompoteFromConfigValue for GithubAuthConfigWithFilters {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::Null(_) => Ok(Self {
                 repo: StringFilter::default(),
@@ -458,7 +458,7 @@ impl CompoteFromConfigValue for GithubConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::Null(_) => Ok(Self::default()),
             CompoteConfigValue::Object(table, _) => {

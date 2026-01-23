@@ -27,7 +27,7 @@ use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::current_dir;
 use crate::internal::workdir;
 
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -64,7 +64,7 @@ impl CompoteFromConfigValue for UpConfigNodejsParams {
     fn from_config_value(
         value: &CompoteConfigValue,
         errors: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let mut params = Self::default();
 
         if let CompoteConfigValue::Object(map, _) = value {
@@ -94,7 +94,7 @@ impl CompoteFromConfigValue for UpConfigNodejsParams {
         }
 
         if errors.has_errors() {
-            Err(CompoteConfigError::InvalidValue {
+            Err(CompoteError::InvalidValue {
                 path: errors.current_path(),
                 message: "Failed to parse UpConfigNodejsParams".to_string(),
             })
@@ -153,7 +153,7 @@ impl CompoteFromConfigValue for UpConfigNodejs {
     fn from_config_value(
         value: &CompoteConfigValue,
         errors: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         // Parse params using the compote implementation
         let params = <UpConfigNodejsParams as CompoteFromConfigValue>::from_config_value(value, errors)?;
 

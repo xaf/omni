@@ -37,7 +37,7 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::env::data_home;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::StringColor;
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
 use compote::FromContextValue as CompoteFromConfigValue;
@@ -164,7 +164,7 @@ impl CompoteFromConfigValue for UpConfigCargoInstalls {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         Ok(Self::from_compote_config_value(value, tracker))
     }
 }

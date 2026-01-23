@@ -14,7 +14,7 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
 // Compote imports
-use compote::ConfigError as CompoteConfigError;
+use compote::Error as CompoteError;
 use compote::Context as CompoteConfigContext;
 use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
@@ -743,7 +743,7 @@ impl CompoteFromConfigValue for PromptsConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::Array(arr, _) => {
                 let mut prompts = Vec::new();
@@ -758,7 +758,7 @@ impl CompoteFromConfigValue for PromptsConfig {
                 Ok(Self { prompts })
             }
             CompoteConfigValue::Null(_) => Ok(Self::default()),
-            _ => Err(CompoteConfigError::TypeMismatch {
+            _ => Err(CompoteError::TypeMismatch {
                 expected: "array".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),
@@ -771,11 +771,11 @@ impl CompoteFromConfigValue for PromptConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let table = match value {
             CompoteConfigValue::Object(map, _) => map,
             _ => {
-                return Err(CompoteConfigError::TypeMismatch {
+                return Err(CompoteError::TypeMismatch {
                     expected: "table".to_string(),
                     actual: value.type_name().to_string(),
                     path: tracker.current_path(),
@@ -790,7 +790,7 @@ impl CompoteFromConfigValue for PromptConfig {
                 CompoteConfigValue::String(s, _) => {
                     let trimmed = s.trim().to_string();
                     if trimmed.is_empty() {
-                        Err(CompoteConfigError::InvalidValue {
+                        Err(CompoteError::InvalidValue {
                             message: "id cannot be empty".to_string(),
                             path: tracker.current_path(),
                         })
@@ -798,7 +798,7 @@ impl CompoteFromConfigValue for PromptConfig {
                         Ok(trimmed)
                     }
                 }
-                _ => Err(CompoteConfigError::TypeMismatch {
+                _ => Err(CompoteError::TypeMismatch {
                     expected: "string".to_string(),
                     actual: v.type_name().to_string(),
                     path: tracker.current_path(),
@@ -810,7 +810,7 @@ impl CompoteFromConfigValue for PromptConfig {
             tracker.push_field("id");
             let path = tracker.current_path();
             tracker.pop();
-            return Err(CompoteConfigError::MissingField { path });
+            return Err(CompoteError::MissingField { path });
         };
 
         // Required: prompt
@@ -820,7 +820,7 @@ impl CompoteFromConfigValue for PromptConfig {
                 CompoteConfigValue::String(s, _) => {
                     let trimmed = s.trim().to_string();
                     if trimmed.is_empty() {
-                        Err(CompoteConfigError::InvalidValue {
+                        Err(CompoteError::InvalidValue {
                             message: "prompt cannot be empty".to_string(),
                             path: tracker.current_path(),
                         })
@@ -828,7 +828,7 @@ impl CompoteFromConfigValue for PromptConfig {
                         Ok(trimmed)
                     }
                 }
-                _ => Err(CompoteConfigError::TypeMismatch {
+                _ => Err(CompoteError::TypeMismatch {
                     expected: "string".to_string(),
                     actual: v.type_name().to_string(),
                     path: tracker.current_path(),
@@ -840,7 +840,7 @@ impl CompoteFromConfigValue for PromptConfig {
             tracker.push_field("prompt");
             let path = tracker.current_path();
             tracker.pop();
-            return Err(CompoteConfigError::MissingField { path });
+            return Err(CompoteError::MissingField { path });
         };
 
         // Optional: type (defaults to text)
@@ -883,7 +883,7 @@ impl CompoteFromConfigValue for PromptScope {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let table = match value {
             CompoteConfigValue::Object(map, _) => map,
             _ => return Ok(Self::default()),
@@ -902,7 +902,7 @@ impl CompoteFromConfigValue for PromptScope {
                     "org" | "organization" => Ok(Self::Organization),
                     _ => {
                         tracker.push_field("scope");
-                        tracker.record(CompoteConfigError::InvalidValue {
+                        tracker.record(CompoteError::InvalidValue {
                             message: format!(
                                 "invalid scope '{}': expected 'repo' or 'org'",
                                 scope
@@ -916,7 +916,7 @@ impl CompoteFromConfigValue for PromptScope {
             }
             _ => {
                 tracker.push_field("scope");
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     expected: "string".to_string(),
                     actual: scope_value.type_name().to_string(),
                     path: tracker.current_path(),
@@ -932,7 +932,7 @@ impl CompoteFromConfigValue for PromptType {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         let table = match value {
             CompoteConfigValue::Object(map, _) => map,
             _ => return Ok(Self::default()),
@@ -947,7 +947,7 @@ impl CompoteFromConfigValue for PromptType {
             CompoteConfigValue::String(s, _) => s.trim().to_lowercase(),
             _ => {
                 tracker.push_field("type");
-                tracker.record(CompoteConfigError::TypeMismatch {
+                tracker.record(CompoteError::TypeMismatch {
                     expected: "string".to_string(),
                     actual: type_value.type_name().to_string(),
                     path: tracker.current_path(),
@@ -959,7 +959,7 @@ impl CompoteFromConfigValue for PromptType {
 
         if type_str.is_empty() {
             tracker.push_field("type");
-            tracker.record(CompoteConfigError::InvalidValue {
+            tracker.record(CompoteError::InvalidValue {
                 message: "type cannot be empty".to_string(),
                 path: tracker.current_path(),
             });
@@ -988,7 +988,7 @@ impl CompoteFromConfigValue for PromptType {
                     tracker.push_field("choices");
                     let path = tracker.current_path();
                     tracker.pop();
-                    Err(CompoteConfigError::MissingField { path })
+                    Err(CompoteError::MissingField { path })
                 }
             }
             "int" => {
@@ -1033,7 +1033,7 @@ impl CompoteFromConfigValue for PromptType {
             }
             _ => {
                 tracker.push_field("type");
-                tracker.record(CompoteConfigError::InvalidValue {
+                tracker.record(CompoteError::InvalidValue {
                     message: format!(
                         "invalid type '{}': expected text, password, confirm, choice, multichoice, int, or float",
                         type_str
@@ -1051,7 +1051,7 @@ impl CompoteFromConfigValue for PromptChoicesConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::Array(arr, _) => {
                 let mut choices = Vec::new();
@@ -1067,7 +1067,7 @@ impl CompoteFromConfigValue for PromptChoicesConfig {
                 }
 
                 if choices.is_empty() {
-                    Err(CompoteConfigError::InvalidValue {
+                    Err(CompoteError::InvalidValue {
                         message: "choices cannot be empty".to_string(),
                         path: tracker.current_path(),
                     })
@@ -1076,7 +1076,7 @@ impl CompoteFromConfigValue for PromptChoicesConfig {
                 }
             }
             CompoteConfigValue::String(s, _) => Ok(Self::ChoicesAsString(s.clone())),
-            _ => Err(CompoteConfigError::TypeMismatch {
+            _ => Err(CompoteError::TypeMismatch {
                 expected: "array or template string".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),
@@ -1089,7 +1089,7 @@ impl CompoteFromConfigValue for PromptChoiceConfig {
     fn from_config_value(
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteConfigError> {
+    ) -> Result<Self, CompoteError> {
         match value {
             CompoteConfigValue::Object(table, _) => {
                 let id = table.get("id").and_then(|v| match v {
@@ -1111,7 +1111,7 @@ impl CompoteFromConfigValue for PromptChoiceConfig {
                         id: choice.clone(),
                         choice,
                     }),
-                    (None, None) => Err(CompoteConfigError::InvalidValue {
+                    (None, None) => Err(CompoteError::InvalidValue {
                         message: "choice must have 'id' or 'choice' field".to_string(),
                         path: tracker.current_path(),
                     }),
@@ -1121,7 +1121,7 @@ impl CompoteFromConfigValue for PromptChoiceConfig {
                 id: s.clone(),
                 choice: s.clone(),
             }),
-            _ => Err(CompoteConfigError::TypeMismatch {
+            _ => Err(CompoteError::TypeMismatch {
                 expected: "table or string".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),
