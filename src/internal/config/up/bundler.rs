@@ -7,16 +7,17 @@ use tokio::process::Command as TokioCommand;
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::commands::utils::abs_path;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::ProgressHandler;
 use crate::internal::config::up::utils::RunConfig;
 use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::user_interface::StringColor;
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpConfigBundler {
@@ -38,38 +39,17 @@ impl Default for UpConfigBundler {
 impl UpConfigBundler {
     const DEFAULT_PATH: &'static str = "vendor/bundle";
 
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
+    fn gemfile_abs_path(&self) -> String {
+        let gemfile = if let Some(gemfile) = &self.gemfile {
+            gemfile.clone()
+        } else {
+            "Gemfile".to_string()
         };
 
-        if config_value.is_table() {
-            let gemfile =
-                config_value.get_as_str_or_none("gemfile", &error_handler.with_key("gemfile"));
-            let path = Some(config_value.get_as_str_or_default(
-                "path",
-                Self::DEFAULT_PATH,
-                &error_handler.with_key("path"),
-            ));
+        // make a path from the str
+        let gemfile = Path::new(&gemfile);
 
-            Self { gemfile, path }
-        } else if let Some(gemfile) = config_value.as_str() {
-            Self {
-                gemfile: Some(gemfile.to_string()),
-                ..Self::default()
-            }
-        } else {
-            error_handler
-                .with_expected("table or string")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            Self::default()
-        }
+        abs_path(gemfile).to_str().unwrap().to_string()
     }
 
     pub fn up(
@@ -171,17 +151,54 @@ impl UpConfigBundler {
 
         Ok(())
     }
+}
 
-    fn gemfile_abs_path(&self) -> String {
-        let gemfile = if let Some(gemfile) = &self.gemfile {
-            gemfile.clone()
-        } else {
-            "Gemfile".to_string()
-        };
+// Helper functions for compote conversion
+fn compote_get_str_or_none(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    _tracker: &mut CompoteErrorTracker,
+) -> Option<String> {
+    map.get(key).and_then(|v| match v {
+        CompoteConfigValue::String(s, _) => Some(s.clone()),
+        _ => None,
+    })
+}
 
-        // make a path from the str
-        let gemfile = Path::new(&gemfile);
+fn compote_get_str_or_default(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    default: &str,
+    _tracker: &mut CompoteErrorTracker,
+) -> String {
+    compote_get_str_or_none(map, key, _tracker).unwrap_or_else(|| default.to_string())
+}
 
-        abs_path(gemfile).to_str().unwrap().to_string()
+impl CompoteFromConfigValue for UpConfigBundler {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match value {
+            CompoteConfigValue::Object(map, _) => {
+                let gemfile = compote_get_str_or_none(map, "gemfile", tracker);
+                let path = Some(compote_get_str_or_default(
+                    map,
+                    "path",
+                    Self::DEFAULT_PATH,
+                    tracker,
+                ));
+
+                Ok(Self { gemfile, path })
+            }
+            CompoteConfigValue::String(s, _) => Ok(Self {
+                gemfile: Some(s.clone()),
+                ..Self::default()
+            }),
+            _ => {
+                tracker.record_type_mismatch("table or string", value.type_name());
+                Ok(Self::default())
+            }
+        }
     }
 }

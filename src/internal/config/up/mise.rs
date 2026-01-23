@@ -23,7 +23,6 @@ use crate::internal::cache::CacheManagerError;
 use crate::internal::cache::MiseOperationCache;
 use crate::internal::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::up::homebrew::HomebrewInstall;
 use crate::internal::config::up::utils::data_path_dir_hash;
 use crate::internal::config::up::utils::directory::safe_rename;
@@ -42,8 +41,11 @@ use crate::internal::config::up::UpConfigTool;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::is_executable;
-use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
+
+// Compote imports for new config parsing system
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
 use crate::internal::env::cache_home;
 use crate::internal::env::current_dir;
 use crate::internal::env::data_home;
@@ -72,7 +74,7 @@ type PostInstallFunc = fn(
 /// A struct representing the arguments that will be passed to the post-install
 /// functions as they are being called.
 pub struct PostInstallFuncArgs<'a> {
-    pub config_value: Option<ConfigValue>,
+    pub config_value: Option<CompoteConfigValue>,
     pub fqtn: &'a FullyQualifiedToolName,
     #[allow(dead_code)]
     pub requested_version: String,
@@ -1152,7 +1154,7 @@ pub struct UpConfigMise {
 
     /// The configuration value that was used to create this object.
     #[serde(skip)]
-    config_value: Option<ConfigValue>,
+    config_value: Option<CompoteConfigValue>,
 
     /// Whether the up operation succeeded. If unset, the operation has not
     /// been attempted yet.
@@ -1209,24 +1211,28 @@ impl UpConfigMise {
         }
     }
 
-    pub fn from_config_value(
+    /// Compote-based config parsing method
+    #[allow(dead_code)]
+    pub fn compote_from_config_value(
         tool: &str,
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
+        config_value: Option<&CompoteConfigValue>,
+        error_tracker: &mut CompoteErrorTracker,
     ) -> Self {
-        Self::from_config_value_with_params(
+        Self::compote_from_config_value_with_params(
             tool,
             config_value,
             UpConfigMiseParams::default(),
-            error_handler,
+            error_tracker,
         )
     }
 
-    pub fn from_config_value_with_params(
+    /// New compote-based config parsing method with params
+    #[allow(dead_code)]
+    pub fn compote_from_config_value_with_params(
         tool: &str,
-        config_value: Option<&ConfigValue>,
+        config_value: Option<&CompoteConfigValue>,
         params: UpConfigMiseParams,
-        error_handler: &ConfigErrorHandler,
+        error_tracker: &mut CompoteErrorTracker,
     ) -> Self {
         let mut version = "latest".to_string();
         let mut backend = None;
@@ -1243,46 +1249,101 @@ impl UpConfigMise {
         }
 
         if let Some(config_value) = config_value {
-            if let Some(value) = config_value.as_str() {
-                version = value.to_string();
-            } else if let Some(value) = config_value.as_float() {
-                version = value.to_string();
-            } else if let Some(value) = config_value.as_integer() {
-                version = value.to_string();
-            } else {
-                if let Some(value) =
-                    config_value.get_as_str_or_none("version", &error_handler.with_key("version"))
-                {
-                    version = value.to_string();
+            match config_value {
+                // Handle simple string/number values for version
+                CompoteConfigValue::String(s, _) => {
+                    version = s.clone();
                 }
-
-                if let Some(value) =
-                    config_value.get_as_str_or_none("backend", &error_handler.with_key("backend"))
-                {
-                    backend = Some(value.to_string());
+                CompoteConfigValue::Float(f, _) => {
+                    version = f.to_string();
                 }
-
-                let list_dirs =
-                    config_value.get_as_str_array("dir", &error_handler.with_key("dir"));
-                for value in list_dirs {
-                    dirs.insert(
-                        PathBuf::from(value)
-                            .normalize()
-                            .to_string_lossy()
-                            .to_string(),
-                    );
+                CompoteConfigValue::Int(i, _) => {
+                    version = i.to_string();
                 }
+                // Handle object with fields
+                CompoteConfigValue::Object(map, _) => {
+                    // Extract version
+                    if let Some(val) = map.get("version") {
+                        error_tracker.push_field("version");
+                        match val {
+                            CompoteConfigValue::String(s, _) => version = s.clone(),
+                            CompoteConfigValue::Float(f, _) => version = f.to_string(),
+                            CompoteConfigValue::Int(i, _) => version = i.to_string(),
+                            _ => {
+                                error_tracker.record_invalid_value("version must be a string or number");
+                            }
+                        }
+                        error_tracker.pop();
+                    }
 
-                if let Some(url) =
-                    config_value.get_as_str_or_none("url", &error_handler.with_key("url"))
-                {
-                    override_tool_url = Some(url.to_string());
+                    // Extract backend
+                    if let Some(val) = map.get("backend") {
+                        error_tracker.push_field("backend");
+                        match val {
+                            CompoteConfigValue::String(s, _) => backend = Some(s.clone()),
+                            _ => {
+                                error_tracker.record_invalid_value("backend must be a string");
+                            }
+                        }
+                        error_tracker.pop();
+                    }
+
+                    // Extract dir array
+                    if let Some(val) = map.get("dir") {
+                        error_tracker.push_field("dir");
+                        match val {
+                            CompoteConfigValue::Array(arr, _) => {
+                                for (idx, item) in arr.iter().enumerate() {
+                                    error_tracker.push_index(idx);
+                                    match item {
+                                        CompoteConfigValue::String(s, _) => {
+                                            dirs.insert(
+                                                PathBuf::from(s)
+                                                    .normalize()
+                                                    .to_string_lossy()
+                                                    .to_string(),
+                                            );
+                                        }
+                                        _ => {
+                                            error_tracker.record_invalid_value("dir array must contain only strings");
+                                        }
+                                    }
+                                    error_tracker.pop();
+                                }
+                            }
+                            _ => {
+                                error_tracker.record_invalid_value("dir must be an array");
+                            }
+                        }
+                        error_tracker.pop();
+                    }
+
+                    // Extract url
+                    if let Some(val) = map.get("url") {
+                        error_tracker.push_field("url");
+                        match val {
+                            CompoteConfigValue::String(s, _) => override_tool_url = Some(s.clone()),
+                            _ => {
+                                error_tracker.record_invalid_value("url must be a string");
+                            }
+                        }
+                        error_tracker.pop();
+                    }
+
+                    // Extract upgrade
+                    if let Some(val) = map.get("upgrade") {
+                        error_tracker.push_field("upgrade");
+                        match val {
+                            CompoteConfigValue::Bool(b, _) => upgrade = *b,
+                            _ => {
+                                error_tracker.record_invalid_value("upgrade must be a boolean");
+                            }
+                        }
+                        error_tracker.pop();
+                    }
                 }
-
-                if let Some(value) =
-                    config_value.get_as_bool_or_none("upgrade", &error_handler.with_key("upgrade"))
-                {
-                    upgrade = value;
+                _ => {
+                    error_tracker.record_invalid_value("config value must be a string, number, or object");
                 }
             }
         }

@@ -1,8 +1,8 @@
 use std::process::exit;
 
 use crate::internal::commands::config_bootstrap;
+use crate::internal::config::compote_loader::OmniConfigLoader;
 use crate::internal::config::flush_config;
-use crate::internal::config::global_config_loader;
 use crate::internal::env::shell_is_interactive;
 use crate::internal::user_interface::colors::StringColor;
 use crate::omni_error;
@@ -14,8 +14,8 @@ pub fn ensure_bootstrap() {
     }
 
     // Get the global configuration
-    let config_loader = global_config_loader();
-    if config_loader.has_user_config() {
+    let loader = OmniConfigLoader::new_global();
+    if loader.has_user_config() {
         return;
     }
 

@@ -9,11 +9,10 @@ use crate::internal::cache::utils::Empty;
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::path::omnipath_entries;
 use crate::internal::commands::Command;
+use crate::internal::config::compote_loader::OmniConfigLoader;
 use crate::internal::config::config;
-use crate::internal::config::config_loader;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
-use config_value::Value;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
 use crate::internal::env::shell_integration_is_loaded;
@@ -121,9 +120,8 @@ impl StatusCommand {
         }
 
         let config = config(".");
-        match Value::to_value(&config) {
-            Ok(value) => {
-                let yaml_code = value.to_yaml_string().unwrap();
+        match compote::to_yaml(&config) {
+            Ok(yaml_code) => {
                 println!("{}", self.color_yaml(&yaml_code, args.single));
             }
             Err(err) => {
@@ -145,12 +143,12 @@ impl StatusCommand {
             "  ".to_string()
         };
 
-        let config_loader = config_loader(".");
+        let loader = OmniConfigLoader::new_with_workdir(".");
 
-        if config_loader.loaded_config_files.is_empty() {
+        if loader.loaded_files().is_empty() {
             println!("{}{}", prefix, "none".light_red());
         } else {
-            for config_file in &config_loader.loaded_config_files {
+            for config_file in loader.loaded_files() {
                 println!("{prefix}- {config_file}");
             }
         }

@@ -309,16 +309,16 @@ impl SandboxCommand {
         let mut changes_made = false;
         ConfigLoader::edit_workdir_config_file_compote(config_path_str, |config| {
             // Create default context for parsing YAML
-            let context = compote::ConfigContext::new(
-                compote::ConfigSource::Programmatic,
-                compote::ConfigLevel::Local,
+            let context = compote::Context::new(
+                compote::Source::Programmatic,
+                compote::Level::Local,
             );
 
             // Collect existing dependencies as YAML strings for comparison
             let mut current_deps: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
 
-            if let Some(compote::Value::Array(arr)) = config.at("up").get() {
+            if let Some(compote::ContextValue::Array(arr, _)) = config.at("up").get() {
                 for item in arr.iter() {
                     // Serialize each dependency to YAML for comparison
                     if let Ok(yaml) = item.to_yaml() {
@@ -352,7 +352,7 @@ impl SandboxCommand {
                             return None;
                         }
                     }
-                    Some(dep_value.value)
+                    Some(compote::Value::from(dep_value))
                 })
                 .collect();
 

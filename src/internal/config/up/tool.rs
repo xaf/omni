@@ -1,6 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use compote::Context as CompoteConfigContext;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
+use compote::Level as CompoteConfigLevel;
+use compote::Source as CompoteConfigSource;
 use itertools::any;
 use itertools::Itertools;
 use serde::Deserialize;
@@ -8,8 +14,6 @@ use serde::Serialize;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
 use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpConfigBundler;
@@ -26,7 +30,6 @@ use crate::internal::config::up::UpConfigNodejs;
 use crate::internal::config::up::UpConfigPython;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 
 /// UpConfigTool represents a tool that can be upped or downed.
@@ -144,24 +147,24 @@ impl Serialize for UpConfigTool {
 }
 
 impl UpConfigTool {
-    pub fn from_config_value(
+    /// Compote-based config parsing method with external tag
+    pub fn compote_from_config_value(
         up_name: &str,
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
+        config_value: Option<&CompoteConfigValue>,
+        error_tracker: &mut CompoteErrorTracker,
     ) -> Option<Self> {
         match up_name {
             "and" | "any" | "or" => {
-                if config_value.is_none() {
-                    // If there is no config value, we can't proceed
-                    error_handler.error(ConfigErrorKind::EmptyKey);
-                    return None;
-                }
-
-                let upconfig = UpConfig::from_config_value(config_value.cloned(), error_handler)?;
+                let config_value = config_value?;
+                // Use existing parsing through CompoteFromConfigValue trait
+                let upconfig: UpConfig =
+                    match CompoteFromConfigValue::from_config_value(config_value, error_tracker) {
+                        Ok(config) => config,
+                        Err(_) => return None,
+                    };
 
                 if upconfig.steps.is_empty() {
-                    error_handler.error(ConfigErrorKind::EmptyKey);
-
+                    error_tracker.record_invalid_value("at least one step required");
                     None
                 } else {
                     match up_name {
@@ -173,57 +176,126 @@ impl UpConfigTool {
                 }
             }
             "bash" => Some(UpConfigTool::Bash(
-                UpConfigMise::from_config_value_with_params(
+                UpConfigMise::compote_from_config_value_with_params(
                     "bash",
                     config_value,
                     UpConfigMiseParams {
                         tool_url: Some("https://github.com/xaf/asdf-bash".into()),
                     },
-                    error_handler,
+                    error_tracker,
                 ),
             )),
-            "bundler" | "bundle" => Some(UpConfigTool::Bundler(
-                UpConfigBundler::from_config_value(config_value, error_handler),
-            )),
-            "cargo-install" | "cargo_install" | "cargoinstall" => Some(UpConfigTool::CargoInstall(
-                UpConfigCargoInstalls::from_config_value(config_value, error_handler),
-            )),
-            "custom" => Some(UpConfigTool::Custom(UpConfigCustom::from_config_value(
-                config_value,
-                error_handler,
-            ))),
+            "bundler" | "bundle" => {
+                let config = match config_value {
+                    Some(cv) => {
+                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                            .unwrap_or_default()
+                    }
+                    None => UpConfigBundler::default(),
+                };
+                Some(UpConfigTool::Bundler(config))
+            }
+            "cargo-install" | "cargo_install" | "cargoinstall" => {
+                let config = match config_value {
+                    Some(cv) => {
+                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                            .unwrap_or_default()
+                    }
+                    None => {
+                        error_tracker.record_invalid_value("cargo-install requires configuration");
+                        UpConfigCargoInstalls::default()
+                    }
+                };
+                Some(UpConfigTool::CargoInstall(config))
+            }
+            "custom" => {
+                let config = match config_value {
+                    Some(cv) => {
+                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                            .unwrap_or_default()
+                    }
+                    None => UpConfigCustom::default(),
+                };
+                Some(UpConfigTool::Custom(config))
+            }
             "github-release" | "github_release" | "githubrelease" | "ghrelease"
             | "github-releases" | "github_releases" | "githubreleases" | "ghreleases" => {
-                Some(UpConfigTool::GithubRelease(
-                    UpConfigGithubReleases::from_config_value(config_value, error_handler),
-                ))
+                let config = match config_value {
+                    Some(cv) => {
+                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                            .unwrap_or_default()
+                    }
+                    None => UpConfigGithubReleases::default(),
+                };
+                Some(UpConfigTool::GithubRelease(config))
             }
-            "go" | "golang" => Some(UpConfigTool::Go(UpConfigGolang::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            "go-install" | "go_install" | "goinstall" => Some(UpConfigTool::GoInstall(
-                UpConfigGoInstalls::from_config_value(config_value, error_handler),
-            )),
-            "homebrew" | "brew" => Some(UpConfigTool::Homebrew(
-                UpConfigHomebrew::from_config_value(config_value, error_handler),
-            )),
-            "nix" => Some(UpConfigTool::Nix(UpConfigNix::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            "nodejs" | "node" => Some(UpConfigTool::Nodejs(UpConfigNodejs::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            "python" => Some(UpConfigTool::Python(UpConfigPython::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            _ => Some(UpConfigTool::Mise(UpConfigMise::from_config_value(
+            "go" | "golang" => {
+                let config = match config_value {
+                    Some(cv) => {
+                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                            .unwrap_or_default()
+                    }
+                    None => UpConfigGolang::default(),
+                };
+                Some(UpConfigTool::Go(config))
+            }
+            "go-install" | "go_install" | "goinstall" => {
+                let config = match config_value {
+                    Some(cv) => {
+                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                            .unwrap_or_default()
+                    }
+                    None => UpConfigGoInstalls::default(),
+                };
+                Some(UpConfigTool::GoInstall(config))
+            }
+            "homebrew" | "brew" => {
+                let null_value = CompoteConfigValue::null(CompoteConfigContext::new(
+                    CompoteConfigSource::Programmatic,
+                    CompoteConfigLevel::Local,
+                ));
+                let cv = config_value.unwrap_or(&null_value);
+                let config = CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                    .unwrap_or_else(|_| UpConfigHomebrew { install: vec![], tap: vec![] });
+                Some(UpConfigTool::Homebrew(config))
+            }
+            "nix" => {
+                let config = match config_value {
+                    Some(cv) => {
+                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                            .unwrap_or_default()
+                    }
+                    None => UpConfigNix::default(),
+                };
+                Some(UpConfigTool::Nix(config))
+            }
+            "nodejs" | "node" => {
+                let null_value = CompoteConfigValue::null(CompoteConfigContext::new(
+                    CompoteConfigSource::Programmatic,
+                    CompoteConfigLevel::Local,
+                ));
+                let cv = config_value.unwrap_or(&null_value);
+                match CompoteFromConfigValue::from_config_value(cv, error_tracker) {
+                    Ok(config) => Some(UpConfigTool::Nodejs(config)),
+                    Err(_) => None,
+                }
+            }
+            "python" => {
+                let null_value = CompoteConfigValue::null(CompoteConfigContext::new(
+                    CompoteConfigSource::Programmatic,
+                    CompoteConfigLevel::Local,
+                ));
+                let cv = config_value.unwrap_or(&null_value);
+                match CompoteFromConfigValue::from_config_value(cv, error_tracker) {
+                    Ok(config) => Some(UpConfigTool::Python(config)),
+                    Err(_) => None,
+                }
+            }
+            // Default: treat as mise tool
+            _ => Some(UpConfigTool::Mise(UpConfigMise::compote_from_config_value(
                 up_name,
                 config_value,
-                error_handler,
+                error_tracker,
             ))),
         }
     }

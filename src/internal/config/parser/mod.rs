@@ -39,6 +39,7 @@ pub(crate) use env::EnvOperationEnum;
 mod errors;
 pub(crate) use errors::ConfigError;
 pub(crate) use errors::ConfigErrorHandler;
+pub(crate) use errors::ConfigErrorKind;
 pub(crate) use errors::ParseArgsErrorKind;
 
 mod github;

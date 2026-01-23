@@ -8,9 +8,7 @@ use tokio::process::Command as TokioCommand;
 use crate::internal::cache::up_environments::UpEnvVar;
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::parser::EnvOperationEnum;
-use config_value::ConfigErrorKind;
 use crate::internal::config::up::utils::data_path_dir_hash;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::FifoReader;
@@ -19,9 +17,12 @@ use crate::internal::config::up::utils::RunConfig;
 use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpConfigCustom {
@@ -54,42 +55,6 @@ impl Default for UpConfigCustom {
 
 impl UpConfigCustom {
     const DEFAULT_MEET: &str = "true";
-
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Self::default();
-            }
-        };
-
-        let meet = config_value
-            .get_as_str_or_none("meet", &error_handler.with_key("meet"))
-            .unwrap_or_else(|| {
-                error_handler
-                    .with_key("meet")
-                    .error(ConfigErrorKind::MissingKey);
-
-                Self::DEFAULT_MEET.to_string()
-            });
-        let met = config_value.get_as_str_or_none("met?", &error_handler.with_key("met?"));
-        let unmeet = config_value.get_as_str_or_none("unmeet", &error_handler.with_key("unmeet"));
-        let name = config_value.get_as_str_or_none("name", &error_handler.with_key("name"));
-        let dir = config_value.get_as_str_or_none("dir", &error_handler.with_key("dir"));
-
-        UpConfigCustom {
-            meet,
-            met,
-            unmeet,
-            name,
-            dir,
-            ..Self::default()
-        }
-    }
 
     pub fn dir(&self) -> Option<String> {
         self.dir.as_ref().map(|dir| dir.to_string())
@@ -558,6 +523,57 @@ fn is_valid_delimiter(delimiter: &str) -> bool {
         && delimiter
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// Helper functions for compote conversion
+fn compote_get_str_or_none(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    _tracker: &mut CompoteErrorTracker,
+) -> Option<String> {
+    map.get(key).and_then(|v| match v {
+        CompoteConfigValue::String(s, _) => Some(s.clone()),
+        _ => None,
+    })
+}
+
+impl CompoteFromConfigValue for UpConfigCustom {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match value {
+            CompoteConfigValue::Object(map, _) => {
+                let meet = compote_get_str_or_none(map, "meet", tracker)
+                    .unwrap_or_else(|| {
+                        tracker.push_field("meet");
+                        tracker.record(CompoteConfigError::MissingField {
+                            path: tracker.current_path(),
+                        });
+                        tracker.pop();
+                        Self::DEFAULT_MEET.to_string()
+                    });
+
+                let met = compote_get_str_or_none(map, "met?", tracker);
+                let unmeet = compote_get_str_or_none(map, "unmeet", tracker);
+                let name = compote_get_str_or_none(map, "name", tracker);
+                let dir = compote_get_str_or_none(map, "dir", tracker);
+
+                Ok(UpConfigCustom {
+                    meet,
+                    met,
+                    unmeet,
+                    name,
+                    dir,
+                    data_paths: OnceCell::new(),
+                })
+            }
+            _ => {
+                tracker.record_type_mismatch("table", value.type_name());
+                Ok(Self::default())
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -2,25 +2,17 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 use serde::Serialize;
-use tera::Context;
-use tera::Tera;
 
 use crate::internal::cache::utils::Empty;
-use crate::internal::config::template::config_template_context;
-use crate::internal::config::template::render_config_template;
-use crate::internal::config::template::tera_render_error_message;
-use crate::internal::config::ConfigValue;
-use crate::internal::user_interface::colors::StringColor;
-use crate::omni_warning;
 
 // Compote imports
-use compote::ConfigContext as CompoteConfigContext;
 use compote::ConfigError as CompoteConfigError;
-use compote::ConfigLevel as CompoteConfigLevel;
-use compote::ConfigSource as CompoteConfigSource;
-use compote::ConfigValue as CompoteConfigValue;
+use compote::Context as CompoteConfigContext;
+use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromConfigValue as CompoteFromConfigValue;
+use compote::FromContextValue as CompoteFromConfigValue;
+use compote::Level as CompoteConfigLevel;
+use compote::Source as CompoteConfigSource;
 use compote::Value as CompoteValue;
 
 // ============================================================================
@@ -28,12 +20,12 @@ use compote::Value as CompoteValue;
 // ============================================================================
 //
 // Strategy: Store compote::Value directly instead of serializing to YAML string.
-// This is the clean approach that moves toward eliminating config_value entirely.
+// This is the clean approach that has eliminated config_value from suggest_config.
 //
 // Key points:
 // 1. The `config` field stores `compote::Value` directly
 // 2. `config()` returns `&compote::Value`
-// 3. `config_value()` converts to config_value::ConfigValue for backward compat
+// 3. `compote_config_value()` returns `compote::ConfigValue` for merging
 // 4. Custom FromConfigValue impl handles variant-style parsing
 //
 // ============================================================================
@@ -65,22 +57,9 @@ impl StoredConfig {
         &self.0
     }
 
-    /// Convert to config_value::ConfigValue for backward compatibility
-    /// This method will be removed once config_value is fully eliminated
-    pub fn to_config_value(&self) -> ConfigValue {
-        if self.is_empty() {
-            return ConfigValue::default();
-        }
-
-        // Convert compote::Value to config_value::Value, then to ConfigValue
-        let primitive = compote_value_to_config_value(&self.0);
-        match primitive.to_yaml_string() {
-            Ok(yaml_str) => {
-                ConfigValue::from_str_with(Default::default(), Default::default(), &yaml_str)
-                    .unwrap_or_default()
-            }
-            Err(_) => ConfigValue::default(),
-        }
+    /// Convert to compote::ConfigValue for merging with compote::Config
+    pub fn to_compote_config_value(&self) -> CompoteConfigValue {
+        value_to_compote_config_value(&self.0, synthetic_context())
     }
 }
 
@@ -111,35 +90,37 @@ impl CompoteFromConfigValue for StoredConfig {
         value: &CompoteConfigValue,
         _tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        // Just clone the value directly
-        Ok(StoredConfig(value.value.clone()))
+        // Convert ContextValue to Value (stripping context)
+        Ok(StoredConfig(CompoteValue::from(value)))
     }
 }
 
-/// Convert compote::Value to config_value::Value
-fn compote_value_to_config_value(value: &CompoteValue) -> config_value::Value {
+/// Convert compote::Value to compote::ConfigValue with the given context
+fn value_to_compote_config_value(value: &CompoteValue, context: CompoteConfigContext) -> CompoteConfigValue {
     match value {
-        CompoteValue::Null => config_value::Value::Null,
-        CompoteValue::Bool(b) => config_value::Value::Bool(*b),
-        CompoteValue::Int(i) => config_value::Value::Integer(*i),
-        CompoteValue::Float(f) => config_value::Value::Float(*f),
-        CompoteValue::String(s) => config_value::Value::String(s.clone()),
+        CompoteValue::Null => CompoteConfigValue::null(context),
+        CompoteValue::Bool(b) => CompoteConfigValue::bool(*b, context),
+        CompoteValue::Int(i) => CompoteConfigValue::int(*i, context),
+        CompoteValue::Float(f) => CompoteConfigValue::float(*f, context),
+        CompoteValue::String(s) => CompoteConfigValue::string(s.clone(), context),
         CompoteValue::Array(arr) => {
-            let items: Vec<config_value::Value> =
-                arr.iter().map(|v| compote_value_to_config_value(&v.value)).collect();
-            config_value::Value::Sequence(items)
+            let items: Vec<CompoteConfigValue> = arr
+                .iter()
+                .map(|v| value_to_compote_config_value(v, context.clone()))
+                .collect();
+            CompoteConfigValue::array(items, context)
         }
         CompoteValue::Object(map) => {
-            let items: std::collections::HashMap<String, config_value::Value> = map
+            let items: indexmap::IndexMap<String, CompoteConfigValue> = map
                 .iter()
-                .map(|(k, v)| (k.clone(), compote_value_to_config_value(&v.value)))
+                .map(|(k, v)| (k.clone(), value_to_compote_config_value(v, context.clone())))
                 .collect();
-            config_value::Value::Mapping(items)
+            CompoteConfigValue::object(items, context)
         }
     }
 }
 
-/// Convert serde_yaml::Value to compote::Value
+/// Convert serde_yaml::Value to compote::Value (contextless)
 fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteValue {
     match value {
         serde_yaml::Value::Null => CompoteValue::Null,
@@ -155,14 +136,51 @@ fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteValue {
         }
         serde_yaml::Value::String(s) => CompoteValue::String(s),
         serde_yaml::Value::Sequence(arr) => {
-            let items: Vec<CompoteConfigValue> = arr
+            let items: Vec<CompoteValue> = arr
                 .into_iter()
-                .map(|v| CompoteConfigValue {
-                    value: yaml_value_to_compote_value(v),
-                    context: synthetic_context(),
-                })
+                .map(yaml_value_to_compote_value)
                 .collect();
             CompoteValue::Array(items)
+        }
+        serde_yaml::Value::Mapping(map) => {
+            let items: indexmap::IndexMap<String, CompoteValue> = map
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    let key = match k {
+                        serde_yaml::Value::String(s) => s,
+                        _ => return None,
+                    };
+                    Some((key, yaml_value_to_compote_value(v)))
+                })
+                .collect();
+            CompoteValue::Object(items)
+        }
+        serde_yaml::Value::Tagged(tagged) => yaml_value_to_compote_value(tagged.value),
+    }
+}
+
+/// Convert serde_yaml::Value to compote::ContextValue
+fn yaml_value_to_compote_config_value(value: serde_yaml::Value) -> CompoteConfigValue {
+    let ctx = synthetic_context();
+    match value {
+        serde_yaml::Value::Null => CompoteConfigValue::null(ctx),
+        serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, ctx),
+        serde_yaml::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                CompoteConfigValue::int(i, ctx)
+            } else if let Some(f) = n.as_f64() {
+                CompoteConfigValue::float(f, ctx)
+            } else {
+                CompoteConfigValue::null(ctx)
+            }
+        }
+        serde_yaml::Value::String(s) => CompoteConfigValue::string(s, ctx),
+        serde_yaml::Value::Sequence(arr) => {
+            let items: Vec<CompoteConfigValue> = arr
+                .into_iter()
+                .map(yaml_value_to_compote_config_value)
+                .collect();
+            CompoteConfigValue::array(items, ctx)
         }
         serde_yaml::Value::Mapping(map) => {
             let items: indexmap::IndexMap<String, CompoteConfigValue> = map
@@ -172,18 +190,12 @@ fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteValue {
                         serde_yaml::Value::String(s) => s,
                         _ => return None,
                     };
-                    Some((
-                        key,
-                        CompoteConfigValue {
-                            value: yaml_value_to_compote_value(v),
-                            context: synthetic_context(),
-                        },
-                    ))
+                    Some((key, yaml_value_to_compote_config_value(v)))
                 })
                 .collect();
-            CompoteValue::Object(items)
+            CompoteConfigValue::object(items, ctx)
         }
-        serde_yaml::Value::Tagged(tagged) => yaml_value_to_compote_value(tagged.value),
+        serde_yaml::Value::Tagged(tagged) => yaml_value_to_compote_config_value(tagged.value),
     }
 }
 
@@ -202,7 +214,7 @@ where
             use serde::ser::SerializeSeq;
             let mut seq = serializer.serialize_seq(Some(arr.len()))?;
             for item in arr {
-                seq.serialize_element(&SerializableCompoteValue(&item.value))?;
+                seq.serialize_element(&SerializableCompoteValue(item))?;
             }
             seq.end()
         }
@@ -210,7 +222,7 @@ where
             use serde::ser::SerializeMap;
             let mut m = serializer.serialize_map(Some(map.len()))?;
             for (k, v) in map {
-                m.serialize_entry(k, &SerializableCompoteValue(&v.value))?;
+                m.serialize_entry(k, &SerializableCompoteValue(v))?;
             }
             m.end()
         }
@@ -250,11 +262,11 @@ impl CompoteFromConfigValue for SuggestConfig {
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
         // Check if it's an object with special keys
-        if let CompoteValue::Object(map) = &value.value {
+        if let CompoteConfigValue::Object(map, _) = value {
             // Check for "config" key - use its value directly
             if let Some(config_val) = map.get("config") {
                 return Ok(Self {
-                    config: StoredConfig(config_val.value.clone()),
+                    config: StoredConfig(CompoteValue::from(config_val)),
                     template: String::new(),
                     template_file: String::new(),
                 });
@@ -262,7 +274,7 @@ impl CompoteFromConfigValue for SuggestConfig {
 
             // Check for "template" key
             if let Some(template_val) = map.get("template") {
-                if let CompoteValue::String(s) = &template_val.value {
+                if let CompoteConfigValue::String(s, _) = template_val {
                     return Ok(Self {
                         config: StoredConfig::default(),
                         template: s.clone(),
@@ -273,7 +285,7 @@ impl CompoteFromConfigValue for SuggestConfig {
 
             // Check for "template_file" key
             if let Some(template_file_val) = map.get("template_file") {
-                if let CompoteValue::String(s) = &template_file_val.value {
+                if let CompoteConfigValue::String(s, _) = template_file_val {
                     return Ok(Self {
                         config: StoredConfig::default(),
                         template: String::new(),
@@ -352,83 +364,16 @@ impl SuggestConfig {
         &self.config.0
     }
 
-    /// Get the config as config_value::ConfigValue (for backward compatibility)
-    /// This method will be removed once config_value is fully eliminated from omni
-    pub fn config_value(&self) -> ConfigValue {
-        self.config_value_in_context(".")
-    }
-
-    /// Get the config as config_value::ConfigValue in context (for backward compatibility)
-    pub fn config_value_in_context(&self, path: &str) -> ConfigValue {
-        let context = config_template_context(path);
-        self.config_value_with_context(&context)
-    }
-
-    fn config_value_with_context(&self, template_context: &Context) -> ConfigValue {
-        // If we have config stored directly, convert to ConfigValue
-        if !self.config.is_empty() {
-            return self.config.to_config_value();
-        }
-
-        let mut template = Tera::default();
-        if !self.template.is_empty() {
-            if let Err(err) = template.add_raw_template("suggest_config", &self.template) {
-                omni_warning!(tera_render_error_message(err));
-                omni_warning!("suggest_config will be ignored");
-                return ConfigValue::default();
-            }
-        } else if !self.template_file.is_empty() {
-            if let Err(err) = template.add_template_file(&self.template_file, None) {
-                omni_warning!(tera_render_error_message(err));
-                omni_warning!("suggest_config will be ignored");
-                return ConfigValue::default();
-            }
-        }
-
-        if !template.templates.is_empty() {
-            match render_config_template(&template, template_context) {
-                Ok(yaml_str) => {
-                    // Parse YAML string using compote
-                    match serde_yaml::from_str::<serde_yaml::Value>(&yaml_str) {
-                        Ok(yaml_value) => {
-                            // Convert to compote::Value and deserialize
-                            let compote_value = yaml_value_to_compote_value(yaml_value);
-                            let config_value = CompoteConfigValue {
-                                value: compote_value,
-                                context: synthetic_context(),
-                            };
-                            let mut tracker = CompoteErrorTracker::new();
-                            match Self::from_config_value(&config_value, &mut tracker) {
-                                Ok(suggest) => {
-                                    // In case this is recursive for some reason...
-                                    return suggest.config_value_with_context(template_context);
-                                }
-                                Err(err) => {
-                                    omni_warning!(format!(
-                                        "Failed to parse suggest_config template: {}",
-                                        err
-                                    ));
-                                    omni_warning!("suggest_config will be ignored");
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            omni_warning!(format!(
-                                "Failed to parse suggest_config template: {}",
-                                err
-                            ));
-                            omni_warning!("suggest_config will be ignored");
-                        }
-                    }
-                }
-                Err(err) => {
-                    omni_warning!(tera_render_error_message(err));
-                    omni_warning!("suggest_config will be ignored");
-                }
-            }
-        }
-
-        ConfigValue::default()
+    /// Get the config as compote::ConfigValue for merging with compote::Config
+    ///
+    /// This is the primary API for getting the suggest config for merging purposes.
+    /// It converts the internal compote::Value to a compote::ConfigValue with synthetic context.
+    ///
+    /// Note: Template rendering is not yet supported via this method.
+    pub fn compote_config_value(&self) -> CompoteConfigValue {
+        // For now, we only support direct config (no template rendering)
+        // TODO: Add template rendering support for compote path
+        self.config.to_compote_config_value()
     }
 }
 

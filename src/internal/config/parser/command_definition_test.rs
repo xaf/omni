@@ -2680,9 +2680,8 @@ mod parse_arg_name {
 
 mod syntax_opt_arg_type {
     use super::*;
-    use compote::ConfigValue as CompoteConfigValue;
+    use compote::ContextValue as CompoteConfigValue;
     use compote::ErrorTracker as CompoteErrorTracker;
-    use compote::Value as CompoteValue;
 
     /// Helper function to create a compote ConfigValue from a YAML string
     fn make_compote_value(yaml: &str) -> CompoteConfigValue {
@@ -2692,26 +2691,26 @@ mod syntax_opt_arg_type {
 
     /// Convert a serde_yaml::Value to compote ConfigValue (test version)
     fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
-        let context = compote::ConfigContext::new(
-            compote::ConfigSource::Default,
-            compote::ConfigLevel::System,
+        let context = compote::Context::new(
+            compote::Source::Default,
+            compote::Level::System,
         );
-        let inner_value = match value {
-            serde_yaml::Value::Null => CompoteValue::Null,
-            serde_yaml::Value::Bool(b) => CompoteValue::Bool(b),
+        match value {
+            serde_yaml::Value::Null => CompoteConfigValue::null(context),
+            serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, context),
             serde_yaml::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    CompoteValue::Int(i)
+                    CompoteConfigValue::int(i, context)
                 } else if let Some(f) = n.as_f64() {
-                    CompoteValue::Float(f)
+                    CompoteConfigValue::float(f, context)
                 } else {
-                    CompoteValue::Null
+                    CompoteConfigValue::null(context)
                 }
             }
-            serde_yaml::Value::String(s) => CompoteValue::String(s),
+            serde_yaml::Value::String(s) => CompoteConfigValue::string(s, context),
             serde_yaml::Value::Sequence(seq) => {
-                let arr = seq.into_iter().map(yaml_value_to_compote_value).collect();
-                CompoteValue::Array(arr)
+                let arr: Vec<CompoteConfigValue> = seq.into_iter().map(yaml_value_to_compote_value).collect();
+                CompoteConfigValue::array(arr, context)
             }
             serde_yaml::Value::Mapping(map) => {
                 let obj: indexmap::IndexMap<String, CompoteConfigValue> = map
@@ -2724,11 +2723,10 @@ mod syntax_opt_arg_type {
                         Some((key, yaml_value_to_compote_value(v)))
                     })
                     .collect();
-                CompoteValue::Object(obj)
+                CompoteConfigValue::object(obj, context)
             }
-            serde_yaml::Value::Tagged(_) => CompoteValue::Null,
-        };
-        CompoteConfigValue::new(inner_value, context)
+            serde_yaml::Value::Tagged(_) => CompoteConfigValue::null(context),
+        }
     }
 
     #[test]

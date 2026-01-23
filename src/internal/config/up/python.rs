@@ -8,11 +8,14 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
+
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::commands::utils::abs_path;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
 use crate::internal::config::up::github_release::UpConfigGithubRelease;
 use crate::internal::config::up::mise::FullyQualifiedToolName;
 use crate::internal::config::up::mise::PostInstallFuncArgs;
@@ -32,7 +35,6 @@ use crate::internal::env::current_dir;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::env::workdir;
 use crate::internal::user_interface::StringColor;
-use crate::internal::ConfigValue;
 
 const MIN_VERSION_VENV: Version = Version::new(3, 3, 0);
 // const MIN_VERSION_VIRTUALENV: Version = Version::new(2, 6, 0);
@@ -47,55 +49,64 @@ pub struct UpConfigPythonParams {
     pip_disabled: bool,
 }
 
-impl UpConfigPythonParams {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
+impl CompoteFromConfigValue for UpConfigPythonParams {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        errors: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
         let mut pip_files = Vec::new();
         let mut pip_auto = false;
         let mut pip_disabled = false;
 
-        if let Some(config_value) = config_value {
-            if let Some(pip) = config_value.get("pip") {
-                let error_handler = error_handler.with_key("pip");
-                if let Some(pip_array) = pip.as_array() {
-                    for (idx, file_path) in pip_array.iter().enumerate() {
-                        if let Some(file_path) = file_path.as_str_forced() {
-                            pip_files.push(file_path.to_string());
-                        } else {
-                            error_handler
-                                .with_index(idx)
-                                .with_expected("string")
-                                .with_actual(file_path)
-                                .error(ConfigErrorKind::InvalidValueType);
+        // Extract the "pip" field from the object
+        if let CompoteConfigValue::Object(map, _) = value {
+            if let Some(pip_value) = map.get("pip") {
+                errors.push_field("pip");
+                match pip_value {
+                    // Handle array of strings
+                    CompoteConfigValue::Array(arr, _) => {
+                        for (idx, item) in arr.iter().enumerate() {
+                            match item {
+                                CompoteConfigValue::String(s, _) => {
+                                    pip_files.push(s.clone());
+                                }
+                                _ => {
+                                    errors.push_index(idx);
+                                    errors.record_type_mismatch("string", item.type_name());
+                                    errors.pop();
+                                }
+                            }
                         }
                     }
-                } else if let Some(value) = pip.as_bool_forced() {
-                    if value {
-                        pip_auto = true;
-                    } else {
-                        pip_disabled = true;
+                    // Handle boolean
+                    CompoteConfigValue::Bool(b, _) => {
+                        if *b {
+                            pip_auto = true;
+                        } else {
+                            pip_disabled = true;
+                        }
                     }
-                } else if let Some(file_path) = pip.as_str_forced() {
-                    match file_path.as_str() {
+                    // Handle string (either "auto" or a file path)
+                    CompoteConfigValue::String(s, _) => match s.as_str() {
                         "auto" => pip_auto = true,
-                        _ => pip_files.push(file_path),
+                        _ => pip_files.push(s.clone()),
+                    },
+                    _ => {
+                        errors.record_type_mismatch(
+                            "string, array, or boolean",
+                            pip_value.type_name(),
+                        );
                     }
-                } else {
-                    error_handler
-                        .with_expected(vec!["string", "sequence", "boolean"])
-                        .with_actual(pip)
-                        .error(ConfigErrorKind::InvalidValueType);
                 }
+                errors.pop();
             }
         }
 
-        Self {
+        Ok(Self {
             pip_files,
             pip_auto,
             pip_disabled,
-        }
+        })
     }
 }
 
@@ -134,21 +145,23 @@ impl Serialize for UpConfigPython {
     }
 }
 
-impl UpConfigPython {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut backend = UpConfigMise::from_config_value("python", config_value, error_handler);
+impl CompoteFromConfigValue for UpConfigPython {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        errors: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let mut backend = UpConfigMise::compote_from_config_value("python", Some(value), errors);
         backend.add_detect_version_func(detect_version_from_pyproject_toml);
         backend.add_post_install_func(setup_python_venv);
         backend.add_post_install_func(setup_python_requirements);
 
-        let params = UpConfigPythonParams::from_config_value(config_value, error_handler);
+        let params = <UpConfigPythonParams as CompoteFromConfigValue>::from_config_value(value, errors)?;
 
-        Self { backend, params }
+        Ok(Self { backend, params })
     }
+}
 
+impl UpConfigPython {
     pub fn up(
         &self,
         options: &UpOptions,
@@ -476,10 +489,13 @@ fn setup_python_requirements(
     progress_handler: &UpProgressHandler,
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError> {
-    let params = UpConfigPythonParams::from_config_value(
-        args.config_value.as_ref(),
-        &ConfigErrorHandler::noop(),
-    );
+    let params = if let Some(config_value) = args.config_value.as_ref() {
+        let mut tracker = CompoteErrorTracker::new();
+        <UpConfigPythonParams as CompoteFromConfigValue>::from_config_value(config_value, &mut tracker)
+            .unwrap_or_default()
+    } else {
+        UpConfigPythonParams::default()
+    };
 
     // If pip is disabled, skip dependency installation
     if params.pip_disabled {

@@ -14,13 +14,13 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
 // Compote imports
-use compote::ConfigContext as CompoteConfigContext;
 use compote::ConfigError as CompoteConfigError;
-use compote::ConfigLevel as CompoteConfigLevel;
-use compote::ConfigSource as CompoteConfigSource;
-use compote::ConfigValue as CompoteConfigValue;
+use compote::Context as CompoteConfigContext;
+use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromConfigValue as CompoteFromConfigValue;
+use compote::FromContextValue as CompoteFromConfigValue;
+use compote::Level as CompoteConfigLevel;
+use compote::Source as CompoteConfigSource;
 
 #[derive(Default, Debug, Deserialize, Clone)]
 pub struct PromptsConfig {
@@ -211,9 +211,9 @@ impl PromptType {
     ) -> bool {
         // Override the default value with the cached answer if there is one
         // for the current scope; otherwise, use the default value.
-        // The cache returns config_value::Value, so we convert it to CompoteValue.
+        // The cache returns serde_json::Value, so we convert it to CompoteValue.
         let default = match PromptsCache::get().answers(".").get(id) {
-            Some(answer) => config_value_to_compote_value(answer),
+            Some(answer) => json_value_to_compote_value(answer),
             None => default,
         };
 
@@ -307,9 +307,7 @@ impl PromptType {
 
                 if !default.is_null() {
                     let defaults: Vec<CompoteValue> = match default.clone() {
-                        CompoteValue::Array(defaults) => {
-                            defaults.into_iter().map(|cv| cv.value).collect()
-                        }
+                        CompoteValue::Array(defaults) => defaults,
                         CompoteValue::String(_) => vec![default],
                         CompoteValue::Int(_) => vec![default],
                         _ => vec![],
@@ -477,13 +475,13 @@ impl PromptType {
             }
         };
 
-        // Create the answer value as config_value::Value for cache storage
-        let answer_value: config_value::Value = match requestty::prompt_one(question) {
+        // Create the answer value as serde_json::Value for cache storage
+        let answer_value: serde_json::Value = match requestty::prompt_one(question) {
             Ok(answer) => match answer {
-                requestty::Answer::String(answer) => config_value::Value::String(answer),
-                requestty::Answer::Bool(answer) => config_value::Value::Bool(answer),
-                requestty::Answer::Int(answer) => config_value::Value::Integer(answer),
-                requestty::Answer::Float(answer) => config_value::Value::Float(answer),
+                requestty::Answer::String(answer) => serde_json::Value::String(answer),
+                requestty::Answer::Bool(answer) => serde_json::Value::Bool(answer),
+                requestty::Answer::Int(answer) => serde_json::json!(answer),
+                requestty::Answer::Float(answer) => serde_json::json!(answer),
                 requestty::Answer::ListItem(answer) => {
                     let choices = match self {
                         Self::Choice { choices } => match choices.choices() {
@@ -504,7 +502,7 @@ impl PromptType {
                         }
                     };
 
-                    config_value::Value::String(selected_choice)
+                    serde_json::Value::String(selected_choice)
                 }
                 requestty::Answer::ListItems(answers) => {
                     let choices = match self {
@@ -518,13 +516,13 @@ impl PromptType {
                         }
                     };
 
-                    let selected_choices: Vec<config_value::Value> = answers
+                    let selected_choices: Vec<serde_json::Value> = answers
                         .iter()
                         .filter_map(|answer| choices.get(answer.index))
-                        .map(|choice| config_value::Value::String(choice.id.to_string()))
+                        .map(|choice| serde_json::Value::String(choice.id.to_string()))
                         .collect();
 
-                    config_value::Value::Sequence(selected_choices)
+                    serde_json::Value::Array(selected_choices)
                 }
                 _ => unimplemented!(),
             },
@@ -632,71 +630,70 @@ fn compote_value_null() -> CompoteValue {
     CompoteValue::Null
 }
 
-/// Convert config_value::Value to compote::Value
-fn config_value_to_compote_value(value: &config_value::Value) -> CompoteValue {
+/// Convert serde_json::Value to compote::ContextValue
+fn json_value_to_compote_context_value(value: &serde_json::Value) -> compote::ContextValue {
+    let ctx = compote::Context::new(
+        compote::Source::Programmatic,
+        compote::Level::Local,
+    );
     match value {
-        config_value::Value::Null => CompoteValue::Null,
-        config_value::Value::Bool(b) => CompoteValue::Bool(*b),
-        config_value::Value::Integer(i) => CompoteValue::Int(*i),
-        config_value::Value::UnsignedInteger(u) => CompoteValue::Int(*u as i64),
-        config_value::Value::Float(f) => CompoteValue::Float(*f),
-        config_value::Value::String(s) => CompoteValue::String(s.clone()),
-        config_value::Value::Sequence(arr) => {
-            let items: Vec<compote::ConfigValue> = arr
-                .iter()
-                .map(|v| compote::ConfigValue {
-                    value: config_value_to_compote_value(v),
-                    context: compote::ConfigContext::new(
-                        compote::ConfigSource::Programmatic,
-                        compote::ConfigLevel::Local,
-                    ),
-                })
-                .collect();
-            CompoteValue::Array(items)
+        serde_json::Value::Null => compote::ContextValue::null(ctx),
+        serde_json::Value::Bool(b) => compote::ContextValue::bool(*b, ctx),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                compote::ContextValue::int(i, ctx)
+            } else if let Some(f) = n.as_f64() {
+                compote::ContextValue::float(f, ctx)
+            } else {
+                compote::ContextValue::null(ctx)
+            }
         }
-        config_value::Value::Mapping(map) => {
-            let items: indexmap::IndexMap<String, compote::ConfigValue> = map
+        serde_json::Value::String(s) => compote::ContextValue::string(s.clone(), ctx),
+        serde_json::Value::Array(arr) => {
+            let items: Vec<compote::ContextValue> = arr
                 .iter()
-                .map(|(k, v)| {
-                    (
-                        k.clone(),
-                        compote::ConfigValue {
-                            value: config_value_to_compote_value(v),
-                            context: compote::ConfigContext::new(
-                                compote::ConfigSource::Programmatic,
-                                compote::ConfigLevel::Local,
-                            ),
-                        },
-                    )
-                })
+                .map(json_value_to_compote_context_value)
                 .collect();
-            CompoteValue::Object(items)
+            compote::ContextValue::array(items, ctx)
+        }
+        serde_json::Value::Object(map) => {
+            let items: indexmap::IndexMap<String, compote::ContextValue> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), json_value_to_compote_context_value(v)))
+                .collect();
+            compote::ContextValue::object(items, ctx)
         }
     }
 }
 
-/// Convert compote::Value to config_value::Value
-#[allow(dead_code)]
-fn compote_value_to_config_value(value: &CompoteValue) -> config_value::Value {
+/// Convert serde_json::Value to compote::Value
+fn json_value_to_compote_value(value: &serde_json::Value) -> CompoteValue {
     match value {
-        CompoteValue::Null => config_value::Value::Null,
-        CompoteValue::Bool(b) => config_value::Value::Bool(*b),
-        CompoteValue::Int(i) => config_value::Value::Integer(*i),
-        CompoteValue::Float(f) => config_value::Value::Float(*f),
-        CompoteValue::String(s) => config_value::Value::String(s.clone()),
-        CompoteValue::Array(arr) => {
-            let items: Vec<config_value::Value> = arr
-                .iter()
-                .map(|v| compote_value_to_config_value(&v.value))
-                .collect();
-            config_value::Value::Sequence(items)
+        serde_json::Value::Null => CompoteValue::Null,
+        serde_json::Value::Bool(b) => CompoteValue::Bool(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                CompoteValue::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                CompoteValue::Float(f)
+            } else {
+                CompoteValue::Null
+            }
         }
-        CompoteValue::Object(map) => {
-            let items: std::collections::HashMap<String, config_value::Value> = map
+        serde_json::Value::String(s) => CompoteValue::String(s.clone()),
+        serde_json::Value::Array(arr) => {
+            let items: Vec<CompoteValue> = arr
                 .iter()
-                .map(|(k, v)| (k.clone(), compote_value_to_config_value(&v.value)))
+                .map(json_value_to_compote_value)
                 .collect();
-            config_value::Value::Mapping(items)
+            CompoteValue::Array(items)
+        }
+        serde_json::Value::Object(map) => {
+            let items: indexmap::IndexMap<String, CompoteValue> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), json_value_to_compote_value(v)))
+                .collect();
+            CompoteValue::Object(items)
         }
     }
 }
@@ -747,8 +744,8 @@ impl CompoteFromConfigValue for PromptsConfig {
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        match &value.value {
-            CompoteValue::Array(arr) => {
+        match value {
+            CompoteConfigValue::Array(arr, _) => {
                 let mut prompts = Vec::new();
                 for (idx, item) in arr.iter().enumerate() {
                     tracker.push_index(idx);
@@ -760,10 +757,10 @@ impl CompoteFromConfigValue for PromptsConfig {
                 }
                 Ok(Self { prompts })
             }
-            CompoteValue::Null => Ok(Self::default()),
+            CompoteConfigValue::Null(_) => Ok(Self::default()),
             _ => Err(CompoteConfigError::TypeMismatch {
                 expected: "array".to_string(),
-                actual: format!("{:?}", value.value),
+                actual: value.type_name().to_string(),
                 path: tracker.current_path(),
             }),
         }
@@ -775,12 +772,12 @@ impl CompoteFromConfigValue for PromptConfig {
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        let table = match &value.value {
-            CompoteValue::Object(map) => map,
+        let table = match value {
+            CompoteConfigValue::Object(map, _) => map,
             _ => {
                 return Err(CompoteConfigError::TypeMismatch {
                     expected: "table".to_string(),
-                    actual: format!("{:?}", value.value),
+                    actual: value.type_name().to_string(),
                     path: tracker.current_path(),
                 });
             }
@@ -789,8 +786,8 @@ impl CompoteFromConfigValue for PromptConfig {
         // Required: id
         let id = if let Some(v) = table.get("id") {
             tracker.push_field("id");
-            let result = match &v.value {
-                CompoteValue::String(s) => {
+            let result = match v {
+                CompoteConfigValue::String(s, _) => {
                     let trimmed = s.trim().to_string();
                     if trimmed.is_empty() {
                         Err(CompoteConfigError::InvalidValue {
@@ -803,7 +800,7 @@ impl CompoteFromConfigValue for PromptConfig {
                 }
                 _ => Err(CompoteConfigError::TypeMismatch {
                     expected: "string".to_string(),
-                    actual: format!("{:?}", v.value),
+                    actual: v.type_name().to_string(),
                     path: tracker.current_path(),
                 }),
             };
@@ -819,8 +816,8 @@ impl CompoteFromConfigValue for PromptConfig {
         // Required: prompt
         let prompt = if let Some(v) = table.get("prompt") {
             tracker.push_field("prompt");
-            let result = match &v.value {
-                CompoteValue::String(s) => {
+            let result = match v {
+                CompoteConfigValue::String(s, _) => {
                     let trimmed = s.trim().to_string();
                     if trimmed.is_empty() {
                         Err(CompoteConfigError::InvalidValue {
@@ -833,7 +830,7 @@ impl CompoteFromConfigValue for PromptConfig {
                 }
                 _ => Err(CompoteConfigError::TypeMismatch {
                     expected: "string".to_string(),
-                    actual: format!("{:?}", v.value),
+                    actual: v.type_name().to_string(),
                     path: tracker.current_path(),
                 }),
             };
@@ -851,7 +848,7 @@ impl CompoteFromConfigValue for PromptConfig {
 
         // Optional: default
         let default = if let Some(v) = table.get("default") {
-            v.value.clone()
+            CompoteValue::from(v)
         } else {
             CompoteValue::Null
         };
@@ -861,10 +858,10 @@ impl CompoteFromConfigValue for PromptConfig {
 
         // Optional: if
         let if_condition = if let Some(v) = table.get("if") {
-            match &v.value {
-                CompoteValue::String(s) => Some(s.clone()),
-                CompoteValue::Bool(b) => Some(b.to_string()),
-                CompoteValue::Int(i) => Some(i.to_string()),
+            match v {
+                CompoteConfigValue::String(s, _) => Some(s.clone()),
+                CompoteConfigValue::Bool(b, _) => Some(b.to_string()),
+                CompoteConfigValue::Int(i, _) => Some(i.to_string()),
                 _ => None,
             }
         } else {
@@ -887,8 +884,8 @@ impl CompoteFromConfigValue for PromptScope {
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        let table = match &value.value {
-            CompoteValue::Object(map) => map,
+        let table = match value {
+            CompoteConfigValue::Object(map, _) => map,
             _ => return Ok(Self::default()),
         };
 
@@ -897,8 +894,8 @@ impl CompoteFromConfigValue for PromptScope {
             None => return Ok(Self::default()),
         };
 
-        match &scope_value.value {
-            CompoteValue::String(s) => {
+        match scope_value {
+            CompoteConfigValue::String(s, _) => {
                 let scope = s.trim().to_lowercase();
                 match scope.as_str() {
                     "repo" | "repository" => Ok(Self::Repository),
@@ -921,7 +918,7 @@ impl CompoteFromConfigValue for PromptScope {
                 tracker.push_field("scope");
                 tracker.record(CompoteConfigError::TypeMismatch {
                     expected: "string".to_string(),
-                    actual: format!("{:?}", scope_value.value),
+                    actual: scope_value.type_name().to_string(),
                     path: tracker.current_path(),
                 });
                 tracker.pop();
@@ -936,8 +933,8 @@ impl CompoteFromConfigValue for PromptType {
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        let table = match &value.value {
-            CompoteValue::Object(map) => map,
+        let table = match value {
+            CompoteConfigValue::Object(map, _) => map,
             _ => return Ok(Self::default()),
         };
 
@@ -946,13 +943,13 @@ impl CompoteFromConfigValue for PromptType {
             None => return Ok(Self::default()),
         };
 
-        let type_str = match &type_value.value {
-            CompoteValue::String(s) => s.trim().to_lowercase(),
+        let type_str = match type_value {
+            CompoteConfigValue::String(s, _) => s.trim().to_lowercase(),
             _ => {
                 tracker.push_field("type");
                 tracker.record(CompoteConfigError::TypeMismatch {
                     expected: "string".to_string(),
-                    actual: format!("{:?}", type_value.value),
+                    actual: type_value.type_name().to_string(),
                     path: tracker.current_path(),
                 });
                 tracker.pop();
@@ -996,16 +993,16 @@ impl CompoteFromConfigValue for PromptType {
             }
             "int" => {
                 let min = if let Some(v) = table.get("min") {
-                    match &v.value {
-                        CompoteValue::Int(i) => Some(*i),
+                    match v {
+                        CompoteConfigValue::Int(i, _) => Some(*i),
                         _ => None,
                     }
                 } else {
                     None
                 };
                 let max = if let Some(v) = table.get("max") {
-                    match &v.value {
-                        CompoteValue::Int(i) => Some(*i),
+                    match v {
+                        CompoteConfigValue::Int(i, _) => Some(*i),
                         _ => None,
                     }
                 } else {
@@ -1015,18 +1012,18 @@ impl CompoteFromConfigValue for PromptType {
             }
             "float" => {
                 let min = if let Some(v) = table.get("min") {
-                    match &v.value {
-                        CompoteValue::Float(f) => Some(*f),
-                        CompoteValue::Int(i) => Some(*i as f64),
+                    match v {
+                        CompoteConfigValue::Float(f, _) => Some(*f),
+                        CompoteConfigValue::Int(i, _) => Some(*i as f64),
                         _ => None,
                     }
                 } else {
                     None
                 };
                 let max = if let Some(v) = table.get("max") {
-                    match &v.value {
-                        CompoteValue::Float(f) => Some(*f),
-                        CompoteValue::Int(i) => Some(*i as f64),
+                    match v {
+                        CompoteConfigValue::Float(f, _) => Some(*f),
+                        CompoteConfigValue::Int(i, _) => Some(*i as f64),
                         _ => None,
                     }
                 } else {
@@ -1055,8 +1052,8 @@ impl CompoteFromConfigValue for PromptChoicesConfig {
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        match &value.value {
-            CompoteValue::Array(arr) => {
+        match value {
+            CompoteConfigValue::Array(arr, _) => {
                 let mut choices = Vec::new();
                 for (idx, item) in arr.iter().enumerate() {
                     tracker.push_index(idx);
@@ -1078,10 +1075,10 @@ impl CompoteFromConfigValue for PromptChoicesConfig {
                     Ok(Self::ChoicesAsArray(choices))
                 }
             }
-            CompoteValue::String(s) => Ok(Self::ChoicesAsString(s.clone())),
+            CompoteConfigValue::String(s, _) => Ok(Self::ChoicesAsString(s.clone())),
             _ => Err(CompoteConfigError::TypeMismatch {
                 expected: "array or template string".to_string(),
-                actual: format!("{:?}", value.value),
+                actual: value.type_name().to_string(),
                 path: tracker.current_path(),
             }),
         }
@@ -1093,14 +1090,14 @@ impl CompoteFromConfigValue for PromptChoiceConfig {
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        match &value.value {
-            CompoteValue::Object(table) => {
-                let id = table.get("id").and_then(|v| match &v.value {
-                    CompoteValue::String(s) => Some(s.clone()),
+        match value {
+            CompoteConfigValue::Object(table, _) => {
+                let id = table.get("id").and_then(|v| match v {
+                    CompoteConfigValue::String(s, _) => Some(s.clone()),
                     _ => None,
                 });
-                let choice = table.get("choice").and_then(|v| match &v.value {
-                    CompoteValue::String(s) => Some(s.clone()),
+                let choice = table.get("choice").and_then(|v| match v {
+                    CompoteConfigValue::String(s, _) => Some(s.clone()),
                     _ => None,
                 });
 
@@ -1120,13 +1117,13 @@ impl CompoteFromConfigValue for PromptChoiceConfig {
                     }),
                 }
             }
-            CompoteValue::String(s) => Ok(Self {
+            CompoteConfigValue::String(s, _) => Ok(Self {
                 id: s.clone(),
                 choice: s.clone(),
             }),
             _ => Err(CompoteConfigError::TypeMismatch {
                 expected: "table or string".to_string(),
-                actual: format!("{:?}", value.value),
+                actual: value.type_name().to_string(),
                 path: tracker.current_path(),
             }),
         }

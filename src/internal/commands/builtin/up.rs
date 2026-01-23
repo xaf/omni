@@ -7,7 +7,6 @@ use std::process::exit;
 use std::str::FromStr;
 
 use blake3::Hasher as Blake3Hasher;
-use config_value::Value;
 use imara_diff::diff;
 use imara_diff::intern::InternedInput;
 use imara_diff::Algorithm;
@@ -39,7 +38,7 @@ use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::CommandSyntax;
 use crate::internal::config::ConfigLoader;
-use crate::internal::config::ConfigValue;
+use compote::ContextValue as CompoteConfigValue;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
 use crate::internal::config::SyntaxOptArgType;
@@ -367,15 +366,10 @@ impl UpCommand {
         self.cli_args().clone_suggested.auto_bootstrap()
     }
 
-    fn suggest_config(&self, suggest_config: ConfigValue) {
-        use crate::internal::config::config_value::to_compote_config_value;
-
+    fn suggest_config(&self, suggest_config: CompoteConfigValue) {
         if !self.should_suggest_config() && !self.auto_bootstrap_config() {
             return;
         }
-
-        // Convert old ConfigValue to compote ConfigValue for merging
-        let suggest_config_compote = to_compote_config_value(&suggest_config);
 
         let mut any_change_to_apply = false;
         let mut any_change_applied = false;
@@ -387,7 +381,7 @@ impl UpCommand {
             // Create a copy for after
             let mut after_config = compote::Config::default();
             after_config.merge(before_root.clone());
-            after_config.merge(suggest_config_compote.clone());
+            after_config.merge(suggest_config.clone());
 
             // Get the yaml representation of the before and after config
             let before_yaml = config.to_yaml().unwrap_or_default();
@@ -418,7 +412,7 @@ impl UpCommand {
             eprintln!("  {}", diff_result.replace('\n', "\n  "));
 
             if self.cli_args().update_user_config == UpCommandArgsUpdateUserConfigOptions::Yes {
-                config.merge(suggest_config_compote.clone());
+                config.merge(suggest_config.clone());
                 any_change_applied = true;
                 return true;
             }
@@ -440,7 +434,7 @@ impl UpCommand {
                 Ok(answer) => match answer {
                     requestty::Answer::ExpandItem(expanditem) => match expanditem.key {
                         'y' => {
-                            config.merge(suggest_config_compote.clone());
+                            config.merge(suggest_config.clone());
                             any_change_applied = true;
                             true
                         }
@@ -448,7 +442,7 @@ impl UpCommand {
                         's' => {
                             // Use the split function which returns the changes to apply
                             let changes_to_apply =
-                                self.suggest_config_split_compote(config, &suggest_config_compote);
+                                self.suggest_config_split_compote(config, &suggest_config);
                             if !changes_to_apply.is_empty() {
                                 for change in changes_to_apply {
                                     config.merge(change);
@@ -498,8 +492,8 @@ impl UpCommand {
     fn suggest_config_split_compote(
         &self,
         before_config: &compote::Config,
-        suggest_config: &compote::ConfigValue,
-    ) -> Vec<compote::ConfigValue> {
+        suggest_config: &compote::ContextValue,
+    ) -> Vec<compote::ContextValue> {
         let before_yaml = before_config.to_yaml().unwrap_or_default();
 
         let mut choices = vec![];
@@ -1110,7 +1104,7 @@ impl UpCommand {
 
     fn handle_suggestions(
         &self,
-        suggest_config: Option<ConfigValue>,
+        suggest_config: Option<CompoteConfigValue>,
         suggest_clone: bool,
         suggest_config_updated: bool,
         suggest_clone_updated: bool,
@@ -1422,7 +1416,7 @@ impl BuiltinCommand for UpCommand {
 
         let mut suggest_config = None;
         let mut suggest_config_updated = false;
-        let suggest_config_value = cfg.suggest_config.config_value();
+        let suggest_config_value = cfg.suggest_config.compote_config_value();
         if self.is_up() && !suggest_config_value.is_null() {
             if self.should_suggest_config() {
                 suggest_config = Some(suggest_config_value);
@@ -1703,11 +1697,8 @@ fn color_diff(diff: &str) -> String {
 }
 
 fn fingerprint<T: Serialize>(value: &T) -> u64 {
-    let string = match Value::to_value(value) {
-        Ok(v) => match v.to_yaml_string() {
-            Ok(string) => string,
-            Err(_err) => return 0,
-        },
+    let string = match compote::to_yaml(value) {
+        Ok(string) => string,
         Err(_err) => return 0,
     };
 

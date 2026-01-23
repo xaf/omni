@@ -14,44 +14,41 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
 // Compote imports
-use compote::ConfigContext as CompoteConfigContext;
 use compote::ConfigError as CompoteConfigError;
-use compote::ConfigLevel as CompoteConfigLevel;
-use compote::ConfigSource as CompoteConfigSource;
-use compote::ConfigValue as CompoteConfigValue;
+use compote::Context as CompoteConfigContext;
+use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromConfigValue as CompoteFromConfigValue;
-use compote::Value as CompoteValue;
+use compote::FromContextValue as CompoteFromConfigValue;
+use compote::Level as CompoteConfigLevel;
+use compote::Source as CompoteConfigSource;
 
 /// Create a synthetic ConfigContext for deserialized values (from templates)
 fn synthetic_context() -> CompoteConfigContext {
     CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::Local)
 }
 
-/// Convert serde_yaml::Value to compote::Value
-fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteValue {
+/// Convert serde_yaml::Value to compote::ContextValue
+fn yaml_value_to_compote_config_value(value: serde_yaml::Value) -> CompoteConfigValue {
+    let ctx = synthetic_context();
     match value {
-        serde_yaml::Value::Null => CompoteValue::Null,
-        serde_yaml::Value::Bool(b) => CompoteValue::Bool(b),
+        serde_yaml::Value::Null => CompoteConfigValue::null(ctx),
+        serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, ctx),
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                CompoteValue::Int(i)
+                CompoteConfigValue::int(i, ctx)
             } else if let Some(f) = n.as_f64() {
-                CompoteValue::Float(f)
+                CompoteConfigValue::float(f, ctx)
             } else {
-                CompoteValue::Null
+                CompoteConfigValue::null(ctx)
             }
         }
-        serde_yaml::Value::String(s) => CompoteValue::String(s),
+        serde_yaml::Value::String(s) => CompoteConfigValue::string(s, ctx),
         serde_yaml::Value::Sequence(arr) => {
             let items: Vec<CompoteConfigValue> = arr
                 .into_iter()
-                .map(|v| CompoteConfigValue {
-                    value: yaml_value_to_compote_value(v),
-                    context: synthetic_context(),
-                })
+                .map(yaml_value_to_compote_config_value)
                 .collect();
-            CompoteValue::Array(items)
+            CompoteConfigValue::array(items, ctx)
         }
         serde_yaml::Value::Mapping(map) => {
             let items: indexmap::IndexMap<String, CompoteConfigValue> = map
@@ -61,18 +58,12 @@ fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteValue {
                         serde_yaml::Value::String(s) => s,
                         _ => return None,
                     };
-                    Some((
-                        key,
-                        CompoteConfigValue {
-                            value: yaml_value_to_compote_value(v),
-                            context: synthetic_context(),
-                        },
-                    ))
+                    Some((key, yaml_value_to_compote_config_value(v)))
                 })
                 .collect();
-            CompoteValue::Object(items)
+            CompoteConfigValue::object(items, ctx)
         }
-        serde_yaml::Value::Tagged(tagged) => yaml_value_to_compote_value(tagged.value),
+        serde_yaml::Value::Tagged(tagged) => yaml_value_to_compote_config_value(tagged.value),
     }
 }
 
@@ -167,12 +158,8 @@ impl SuggestCloneConfig {
                     // Parse YAML string using compote
                     match serde_yaml::from_str::<serde_yaml::Value>(&yaml_str) {
                         Ok(yaml_value) => {
-                            // Convert to compote::Value and deserialize
-                            let compote_value = yaml_value_to_compote_value(yaml_value);
-                            let config_value = CompoteConfigValue {
-                                value: compote_value,
-                                context: synthetic_context(),
-                            };
+                            // Convert to compote::ContextValue and deserialize
+                            let config_value = yaml_value_to_compote_config_value(yaml_value);
                             let mut tracker = CompoteErrorTracker::new();
                             match Self::from_config_value(&config_value, &mut tracker) {
                                 Ok(suggest_clone) => {
@@ -256,8 +243,8 @@ impl SuggestCloneRepositoryConfig {
 /// Helper to select only Local (Workdir) scope values
 /// Returns None if the entire value should be rejected (not from Local scope)
 fn select_local_scope(value: &CompoteConfigValue) -> Option<CompoteConfigValue> {
-    match &value.value {
-        CompoteValue::Object(map) => {
+    match value {
+        CompoteConfigValue::Object(map, ctx) => {
             let filtered: indexmap::IndexMap<String, CompoteConfigValue> = map
                 .iter()
                 .filter_map(|(k, v)| select_local_scope(v).map(|filtered| (k.clone(), filtered)))
@@ -265,13 +252,10 @@ fn select_local_scope(value: &CompoteConfigValue) -> Option<CompoteConfigValue> 
             if filtered.is_empty() {
                 None
             } else {
-                Some(CompoteConfigValue {
-                    value: CompoteValue::Object(filtered),
-                    context: value.context.clone(),
-                })
+                Some(CompoteConfigValue::object(filtered, ctx.clone()))
             }
         }
-        CompoteValue::Array(arr) => {
+        CompoteConfigValue::Array(arr, ctx) => {
             let filtered: Vec<CompoteConfigValue> = arr
                 .iter()
                 .filter_map(select_local_scope)
@@ -279,15 +263,12 @@ fn select_local_scope(value: &CompoteConfigValue) -> Option<CompoteConfigValue> 
             if filtered.is_empty() {
                 None
             } else {
-                Some(CompoteConfigValue {
-                    value: CompoteValue::Array(filtered),
-                    context: value.context.clone(),
-                })
+                Some(CompoteConfigValue::array(filtered, ctx.clone()))
             }
         }
         _ => {
             // For scalar values, only keep if from Local scope
-            if matches!(value.context.level, CompoteConfigLevel::Local) {
+            if matches!(value.context().level, CompoteConfigLevel::Local) {
                 Some(value.clone())
             } else {
                 None
@@ -315,13 +296,13 @@ impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
         // Can be a simple string (handle only) or a table
-        match &value.value {
-            CompoteValue::String(s) => Ok(Self {
+        match value {
+            CompoteConfigValue::String(s, _) => Ok(Self {
                 handle: s.clone(),
                 args: vec![],
                 clone_type: SuggestCloneTypeEnum::Package,
             }),
-            CompoteValue::Object(table) => {
+            CompoteConfigValue::Object(table, _) => {
                 // handle is required
                 let handle = if let Some(v) = table.get("handle") {
                     tracker.push_field("handle");
@@ -366,7 +347,7 @@ impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
             }
             _ => Err(CompoteConfigError::TypeMismatch {
                 expected: "string or table".to_string(),
-                actual: format!("{:?}", value.value),
+                actual: value.type_name().to_string(),
                 path: tracker.current_path(),
             }),
         }
@@ -384,10 +365,10 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
             None => return Ok(Self::default()),
         };
 
-        match &filtered.value {
-            CompoteValue::Null => Ok(Self::default()),
+        match &filtered {
+            CompoteConfigValue::Null(_) => Ok(Self::default()),
             // Array format: list of repository configs
-            CompoteValue::Array(arr) => {
+            CompoteConfigValue::Array(arr, _) => {
                 let mut repositories = Vec::new();
                 for (idx, v) in arr.iter().enumerate() {
                     tracker.push_index(idx);
@@ -405,10 +386,10 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
                 })
             }
             // Table format: can have repositories, template, or template_file
-            CompoteValue::Object(table) => {
+            CompoteConfigValue::Object(table, _) => {
                 // Check for repositories array
                 if let Some(v) = table.get("repositories") {
-                    if let CompoteValue::Array(arr) = &v.value {
+                    if let CompoteConfigValue::Array(arr, _) = v {
                         let mut repositories = Vec::new();
                         for (idx, repo_v) in arr.iter().enumerate() {
                             tracker.push_field("repositories");
@@ -455,7 +436,7 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
             }
             _ => Err(CompoteConfigError::TypeMismatch {
                 expected: "array or table".to_string(),
-                actual: format!("{:?}", filtered.value),
+                actual: filtered.type_name().to_string(),
                 path: tracker.current_path(),
             }),
         }

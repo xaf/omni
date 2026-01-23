@@ -10,14 +10,17 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
+
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::CacheManagerError;
 use crate::internal::cache::HomebrewOperationCache;
 use crate::internal::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
 use crate::internal::config::up::utils::get_command_output;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::ProgressHandler;
@@ -26,7 +29,6 @@ use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::is_executable;
-use crate::internal::config::ConfigValue;
 use crate::internal::env::homebrew_prefix;
 use crate::internal::user_interface::StringColor;
 use crate::omni_warning;
@@ -43,16 +45,6 @@ pub struct UpConfigHomebrew {
 }
 
 impl UpConfigHomebrew {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let install = HomebrewInstall::from_config_value(config_value, error_handler);
-        let tap = HomebrewTap::from_config_value(config_value, &install, error_handler);
-
-        UpConfigHomebrew { install, tap }
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -346,6 +338,46 @@ impl UpConfigHomebrew {
     }
 }
 
+impl CompoteFromConfigValue for UpConfigHomebrew {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        error_tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        // Extract install array
+        let install = if let CompoteConfigValue::Object(map, _) = value {
+            if let Some(install_value) = map.get("install") {
+                HomebrewInstall::compote_from_config_value(install_value, error_tracker)
+                    .unwrap_or_default()
+            } else {
+                // Try parsing the whole value as install array
+                HomebrewInstall::compote_from_config_value(value, error_tracker)
+                    .unwrap_or_default()
+            }
+        } else {
+            // If not an object, try parsing as install array
+            HomebrewInstall::compote_from_config_value(value, error_tracker)
+                .unwrap_or_default()
+        };
+
+        // Extract tap array
+        let tap = if let CompoteConfigValue::Object(map, _) = value {
+            if let Some(tap_value) = map.get("tap") {
+                HomebrewTap::compote_from_config_value(tap_value, &install, error_tracker)
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Add implicit taps from install names
+        let tap = HomebrewTap::add_implicit_taps(tap, &install);
+
+        Ok(UpConfigHomebrew { install, tap })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
 pub enum HomebrewHandled {
     Handled,
@@ -379,151 +411,6 @@ impl Ord for HomebrewTap {
 }
 
 impl HomebrewTap {
-    fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        installs: &[HomebrewInstall],
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        #[allow(clippy::mutable_key_type)]
-        let mut taps = BTreeSet::new();
-
-        if let Some(config_value) = config_value {
-            if let Some(table) = config_value.as_table() {
-                if let Some(parsed_taps) = table.get("tap") {
-                    taps.extend(Self::parse_taps(
-                        parsed_taps,
-                        &error_handler.with_key("tap"),
-                    ));
-                }
-            }
-        }
-
-        for install in installs {
-            // If the formula name is `a/b/c`, then really the formula
-            // name is `c` and the tap is `a/b`. We can use this to
-            // force-add the tap to the list of taps if it was not
-            // explicitly defined in the configuration
-            let split = install.name.split('/').collect::<Vec<_>>();
-            if split.len() == 3 {
-                let tap_name = format!("{}/{}", split[0], split[1]);
-                taps.insert(Self::from_name(&tap_name));
-            }
-        }
-
-        taps.into_iter().collect()
-    }
-
-    fn parse_taps(taps: &ConfigValue, error_handler: &ConfigErrorHandler) -> Vec<Self> {
-        let mut parsed_taps = Vec::new();
-
-        if let Some(taps_array) = taps.as_array() {
-            for (idx, config_value) in taps_array.iter().enumerate() {
-                if let Some(tap) =
-                    Self::parse_tap(None, config_value, &error_handler.with_index(idx))
-                {
-                    parsed_taps.push(tap);
-                }
-            }
-        } else if let Some(taps_hash) = taps.as_table() {
-            for (tap_name, config_value) in taps_hash {
-                parsed_taps.push(Self::parse_config(
-                    tap_name.to_string(),
-                    &config_value,
-                    &error_handler.with_key(tap_name),
-                ));
-            }
-        } else if taps.as_str().is_some() {
-            if let Some(tap) = Self::parse_tap(None, taps, error_handler) {
-                parsed_taps.push(tap);
-            }
-        }
-
-        parsed_taps
-    }
-
-    fn parse_tap(
-        name: Option<String>,
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if let Some(name) = name {
-            return Some(Self::parse_config(name, config_value, error_handler));
-        }
-
-        if let Some(tap_str) = config_value.as_str() {
-            return Some(Self {
-                name: tap_str.to_string(),
-                url: None,
-                upgrade: false,
-                was_handled: OnceCell::new(),
-            });
-        } else if let Some(tap_hash) = config_value.as_table() {
-            if let Some(name) = tap_hash.get("repo") {
-                if let Some(name) = name.as_str() {
-                    return Some(Self::parse_config(
-                        name,
-                        config_value,
-                        &error_handler.with_key("repo"),
-                    ));
-                }
-                return None;
-            }
-
-            if tap_hash.len() == 1 {
-                let (name, config_value) = tap_hash.iter().next().unwrap();
-                return Some(Self::parse_config(
-                    name.to_string(),
-                    config_value,
-                    &error_handler.with_key(name),
-                ));
-            }
-        } else {
-            error_handler
-                .with_expected("string or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-
-        None
-    }
-
-    fn parse_config(
-        name: String,
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut url = None;
-        let mut upgrade = false;
-
-        if let Some(tap_str) = config_value.as_str() {
-            url = Some(tap_str.to_string());
-        } else if config_value.is_table() {
-            if let Some(url_value) =
-                config_value.get_as_str_or_none("url", &error_handler.with_key("url"))
-            {
-                url = Some(url_value.to_string());
-            }
-
-            if let Some(upgrade_value) =
-                config_value.get_as_bool_or_none("upgrade", &error_handler.with_key("upgrade"))
-            {
-                upgrade = upgrade_value;
-            }
-        } else {
-            error_handler
-                .with_expected("string or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-
-        Self {
-            name,
-            url,
-            upgrade,
-            was_handled: OnceCell::new(),
-        }
-    }
-
     fn from_name(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -784,6 +671,160 @@ impl HomebrewTap {
             None => HomebrewHandled::Unhandled,
         }
     }
+
+    fn compote_from_config_value(
+        value: &CompoteConfigValue,
+        installs: &[HomebrewInstall],
+        error_tracker: &mut CompoteErrorTracker,
+    ) -> Result<Vec<Self>, CompoteConfigError> {
+        #[allow(clippy::mutable_key_type)]
+        let mut taps = BTreeSet::new();
+
+        // Parse taps from the value
+        taps.extend(Self::compote_parse_taps(value, error_tracker).unwrap_or_default());
+
+        // Add implicit taps from install names
+        taps = Self::add_implicit_taps_set(taps, installs);
+
+        Ok(taps.into_iter().collect())
+    }
+
+    fn add_implicit_taps(mut taps: Vec<Self>, installs: &[HomebrewInstall]) -> Vec<Self> {
+        #[allow(clippy::mutable_key_type)]
+        let mut taps_set: BTreeSet<Self> = taps.drain(..).collect();
+        taps_set = Self::add_implicit_taps_set(taps_set, installs);
+        taps_set.into_iter().collect()
+    }
+
+    fn add_implicit_taps_set(
+        mut taps: BTreeSet<Self>,
+        installs: &[HomebrewInstall],
+    ) -> BTreeSet<Self> {
+        for install in installs {
+            let split = install.name.split('/').collect::<Vec<_>>();
+            if split.len() == 3 {
+                let tap_name = format!("{}/{}", split[0], split[1]);
+                taps.insert(Self::from_name(&tap_name));
+            }
+        }
+        taps
+    }
+
+    fn compote_parse_taps(
+        value: &CompoteConfigValue,
+        error_tracker: &mut CompoteErrorTracker,
+    ) -> Result<Vec<Self>, CompoteConfigError> {
+        let mut parsed_taps = Vec::new();
+
+        match value {
+            CompoteConfigValue::Array(arr, _) => {
+                for item in arr.iter() {
+                    if let Some(tap) = Self::compote_parse_tap(None, item, error_tracker) {
+                        parsed_taps.push(tap);
+                    }
+                }
+            }
+            CompoteConfigValue::Object(map, _) => {
+                for (tap_name, tap_value) in map {
+                    parsed_taps.push(Self::compote_parse_config(
+                        tap_name.clone(),
+                        tap_value,
+                        error_tracker,
+                    ));
+                }
+            }
+            CompoteConfigValue::String(s, _) => {
+                parsed_taps.push(Self {
+                    name: s.clone(),
+                    url: None,
+                    upgrade: false,
+                    was_handled: OnceCell::new(),
+                });
+            }
+            _ => {}
+        }
+
+        Ok(parsed_taps)
+    }
+
+    fn compote_parse_tap(
+        name: Option<String>,
+        value: &CompoteConfigValue,
+        error_tracker: &mut CompoteErrorTracker,
+    ) -> Option<Self> {
+        if let Some(name) = name {
+            return Some(Self::compote_parse_config(name, value, error_tracker));
+        }
+
+        match value {
+            CompoteConfigValue::String(s, _) => Some(Self {
+                name: s.clone(),
+                url: None,
+                upgrade: false,
+                was_handled: OnceCell::new(),
+            }),
+            CompoteConfigValue::Object(map, _) => {
+                if let Some(repo_value) = map.get("repo") {
+                    if let CompoteConfigValue::String(repo_name, _) = repo_value {
+                        return Some(Self::compote_parse_config(
+                            repo_name.clone(),
+                            value,
+                            error_tracker,
+                        ));
+                    }
+                    return None;
+                }
+
+                if map.len() == 1 {
+                    let (name, config_value) = map.iter().next().unwrap();
+                    return Some(Self::compote_parse_config(
+                        name.clone(),
+                        config_value,
+                        error_tracker,
+                    ));
+                }
+
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn compote_parse_config(
+        name: String,
+        value: &CompoteConfigValue,
+        _error_tracker: &mut CompoteErrorTracker,
+    ) -> Self {
+        let mut url = None;
+        let mut upgrade = false;
+
+        match value {
+            CompoteConfigValue::String(s, _) => {
+                url = Some(s.clone());
+            }
+            CompoteConfigValue::Object(map, _) => {
+                if let Some(url_value) = map.get("url") {
+                    if let CompoteConfigValue::String(s, _) = url_value {
+                        url = Some(s.clone());
+                    }
+                }
+
+                if let Some(upgrade_value) = map.get("upgrade") {
+                    if let CompoteConfigValue::Bool(b, _) = upgrade_value {
+                        upgrade = *b;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Self {
+            name,
+            url,
+            upgrade,
+            was_handled: OnceCell::new(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -844,116 +885,6 @@ impl HomebrewInstall {
             upgrade: false,
             was_handled: OnceCell::new(),
         }
-    }
-
-    fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        // TODO: maybe support "alternate" packages with `or`
-
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Vec::new();
-            }
-        };
-
-        let mut installs = Vec::new();
-
-        if let Some(table) = config_value.as_table() {
-            if let Some(formulae) = table.get("install") {
-                installs.extend(Self::parse_formulae(
-                    formulae,
-                    &error_handler.with_key("install"),
-                ));
-            }
-        } else {
-            installs.extend(Self::parse_formulae(config_value, error_handler));
-        }
-
-        installs
-    }
-
-    fn parse_formulae(formulae: &ConfigValue, error_handler: &ConfigErrorHandler) -> Vec<Self> {
-        let mut installs = Vec::new();
-
-        if let Some(array) = formulae.as_array() {
-            for (idx, formula_config_value) in array.iter().enumerate() {
-                let mut install_type = HomebrewInstallType::Formula;
-                let mut version = None;
-                let mut name = None;
-                let mut upgrade = false;
-                let mut error_handler = error_handler.with_index(idx);
-
-                if let Some(formula_table) = formula_config_value.as_table() {
-                    let mut rest_of_config = formula_config_value.clone();
-
-                    if let Some(formula) = formula_config_value
-                        .get_as_str_or_none("formula", &error_handler.with_key("formula"))
-                    {
-                        name = Some(formula.to_string());
-                    } else if let Some(cask) = formula_config_value
-                        .get_as_str_or_none("cask", &error_handler.with_key("cask"))
-                    {
-                        install_type = HomebrewInstallType::Cask;
-                        name = Some(cask.to_string());
-                    } else if formula_table.len() == 1 {
-                        let (key, value) = formula_table.iter().next().unwrap();
-                        name = Some(key.to_string());
-                        rest_of_config = value.clone();
-                        error_handler = error_handler.with_key(key);
-                    }
-
-                    if rest_of_config.is_table() {
-                        if let Some(upgrade_value) = rest_of_config
-                            .get_as_bool_or_none("upgrade", &error_handler.with_key("upgrade"))
-                        {
-                            upgrade = upgrade_value;
-                        }
-
-                        if let Some(version_value) = rest_of_config
-                            .get_as_str_or_none("version", &error_handler.with_key("version"))
-                        {
-                            version = Some(version_value.to_string());
-                        }
-                    } else if let Some(version_value) = rest_of_config.as_str_forced() {
-                        version = Some(version_value.to_string());
-                    } else {
-                        error_handler
-                            .with_expected("string or table")
-                            .with_actual(rest_of_config)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                } else if let Some(formula) = formula_config_value.as_str_forced() {
-                    name = Some(formula.to_string());
-                } else {
-                    error_handler
-                        .with_expected("string or table")
-                        .with_actual(formula_config_value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-
-                if let Some(name) = name {
-                    installs.push(Self {
-                        install_type,
-                        name,
-                        version,
-                        upgrade,
-                        was_handled: OnceCell::new(),
-                    });
-                } else {
-                    error_handler
-                        .with_key("formula")
-                        .error(ConfigErrorKind::MissingKey);
-                }
-            }
-        } else if let Some(formula) = formulae.as_str() {
-            installs.push(Self::new_formula(&formula));
-        }
-
-        installs
     }
 
     fn from_cache(name: &str, version: Option<&str>, is_cask: bool) -> Self {
@@ -1661,5 +1592,120 @@ impl HomebrewInstall {
             Some(handled) => handled.clone(),
             None => HomebrewHandled::Unhandled,
         }
+    }
+
+    fn compote_from_config_value(
+        value: &CompoteConfigValue,
+        error_tracker: &mut CompoteErrorTracker,
+    ) -> Result<Vec<Self>, CompoteConfigError> {
+        let mut installs = Vec::new();
+
+        // Try to extract from "install" key if value is an object
+        let formulae_value = if let CompoteConfigValue::Object(map, _) = value {
+            if let Some(install_value) = map.get("install") {
+                install_value
+            } else {
+                value
+            }
+        } else {
+            value
+        };
+
+        // Parse the formulae
+        installs.extend(Self::compote_parse_formulae(formulae_value, error_tracker).unwrap_or_default());
+
+        Ok(installs)
+    }
+
+    fn compote_parse_formulae(
+        value: &CompoteConfigValue,
+        _error_tracker: &mut CompoteErrorTracker,
+    ) -> Result<Vec<Self>, CompoteConfigError> {
+        let mut installs = Vec::new();
+
+        match value {
+            CompoteConfigValue::Array(arr, _) => {
+                for item in arr {
+                    let mut install_type = HomebrewInstallType::Formula;
+                    let mut version = None;
+                    let mut name = None;
+                    let mut upgrade = false;
+
+                    match item {
+                        CompoteConfigValue::Object(map, _) => {
+                            // Check for formula/cask key
+                            if let Some(formula_value) = map.get("formula") {
+                                if let CompoteConfigValue::String(s, _) = formula_value {
+                                    name = Some(s.clone());
+                                }
+                            } else if let Some(cask_value) = map.get("cask") {
+                                if let CompoteConfigValue::String(s, _) = cask_value {
+                                    install_type = HomebrewInstallType::Cask;
+                                    name = Some(s.clone());
+                                }
+                            } else if map.len() == 1 {
+                                // Single key-value pair: key is name, value is config
+                                let (key, rest_value) = map.iter().next().unwrap();
+                                name = Some(key.clone());
+
+                                // Parse the rest of config
+                                match rest_value {
+                                    CompoteConfigValue::Object(rest_map, _) => {
+                                        if let Some(upgrade_value) = rest_map.get("upgrade") {
+                                            if let CompoteConfigValue::Bool(b, _) = upgrade_value {
+                                                upgrade = *b;
+                                            }
+                                        }
+
+                                        if let Some(version_value) = rest_map.get("version") {
+                                            if let CompoteConfigValue::String(s, _) = version_value {
+                                                version = Some(s.clone());
+                                            }
+                                        }
+                                    }
+                                    CompoteConfigValue::String(s, _) => {
+                                        version = Some(s.clone());
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            // Extract upgrade and version from top-level if present
+                            if let Some(upgrade_value) = map.get("upgrade") {
+                                if let CompoteConfigValue::Bool(b, _) = upgrade_value {
+                                    upgrade = *b;
+                                }
+                            }
+
+                            if let Some(version_value) = map.get("version") {
+                                if let CompoteConfigValue::String(s, _) = version_value {
+                                    version = Some(s.clone());
+                                }
+                            }
+                        }
+                        CompoteConfigValue::String(s, _) => {
+                            name = Some(s.clone());
+                        }
+                        _ => {}
+                    }
+
+                    if let Some(name) = name {
+                        installs.push(Self {
+                            install_type,
+                            name,
+                            version,
+                            upgrade,
+                            was_handled: OnceCell::new(),
+                        });
+                    }
+                }
+            }
+            CompoteConfigValue::String(s, _) => {
+                installs.push(Self::new_formula(s));
+            }
+            _ => {}
+        }
+
+        Ok(installs)
     }
 }

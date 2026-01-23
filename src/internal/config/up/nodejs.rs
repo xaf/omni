@@ -11,7 +11,6 @@ use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils as cache_utils;
-use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::up::mise::PostInstallFuncArgs;
 use crate::internal::config::up::mise_tool_path;
 use crate::internal::config::up::utils::data_path_dir_hash;
@@ -27,7 +26,11 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::current_dir;
 use crate::internal::workdir;
-use crate::internal::ConfigValue;
+
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpConfigNodejsParams {
@@ -55,30 +58,49 @@ impl Default for UpConfigNodejsParams {
 impl UpConfigNodejsParams {
     const DEFAULT_INSTALL_ENGINES: bool = true;
     const DEFAULT_INSTALL_PACKAGES: bool = true;
+}
 
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
+impl CompoteFromConfigValue for UpConfigNodejsParams {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        errors: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
         let mut params = Self::default();
 
-        if let Some(config_value) = &config_value {
-            if let Some(value) = config_value.get_as_bool_or_none(
-                "install_engines",
-                &error_handler.with_key("install_engines"),
-            ) {
-                params.install_engines = value;
+        if let CompoteConfigValue::Object(map, _) = value {
+            // Extract install_engines
+            if let Some(install_engines_value) = map.get("install_engines") {
+                errors.push_field("install_engines");
+                match install_engines_value {
+                    CompoteConfigValue::Bool(b, _) => params.install_engines = *b,
+                    _ => {
+                        errors.record_type_mismatch("boolean", install_engines_value.type_name());
+                    }
+                }
+                errors.pop();
             }
 
-            if let Some(value) = config_value.get_as_bool_or_none(
-                "install_packages",
-                &error_handler.with_key("install_packages"),
-            ) {
-                params.install_packages = value;
+            // Extract install_packages
+            if let Some(install_packages_value) = map.get("install_packages") {
+                errors.push_field("install_packages");
+                match install_packages_value {
+                    CompoteConfigValue::Bool(b, _) => params.install_packages = *b,
+                    _ => {
+                        errors.record_type_mismatch("boolean", install_packages_value.type_name());
+                    }
+                }
+                errors.pop();
             }
         }
 
-        params
+        if errors.has_errors() {
+            Err(CompoteConfigError::InvalidValue {
+                path: errors.current_path(),
+                message: "Failed to parse UpConfigNodejsParams".to_string(),
+            })
+        } else {
+            Ok(params)
+        }
     }
 }
 
@@ -113,21 +135,6 @@ impl Serialize for UpConfigNodejs {
 }
 
 impl UpConfigNodejs {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut backend = UpConfigMise::from_config_value("node", config_value, error_handler);
-        backend.add_detect_version_func(detect_version_from_package_json);
-        backend.add_detect_version_func(detect_version_from_nvmrc);
-        backend.add_post_install_func(remove_mise_reshim_from_bin);
-        backend.add_post_install_func(setup_individual_npm_prefix);
-
-        let params = UpConfigNodejsParams::from_config_value(config_value, error_handler);
-
-        Self { backend, params }
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -139,6 +146,26 @@ impl UpConfigNodejs {
 
     pub fn down(&self, progress_handler: &UpProgressHandler) -> Result<(), UpError> {
         self.backend.down(progress_handler)
+    }
+}
+
+impl CompoteFromConfigValue for UpConfigNodejs {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        errors: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        // Parse params using the compote implementation
+        let params = <UpConfigNodejsParams as CompoteFromConfigValue>::from_config_value(value, errors)?;
+
+        // Create backend using the compote version
+        let mut backend = UpConfigMise::compote_from_config_value("node", Some(value), errors);
+
+        backend.add_detect_version_func(detect_version_from_package_json);
+        backend.add_detect_version_func(detect_version_from_nvmrc);
+        backend.add_post_install_func(remove_mise_reshim_from_bin);
+        backend.add_post_install_func(setup_individual_npm_prefix);
+
+        Ok(Self { backend, params })
     }
 }
 
@@ -304,10 +331,13 @@ fn setup_individual_npm_prefix(
         }
     };
 
-    let params = UpConfigNodejsParams::from_config_value(
-        args.config_value.as_ref(),
-        &ConfigErrorHandler::noop(),
-    );
+    let params = if let Some(config_value) = args.config_value.as_ref() {
+        let mut tracker = CompoteErrorTracker::new();
+        <UpConfigNodejsParams as CompoteFromConfigValue>::from_config_value(config_value, &mut tracker)
+            .unwrap_or_default()
+    } else {
+        UpConfigNodejsParams::default()
+    };
     if !params.install_engines && !params.install_packages {
         // Exit early if we don't need to install engines or packages
         return Ok(());

@@ -255,9 +255,9 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
             };
 
             // Parse the YAML into a compote ConfigValue
-            let context = compote::ConfigContext::new(
-                compote::ConfigSource::Programmatic,
-                compote::ConfigLevel::User,
+            let context = compote::Context::new(
+                compote::Source::Programmatic,
+                compote::Level::User,
             );
             let new_config_value = match compote::loader::load_yaml(&yaml, context) {
                 Ok(value) => value,

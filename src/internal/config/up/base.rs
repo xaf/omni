@@ -5,8 +5,6 @@ use serde::Serialize;
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils::Empty;
 use crate::internal::cache::UpEnvironmentsCache;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
 use crate::internal::config::up::utils::cleanup_path;
 use crate::internal::config::up::utils::reshim;
 use crate::internal::config::up::utils::ProgressHandler;
@@ -19,11 +17,16 @@ use crate::internal::config::up::UpConfigMise;
 use crate::internal::config::up::UpConfigTool;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command;
 use crate::internal::user_interface::colors::StringColor;
 use crate::internal::workdir;
 use crate::omni_warning;
+
+// Compote imports for FromConfigValue implementation
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct UpConfig {
@@ -48,99 +51,6 @@ impl Serialize for UpConfig {
 }
 
 impl UpConfig {
-    pub fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let config_value = config_value?;
-
-        let config_array = match config_value.as_array() {
-            Some(config_array) => config_array,
-            None => {
-                error_handler
-                    .with_expected("array")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
-
-                return None;
-            }
-        };
-
-        let mut up_errors = Vec::new();
-        let mut steps = Vec::new();
-        for (value, index) in config_array.iter().zip(0..) {
-            let step_error_handler = error_handler.with_index(index);
-
-            if let Some(table) = value.as_table() {
-                if table.len() != 1 {
-                    step_error_handler
-                        .with_actual(value)
-                        .error(ConfigErrorKind::NotExactlyOneKeyInTable);
-                    up_errors.push(UpError::Config(format!(
-                        "invalid config for step {}: {}",
-                        index + 1,
-                        value
-                    )));
-                    continue;
-                }
-
-                let (up_name, config_value) = table.iter().next().unwrap();
-
-                if let Some(up_config) = UpConfigTool::from_config_value(
-                    up_name,
-                    Some(config_value),
-                    &step_error_handler.with_key(up_name),
-                ) {
-                    steps.push(up_config);
-                } else {
-                    up_errors.push(UpError::Config(format!(
-                        "invalid config for step {} ({}): {}",
-                        index + 1,
-                        up_name,
-                        config_value
-                    )));
-                }
-            } else if let Some(up_name) = value.as_str_forced() {
-                if let Some(up_config) = UpConfigTool::from_config_value(
-                    &up_name,
-                    None,
-                    &step_error_handler.with_key(&up_name),
-                ) {
-                    steps.push(up_config);
-                } else {
-                    up_errors.push(UpError::Config(format!(
-                        "invalid config for step {} ({})",
-                        index + 1,
-                        up_name
-                    )));
-                }
-            } else {
-                step_error_handler
-                    .with_expected("string or table")
-                    .with_actual(value)
-                    .error(ConfigErrorKind::InvalidValueType);
-                up_errors.push(UpError::Config(format!(
-                    "invalid config for step {}: {}",
-                    index + 1,
-                    value
-                )));
-            }
-        }
-
-        if steps.is_empty() && up_errors.is_empty() {
-            return None;
-        }
-
-        Some(UpConfig {
-            steps,
-            errors: up_errors,
-        })
-    }
-
-    // pub fn steps(&self) -> Vec<UpConfigTool> {
-    // self.steps.clone()
-    // }
-
     pub fn errors(&self) -> Vec<UpError> {
         self.errors.clone()
     }
@@ -408,5 +318,136 @@ impl UpConfig {
             num_removed.to_string().light_yellow(),
             if num_removed > 1 { "ies" } else { "y" }
         )))
+    }
+}
+
+// ============================================================================
+// Compote FromConfigValue implementation for UpConfig
+// ============================================================================
+//
+// This implementation uses native compote parsing via UpConfigTool's
+// compote_from_config_value method.
+// ============================================================================
+
+impl CompoteFromConfigValue for UpConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let mut steps = Vec::new();
+        let mut up_errors = Vec::new();
+
+        // The value must be an array of tool configurations
+        let config_array = match value {
+            CompoteConfigValue::Array(arr, _) => arr,
+            _ => {
+                tracker.record_type_mismatch("array", value.type_name());
+                return Ok(Self {
+                    steps: Vec::new(),
+                    errors: Vec::new(),
+                });
+            }
+        };
+
+        for (index, step_value) in config_array.iter().enumerate() {
+            tracker.push_index(index);
+
+            match step_value {
+                // Handle object with single key: { tool_name: config }
+                CompoteConfigValue::Object(map, _) => {
+                    if map.len() != 1 {
+                        tracker.record_invalid_value("expected exactly one key in tool configuration");
+                        up_errors.push(UpError::Config(format!(
+                            "invalid config for step {}: expected exactly one key",
+                            index + 1
+                        )));
+                        tracker.pop();
+                        continue;
+                    }
+
+                    let (up_name, config_value) = map.iter().next().unwrap();
+                    tracker.push_field(up_name);
+
+                    if let Some(up_config) = UpConfigTool::compote_from_config_value(
+                        up_name,
+                        Some(config_value),
+                        tracker,
+                    ) {
+                        steps.push(up_config);
+                    } else {
+                        up_errors.push(UpError::Config(format!(
+                            "invalid config for step {} ({})",
+                            index + 1,
+                            up_name
+                        )));
+                    }
+
+                    tracker.pop(); // pop field
+                }
+                // Handle string: just the tool name
+                CompoteConfigValue::String(up_name, _) => {
+                    if let Some(up_config) = UpConfigTool::compote_from_config_value(
+                        up_name,
+                        None,
+                        tracker,
+                    ) {
+                        steps.push(up_config);
+                    } else {
+                        up_errors.push(UpError::Config(format!(
+                            "invalid config for step {} ({})",
+                            index + 1,
+                            up_name
+                        )));
+                    }
+                }
+                // Handle int/float as string (e.g., for version numbers used as tool names)
+                CompoteConfigValue::Int(i, _) => {
+                    let up_name = i.to_string();
+                    if let Some(up_config) = UpConfigTool::compote_from_config_value(
+                        &up_name,
+                        None,
+                        tracker,
+                    ) {
+                        steps.push(up_config);
+                    } else {
+                        up_errors.push(UpError::Config(format!(
+                            "invalid config for step {} ({})",
+                            index + 1,
+                            up_name
+                        )));
+                    }
+                }
+                CompoteConfigValue::Float(f, _) => {
+                    let up_name = f.to_string();
+                    if let Some(up_config) = UpConfigTool::compote_from_config_value(
+                        &up_name,
+                        None,
+                        tracker,
+                    ) {
+                        steps.push(up_config);
+                    } else {
+                        up_errors.push(UpError::Config(format!(
+                            "invalid config for step {} ({})",
+                            index + 1,
+                            up_name
+                        )));
+                    }
+                }
+                _ => {
+                    tracker.record_type_mismatch("string or object", step_value.type_name());
+                    up_errors.push(UpError::Config(format!(
+                        "invalid config for step {}: expected string or object",
+                        index + 1
+                    )));
+                }
+            }
+
+            tracker.pop(); // pop index
+        }
+
+        Ok(Self {
+            steps,
+            errors: up_errors,
+        })
     }
 }

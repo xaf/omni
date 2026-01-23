@@ -1,39 +1,6 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use humantime::parse_duration;
-
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::ConfigValue;
-use config_value::ConfigErrorKind;
-
-pub fn parse_duration_or_default(
-    value: Option<&ConfigValue>,
-    default: u64,
-    error_handler: &ConfigErrorHandler,
-) -> u64 {
-    if let Some(value) = value {
-        if let Some(value) = value.as_unsigned_integer() {
-            return value;
-        } else if let Some(value) = value.as_str() {
-            if let Ok(value) = parse_duration(&value) {
-                return value.as_secs();
-            } else {
-                error_handler
-                    .with_expected("duration")
-                    .with_actual(value)
-                    .error(ConfigErrorKind::InvalidValueType);
-            }
-        } else {
-            error_handler
-                .with_expected("duration")
-                .with_actual(value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-    }
-    default
-}
-
 pub fn is_executable(path: &std::path::Path) -> bool {
     fs::metadata(path)
         .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)

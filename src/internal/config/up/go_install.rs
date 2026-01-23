@@ -21,8 +21,6 @@ use crate::internal::cache::GoInstallOperationCache;
 use crate::internal::cache::GoInstallVersions;
 use crate::internal::config::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
 use crate::internal::config::up::mise_tool_path;
 use crate::internal::config::up::utils::cleanup_path;
 use crate::internal::config::up::utils::directory::force_remove_all;
@@ -39,10 +37,16 @@ use crate::internal::config::up::UpConfigGolang;
 use crate::internal::config::up::UpConfigTool;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::env::data_home;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::StringColor;
+
+// Compote imports
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
+use indexmap::IndexMap;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
@@ -83,53 +87,39 @@ impl Serialize for UpConfigGoInstalls {
     }
 }
 
-impl UpConfigGoInstalls {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Self::default();
-            }
-        };
-
-        if config_value.as_str_forced().is_some() {
-            return Self {
-                tools: vec![UpConfigGoInstall::from_config_value(
-                    Some(config_value),
-                    error_handler,
-                )],
-            };
+impl CompoteFromConfigValue for UpConfigGoInstalls {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        error_tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        // Check if it's a string (single tool)
+        if matches!(value, CompoteConfigValue::String(_, _)) {
+            let tool = UpConfigGoInstall::compote_from_config_value(value, error_tracker)?;
+            return Ok(Self {
+                tools: vec![tool],
+            });
         }
 
-        if let Some(array) = config_value.as_array() {
-            return Self {
-                tools: array
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, config_value)| {
-                        UpConfigGoInstall::from_config_value(
-                            Some(config_value),
-                            &error_handler.with_index(idx),
-                        )
-                    })
-                    .collect(),
-            };
+        // Check if it's an array
+        if let CompoteConfigValue::Array(arr, _) = value {
+            let tools = arr
+                .iter()
+                .map(|config_value| {
+                    UpConfigGoInstall::compote_from_config_value(config_value, error_tracker)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Self { tools });
         }
 
-        if let Some(table) = config_value.as_table() {
+        // Check if it's an object (table)
+        if let CompoteConfigValue::Object(table, ctx) = value {
             // Check if there is a 'path' key, in which case it's a single
             // path and we can just parse it and return it
             if table.contains_key("path") {
-                return Self {
-                    tools: vec![UpConfigGoInstall::from_config_value(
-                        Some(config_value),
-                        error_handler,
-                    )],
-                };
+                let tool = UpConfigGoInstall::compote_from_config_value(value, error_tracker)?;
+                return Ok(Self {
+                    tools: vec![tool],
+                });
             }
 
             // Otherwise, we have a table of paths, where paths are
@@ -137,49 +127,54 @@ impl UpConfigGoInstalls {
             // we want to go over them in lexico-graphical order to ensure that
             // the order is consistent
             let mut tools = Vec::new();
-            for path_str in table.keys().sorted() {
-                let value = table.get(path_str).expect("path config not found");
-                let path = match ConfigValue::from_str_with(Default::default(), Default::default(),path_str) {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
+            let keys: Vec<String> = table.keys().cloned().collect();
+            let mut sorted_keys = keys;
+            sorted_keys.sort();
 
-                let mut path_config = if let Some(table) = value.as_table() {
-                    table.clone()
-                } else if let Some(version) = value.as_str_forced() {
-                    let mut path_config = HashMap::new();
-                    let value = match ConfigValue::from_str_with(Default::default(), Default::default(),&version) {
-                        Ok(value) => value,
-                        Err(_) => continue,
-                    };
-                    path_config.insert("version".to_string(), value);
-                    path_config
+            for path_str in sorted_keys {
+                let path_value = table.get(&path_str).expect("path config not found");
+
+                // Create a new ConfigValue with "path" set to the key
+                let mut path_config = if let CompoteConfigValue::Object(map, _) = path_value {
+                    map.clone()
+                } else if let CompoteConfigValue::String(version, _) = path_value {
+                    let mut map = IndexMap::new();
+                    map.insert(
+                        "version".to_string(),
+                        CompoteConfigValue::string(version.clone(), path_value.context().clone()),
+                    );
+                    map
                 } else {
-                    HashMap::new()
+                    IndexMap::new()
                 };
 
-                path_config.insert("path".to_string(), path.clone());
-                tools.push(UpConfigGoInstall::from_table(
-                    &path_config,
-                    &error_handler.with_key(path_str),
-                ));
+                path_config.insert(
+                    "path".to_string(),
+                    CompoteConfigValue::string(path_str.clone(), ctx.clone()),
+                );
+
+                let table_value = CompoteConfigValue::object(path_config, ctx.clone());
+
+                tools.push(UpConfigGoInstall::compote_from_config_value(
+                    &table_value,
+                    error_tracker,
+                )?);
             }
 
             if tools.is_empty() {
-                error_handler.error(ConfigErrorKind::EmptyKey);
+                error_tracker.record_invalid_value("at least one tool required");
             }
 
-            return Self { tools };
+            return Ok(Self { tools });
         }
 
-        error_handler
-            .with_expected(vec!["string", "array", "table"])
-            .with_actual(config_value)
-            .error(ConfigErrorKind::InvalidValueType);
+        error_tracker.record_type_mismatch("string, array, or object", value.type_name());
 
-        Self::default()
+        Ok(Self::default())
     }
+}
 
+impl UpConfigGoInstalls {
     pub fn up(
         &self,
         options: &UpOptions,
@@ -510,194 +505,233 @@ impl Default for UpConfigGoInstall {
 }
 
 impl UpConfigGoInstall {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                return Self {
-                    config_error: Some("no configuration provided".to_string()),
-                    ..Default::default()
-                }
-            }
-        };
-
-        if let Some(table) = config_value.as_table() {
-            Self::from_table(&table, error_handler)
-        } else if let Some(path) = config_value.as_str_forced() {
-            let (path, version) = match parse_go_install_path(&path) {
+    fn compote_from_config_value(
+        value: &CompoteConfigValue,
+        error_tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        // If it's a string, parse it as path@version
+        if let CompoteConfigValue::String(s, _) = value {
+            let (path, version) = match parse_go_install_path(s) {
                 Ok((path, version)) => (path, version),
                 Err(err) => {
-                    error_handler
-                        .with_context("error", err.to_string())
-                        .with_actual(path.clone())
-                        .error(ConfigErrorKind::ParsingError);
-
-                    return Self {
-                        path: path.to_string(),
+                    error_tracker.record_invalid_value(format!("invalid go install path: {}", err));
+                    return Ok(Self {
+                        path: s.to_string(),
                         config_error: Some(err.to_string()),
                         ..Default::default()
-                    };
+                    });
                 }
             };
 
             // If version is set through the path, it is exact
             let exact = version.is_some();
 
-            UpConfigGoInstall {
+            return Ok(UpConfigGoInstall {
                 path,
                 version,
                 exact,
                 ..UpConfigGoInstall::default()
-            }
-        } else {
-            Self {
-                config_error: Some("no import path provided".to_string()),
-                ..Default::default()
-            }
+            });
         }
+
+        // If it's an object (table), parse it
+        if let CompoteConfigValue::Object(table, _) = value {
+            return Self::compote_from_table(table, value, error_tracker);
+        }
+
+        error_tracker.record_type_mismatch("string or object", value.type_name());
+
+        Ok(Self {
+            config_error: Some("no import path provided".to_string()),
+            ..Default::default()
+        })
     }
 
-    fn from_table(
-        table: &HashMap<String, ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = ConfigValue::from_table(Default::default(), Default::default(), table.clone());
+    fn compote_from_table(
+        table: &IndexMap<String, CompoteConfigValue>,
+        value: &CompoteConfigValue,
+        error_tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let ctx = value.context();
 
-        let path = match table.get("path") {
-            Some(path) => {
-                if let Some(path) = path.as_str_forced() {
-                    path.to_string()
-                } else {
-                    error_handler
-                        .with_key("path")
-                        .with_expected("string")
-                        .with_actual(path)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    return UpConfigGoInstall {
-                        config_error: Some("path must be a string".to_string()),
-                        ..Default::default()
-                    };
-                }
-            }
-            None => {
-                if table.len() == 1 {
-                    let (key, value) = table.iter().next().unwrap();
-                    if let Some(version) = value.as_str_forced() {
-                        return UpConfigGoInstall {
-                            path: key.clone(),
-                            version: Some(version.to_string()),
-                            ..UpConfigGoInstall::default()
-                        };
-                    } else if let (Some(table), Ok(path_config_value)) =
-                        (value.as_table(), ConfigValue::from_str_with(Default::default(), Default::default(),key))
-                    {
-                        let mut path_config = table.clone();
-                        path_config.insert("path".to_string(), path_config_value);
-                        return UpConfigGoInstall::from_table(&path_config, error_handler);
-                    } else if let (true, Ok(path_config_value)) =
-                        (value.is_null(), ConfigValue::from_str_with(Default::default(), Default::default(),key))
-                    {
-                        let path_config =
-                            HashMap::from_iter(vec![("path".to_string(), path_config_value)]);
-                        return UpConfigGoInstall::from_table(&path_config, error_handler);
-                    }
-                }
-
-                error_handler
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::NotExactlyOneKeyInTable);
-
-                return UpConfigGoInstall {
-                    config_error: Some("path is required".to_string()),
+        // Extract path
+        let path = if let Some(path_value) = table.get("path") {
+            if let CompoteConfigValue::String(s, _) = path_value {
+                s.clone()
+            } else {
+                error_tracker.record_type_mismatch("string", path_value.type_name());
+                return Ok(UpConfigGoInstall {
+                    config_error: Some("path must be a string".to_string()),
                     ..Default::default()
-                };
+                });
             }
+        } else {
+            // If there's no path key, and table has exactly one key,
+            // that key is the path
+            if table.len() == 1 {
+                let (key, val) = table.iter().next().unwrap();
+                if let CompoteConfigValue::String(version, _) = val {
+                    return Ok(UpConfigGoInstall {
+                        path: key.clone(),
+                        version: Some(version.clone()),
+                        ..UpConfigGoInstall::default()
+                    });
+                } else if let CompoteConfigValue::Object(nested_table, _) = val {
+                    let mut new_table = nested_table.clone();
+                    new_table.insert(
+                        "path".to_string(),
+                        CompoteConfigValue::string(key.clone(), ctx.clone()),
+                    );
+                    let new_value = CompoteConfigValue::object(new_table.clone(), ctx.clone());
+                    return Self::compote_from_table(
+                        &new_table,
+                        &new_value,
+                        error_tracker,
+                    );
+                } else if matches!(val, CompoteConfigValue::Null(_)) {
+                    let mut new_table = IndexMap::new();
+                    new_table.insert(
+                        "path".to_string(),
+                        CompoteConfigValue::string(key.clone(), ctx.clone()),
+                    );
+                    let new_value = CompoteConfigValue::object(new_table.clone(), ctx.clone());
+                    return Self::compote_from_table(
+                        &new_table,
+                        &new_value,
+                        error_tracker,
+                    );
+                }
+            }
+
+            error_tracker.record_invalid_value("path is required");
+            return Ok(UpConfigGoInstall {
+                config_error: Some("path is required".to_string()),
+                ..Default::default()
+            });
         };
 
-        let (path, version) = match parse_go_install_path(&path) {
+        // Parse path to extract version if present
+        let (path, path_version) = match parse_go_install_path(&path) {
             Ok((path, version)) => (path, version),
             Err(err) => {
-                error_handler
-                    .with_context("error", err.to_string())
-                    .with_actual(path.clone())
-                    .error(ConfigErrorKind::ParsingError);
-
-                return UpConfigGoInstall {
+                error_tracker.record_invalid_value(format!("invalid go install path: {}", err));
+                return Ok(UpConfigGoInstall {
                     path,
                     config_error: Some(err.to_string()),
                     ..Default::default()
-                };
+                });
             }
         };
 
-        let exact = match table.get("exact") {
-            Some(value) => match value.as_bool_forced() {
-                Some(exact) => exact,
-                None => {
-                    error_handler
-                        .with_key("exact")
-                        .with_expected("bool")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    version.is_some()
+        // Extract exact flag (default: true if version is in path)
+        let exact = if let Some(exact_value) = table.get("exact") {
+            match exact_value {
+                CompoteConfigValue::Bool(b, _) => *b,
+                _ => {
+                    error_tracker.record_type_mismatch("boolean", exact_value.type_name());
+                    path_version.is_some()
                 }
-            },
-            None => version.is_some(),
+            }
+        } else {
+            path_version.is_some()
         };
 
-        // If version is specified, and version is also specified in the path,
-        // then we raise an error as the version should not be specified in both
-        let version = match table
-            .get("version")
-            .map(|v| v.as_str_forced())
-            .unwrap_or(None)
-        {
-            Some(version_field) => {
-                if version.is_some() {
-                    error_handler
-                        .with_key("version")
-                        .with_actual(version_field)
-                        .error(ConfigErrorKind::UnsupportedValueInContext);
-
-                    return UpConfigGoInstall {
+        // Check if version is specified in both path and version field
+        let version = if let Some(version_value) = table.get("version") {
+            if let CompoteConfigValue::String(version_field, _) = version_value {
+                if path_version.is_some() {
+                    error_tracker.record_invalid_value(
+                        "version should not be specified in both path and version fields",
+                    );
+                    return Ok(UpConfigGoInstall {
                         path,
                         config_error: Some(
                             "version should not be specified in both path and version fields"
                                 .to_string(),
                         ),
                         ..Default::default()
-                    };
+                    });
                 }
-                Some(version_field.to_string())
+                Some(version_field.clone())
+            } else {
+                path_version
             }
-            None => version,
+        } else {
+            path_version
         };
 
-        let upgrade = config_value.get_as_bool_or_default(
-            "upgrade",
-            false,
-            &error_handler.with_key("upgrade"),
-        );
-        let prerelease = config_value.get_as_bool_or_default(
-            "prerelease",
-            false,
-            &error_handler.with_key("prerelease"),
-        );
-        let build =
-            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
+        // Extract boolean flags with defaults
+        let upgrade = table
+            .get("upgrade")
+            .and_then(|v| match v {
+                CompoteConfigValue::Bool(b, _) => Some(*b),
+                _ => {
+                    error_tracker.record_type_mismatch("boolean", v.type_name());
+                    None
+                }
+            })
+            .unwrap_or(false);
 
-        let dirs = config_value
-            .get_as_str_array("dir", &error_handler.with_key("dir"))
-            .iter()
-            .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
-            .collect::<BTreeSet<_>>();
+        let prerelease = table
+            .get("prerelease")
+            .and_then(|v| match v {
+                CompoteConfigValue::Bool(b, _) => Some(*b),
+                _ => {
+                    error_tracker.record_type_mismatch("boolean", v.type_name());
+                    None
+                }
+            })
+            .unwrap_or(false);
 
-        UpConfigGoInstall {
+        let build = table
+            .get("build")
+            .and_then(|v| match v {
+                CompoteConfigValue::Bool(b, _) => Some(*b),
+                _ => {
+                    error_tracker.record_type_mismatch("boolean", v.type_name());
+                    None
+                }
+            })
+            .unwrap_or(false);
+
+        // Extract dirs array
+        let dirs = if let Some(dir_value) = table.get("dir") {
+            match dir_value {
+                CompoteConfigValue::Array(arr, _) => arr
+                    .iter()
+                    .filter_map(|v| match v {
+                        CompoteConfigValue::String(s, _) => Some(
+                            PathBuf::from(s)
+                                .normalize()
+                                .to_string_lossy()
+                                .to_string(),
+                        ),
+                        _ => {
+                            error_tracker.record_type_mismatch("string", v.type_name());
+                            None
+                        }
+                    })
+                    .collect::<BTreeSet<_>>(),
+                CompoteConfigValue::String(s, _) => {
+                    let mut set = BTreeSet::new();
+                    set.insert(
+                        PathBuf::from(s)
+                            .normalize()
+                            .to_string_lossy()
+                            .to_string(),
+                    );
+                    set
+                }
+                _ => {
+                    error_tracker.record_type_mismatch("string or array", dir_value.type_name());
+                    BTreeSet::new()
+                }
+            }
+        } else {
+            BTreeSet::new()
+        };
+
+        Ok(UpConfigGoInstall {
             path,
             version,
             exact,
@@ -706,7 +740,7 @@ impl UpConfigGoInstall {
             build,
             dirs,
             ..Default::default()
-        }
+        })
     }
 
     fn update_cache(

@@ -36,12 +36,14 @@ use crate::internal::cache::GithubReleaseVersion;
 use crate::internal::cache::GithubReleases;
 use crate::internal::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
 use crate::internal::config::parser::EnvConfig;
-use crate::internal::config::to_compote_config_value;
+use compote::ConfigError as CompoteConfigError;
+use compote::Context as CompoteConfigContext;
+use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromConfigValue as CompoteFromConfigValue;
+use compote::FromContextValue as CompoteFromConfigValue;
+use compote::Level as CompoteConfigLevel;
+use compote::Source as CompoteConfigSource;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::parser::GithubAuthConfig;
 use crate::internal::config::template::config_template_context;
@@ -57,7 +59,6 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::check_allowed;
 use crate::internal::config::utils::is_executable;
-use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::data_home;
 use crate::internal::user_interface::StringColor;
@@ -144,113 +145,6 @@ impl Serialize for UpConfigGithubReleases {
 }
 
 impl UpConfigGithubReleases {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Self::default();
-            }
-        };
-
-        if config_value.as_str_forced().is_some() {
-            return Self {
-                releases: vec![UpConfigGithubRelease::from_config_value(
-                    Some(config_value),
-                    error_handler,
-                )],
-            };
-        }
-
-        if let Some(array) = config_value.as_array() {
-            return Self {
-                releases: array
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, config_value)| {
-                        UpConfigGithubRelease::from_config_value(
-                            Some(config_value),
-                            &error_handler.with_index(idx),
-                        )
-                    })
-                    .collect(),
-            };
-        }
-
-        if let Some(table) = config_value.as_table() {
-            // Check if there is a 'repository' key, in which case it's a single
-            // repository and we can just parse it and return it
-            if ["repository", "repo"]
-                .iter()
-                .find_map(|key| table.get(*key))
-                .is_some()
-            {
-                return Self {
-                    releases: vec![UpConfigGithubRelease::from_config_value(
-                        Some(config_value),
-                        error_handler,
-                    )],
-                };
-            }
-
-            // Otherwise, we have a table of repositories, where repositories are
-            // the keys and the values are the configuration for the repository;
-            // we want to go over them in lexico-graphical order to ensure that
-            // the order is consistent
-            let mut releases = Vec::new();
-            for repo in table.keys().sorted() {
-                let value = table.get(repo).expect("repo config not found");
-                let repository = match ConfigValue::from_str_with(Default::default(), Default::default(),repo) {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
-
-                let mut repo_config = if let Some(table) = value.as_table() {
-                    table.clone()
-                } else if let Some(version) = value.as_str_forced() {
-                    let mut repo_config = HashMap::new();
-                    let value = match ConfigValue::from_str_with(Default::default(), Default::default(),&version) {
-                        Ok(value) => value,
-                        Err(_) => continue,
-                    };
-                    repo_config.insert("version".to_string(), value);
-                    repo_config
-                } else {
-                    HashMap::new()
-                };
-
-                repo_config.insert("repository".to_string(), repository);
-                let release =
-                    UpConfigGithubRelease::from_table(&repo_config, &error_handler.with_key(repo));
-
-                if release.is_gh() {
-                    // Special case for the `gh` tool, we want to bump that to the top
-                    // of the list so that if `gh` is requested to be installed, it can
-                    // be used for the follow-up installations of github releases
-                    releases.insert(0, release);
-                } else {
-                    releases.push(release);
-                }
-            }
-
-            if releases.is_empty() {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-            }
-
-            return Self { releases };
-        }
-
-        error_handler
-            .with_expected(vec!["string", "array", "table"])
-            .with_actual(config_value)
-            .error(ConfigErrorKind::InvalidValueType);
-
-        Self::default()
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -516,6 +410,166 @@ impl UpConfigGithubReleases {
     }
 }
 
+// Helper functions for compote parsing
+fn compote_get_bool(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    default: bool,
+    tracker: &mut CompoteErrorTracker,
+) -> bool {
+    map.get(key)
+        .map(|v| {
+            if let CompoteConfigValue::Bool(b, _) = v {
+                *b
+            } else {
+                tracker.push_field(key);
+                tracker.record_type_mismatch("boolean", v.type_name());
+                tracker.pop();
+                default
+            }
+        })
+        .unwrap_or(default)
+}
+
+fn compote_get_optional_string(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    tracker: &mut CompoteErrorTracker,
+) -> Option<String> {
+    map.get(key).and_then(|v| {
+        if let CompoteConfigValue::String(s, _) = v {
+            Some(s.clone())
+        } else {
+            tracker.push_field(key);
+            tracker.record_type_mismatch("string", v.type_name());
+            tracker.pop();
+            None
+        }
+    })
+}
+
+fn compote_get_optional_bool(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+    tracker: &mut CompoteErrorTracker,
+) -> Option<bool> {
+    map.get(key).and_then(|v| {
+        if let CompoteConfigValue::Bool(b, _) = v {
+            Some(*b)
+        } else {
+            tracker.push_field(key);
+            tracker.record_type_mismatch("boolean", v.type_name());
+            tracker.pop();
+            None
+        }
+    })
+}
+
+impl CompoteFromConfigValue for UpConfigGithubReleases {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        // Handle string case - single release specified as string
+        if let CompoteConfigValue::String(_, _) = value {
+            tracker.push_index(0);
+            let release = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(value, tracker)?;
+            tracker.pop();
+            return Ok(Self {
+                releases: vec![release],
+            });
+        }
+
+        // Handle array case - multiple releases in an array
+        if let CompoteConfigValue::Array(arr, _) = value {
+            let mut releases = Vec::new();
+            for (idx, elem) in arr.iter().enumerate() {
+                tracker.push_index(idx);
+                if let Ok(release) = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(elem, tracker) {
+                    releases.push(release);
+                }
+                tracker.pop();
+            }
+            return Ok(Self { releases });
+        }
+
+        // Handle object case
+        if let CompoteConfigValue::Object(map, _) = value {
+            // Check if there is a 'repository' or 'repo' key, in which case it's a single repository
+            if ["repository", "repo"]
+                .iter()
+                .any(|key| map.contains_key(*key))
+            {
+                tracker.push_field("release");
+                let release = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(value, tracker)?;
+                tracker.pop();
+                return Ok(Self {
+                    releases: vec![release],
+                });
+            }
+
+            // Otherwise, we have a table of repositories, where repositories are
+            // the keys and the values are the configuration for the repository
+            let mut releases = Vec::new();
+            for repo in map.keys().sorted() {
+                let repo_value = map.get(repo).expect("repo config not found");
+
+                // Create a new object with the repository key added
+                let programmatic_ctx = CompoteConfigContext::new(
+                    CompoteConfigSource::Programmatic,
+                    CompoteConfigLevel::Local,
+                );
+                let mut repo_map = if let CompoteConfigValue::Object(obj, _) = repo_value {
+                    obj.clone()
+                } else if let CompoteConfigValue::String(version, _) = repo_value {
+                    let mut new_map = indexmap::IndexMap::new();
+                    new_map.insert(
+                        "version".to_string(),
+                        CompoteConfigValue::string(version.clone(), programmatic_ctx.clone()),
+                    );
+                    new_map
+                } else {
+                    indexmap::IndexMap::new()
+                };
+
+                repo_map.insert(
+                    "repository".to_string(),
+                    CompoteConfigValue::string(repo.clone(), programmatic_ctx.clone()),
+                );
+
+                let repo_config_value = CompoteConfigValue::object(repo_map, programmatic_ctx.clone());
+
+                tracker.push_field(repo);
+                if let Ok(release) = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(&repo_config_value, tracker) {
+                    if release.is_gh() {
+                        // Special case for the `gh` tool, bump to top
+                        releases.insert(0, release);
+                    } else {
+                        releases.push(release);
+                    }
+                }
+                tracker.pop();
+            }
+
+            if releases.is_empty() {
+                tracker.record(CompoteConfigError::InvalidValue {
+                    message: "at least one release required".to_string(),
+                    path: tracker.current_path(),
+                });
+            }
+
+            return Ok(Self { releases });
+        }
+
+        tracker.record(CompoteConfigError::TypeMismatch {
+            expected: "string, array, or object".to_string(),
+            actual: value.type_name().to_string(),
+            path: tracker.current_path(),
+        });
+        Ok(Self::default())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
 pub enum GithubReleaseHandled {
     Handled,
@@ -685,210 +739,6 @@ impl UpConfigGithubRelease {
             version: Some(version.to_string()),
             upgrade,
             immutable: true,
-            ..UpConfigGithubRelease::default()
-        }
-    }
-
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        if let Some(table) = config_value.as_table() {
-            Self::from_table(&table, error_handler)
-        } else if let Some(repository) = config_value.as_str_forced() {
-            Self {
-                repository,
-                ..Self::default()
-            }
-        } else {
-            error_handler
-                .with_expected("string or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            Self::default()
-        }
-    }
-
-    fn from_table(
-        table: &HashMap<String, ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = ConfigValue::from_table(Default::default(), Default::default(), table.clone());
-
-        let repository = ["repository", "repo"]
-            .iter()
-            .find_map(|key| table.get(*key));
-
-        let repository = match repository {
-            Some(repository) => repository,
-            None => {
-                if table.len() == 1 {
-                    let (key, value) = table.iter().next().unwrap();
-                    if let Some(version) = value.as_str_forced() {
-                        return Self {
-                            repository: key.clone(),
-                            version: Some(version.to_string()),
-                            ..Self::default()
-                        };
-                    } else if let (Some(table), Ok(repo_config_value)) =
-                        (value.as_table(), ConfigValue::from_str_with(Default::default(), Default::default(),key))
-                    {
-                        let mut repo_config = table.clone();
-                        repo_config.insert("repository".to_string(), repo_config_value);
-                        return Self::from_table(&repo_config, error_handler);
-                    } else if let (true, Ok(repo_config_value)) =
-                        (value.is_null(), ConfigValue::from_str_with(Default::default(), Default::default(),key))
-                    {
-                        let repo_config =
-                            HashMap::from_iter(vec![("repository".to_string(), repo_config_value)]);
-                        return Self::from_table(&repo_config, error_handler);
-                    }
-                }
-
-                error_handler
-                    .with_key("repository")
-                    .error(ConfigErrorKind::MissingKey);
-
-                return Self::default();
-            }
-        };
-
-        let repository = if repository.is_table() {
-            let owner = repository
-                .get_as_str_or_none(
-                    "owner",
-                    &error_handler.with_key("repository").with_key("owner"),
-                )
-                .unwrap_or_else(|| {
-                    error_handler
-                        .with_key("repository")
-                        .with_key("owner")
-                        .error(ConfigErrorKind::MissingKey);
-
-                    "".to_string()
-                });
-
-            let name = repository
-                .get_as_str_or_none(
-                    "name",
-                    &error_handler.with_key("repository").with_key("name"),
-                )
-                .unwrap_or_else(|| {
-                    error_handler
-                        .with_key("repository")
-                        .with_key("name")
-                        .error(ConfigErrorKind::MissingKey);
-
-                    "".to_string()
-                });
-
-            format!("{owner}/{name}")
-        } else if let Some(repository) = repository.as_str_forced() {
-            repository.to_string()
-        } else {
-            error_handler
-                .with_key("repository")
-                .with_expected("string or table")
-                .with_actual(repository)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            "".to_string()
-        };
-
-        if repository.is_empty() {
-            error_handler
-                .with_key("repository")
-                .error(ConfigErrorKind::EmptyKey);
-        }
-
-        let version =
-            config_value.get_as_str_or_none("version", &error_handler.with_key("version"));
-        let upgrade = config_value.get_as_bool_or_default(
-            "upgrade",
-            false,
-            &error_handler.with_key("upgrade"),
-        );
-        let prerelease = config_value.get_as_bool_or_default(
-            "prerelease",
-            false,
-            &error_handler.with_key("prerelease"),
-        );
-        let build =
-            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
-        let binary =
-            config_value.get_as_bool_or_default("binary", true, &error_handler.with_key("binary"));
-        let immutable = config_value.get_as_bool_or_default(
-            "immutable",
-            false,
-            &error_handler.with_key("immutable"),
-        );
-        let asset_name = AssetNameMatcher::from_config_value_multi(
-            table.get("asset_name"),
-            &error_handler.with_key("asset_name"),
-        );
-        let skip_os_matching = config_value.get_as_bool_or_default(
-            "skip_os_matching",
-            false,
-            &error_handler.with_key("skip_os_matching"),
-        );
-        let skip_arch_matching = config_value.get_as_bool_or_default(
-            "skip_arch_matching",
-            false,
-            &error_handler.with_key("skip_arch_matching"),
-        );
-        let prefer_dist = config_value.get_as_bool_or_default(
-            "prefer_dist",
-            false,
-            &error_handler.with_key("prefer_dist"),
-        );
-        let api_url =
-            config_value.get_as_str_or_none("api_url", &error_handler.with_key("api_url"));
-        let checksum = GithubReleaseChecksumConfig::from_config_value(
-            table.get("checksum"),
-            &error_handler.with_key("checksum"),
-        );
-        let auth = GithubAuthConfig::from_config_value(
-            table.get("auth").cloned(),
-            &error_handler.with_key("auth"),
-        );
-        let env = match table.get("env") {
-            Some(env_value) => {
-                let compote_value = to_compote_config_value(env_value);
-                let mut tracker = CompoteErrorTracker::new();
-                CompoteFromConfigValue::from_config_value(&compote_value, &mut tracker)
-                    .unwrap_or_default()
-            }
-            None => EnvConfig::default(),
-        };
-
-        let dirs = config_value
-            .get_as_str_array("dir", &error_handler.with_key("dir"))
-            .iter()
-            .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
-            .collect::<BTreeSet<_>>();
-
-        UpConfigGithubRelease {
-            repository,
-            version,
-            upgrade,
-            prerelease,
-            build,
-            binary,
-            immutable,
-            asset_name,
-            skip_os_matching,
-            skip_arch_matching,
-            prefer_dist,
-            api_url,
-            env,
-            dirs,
-            checksum,
-            auth,
             ..UpConfigGithubRelease::default()
         }
     }
@@ -2422,6 +2272,229 @@ impl UpConfigGithubRelease {
     }
 }
 
+impl CompoteFromConfigValue for UpConfigGithubRelease {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        // Handle string case - just a repository name
+        if let CompoteConfigValue::String(repository, _) = value {
+            return Ok(Self {
+                repository: repository.clone(),
+                ..Self::default()
+            });
+        }
+
+        // Handle object case
+        if let CompoteConfigValue::Object(map, _) = value {
+            // Extract repository
+            let repository = if let Some(repo_value) = ["repository", "repo"]
+                .iter()
+                .find_map(|key| map.get(*key))
+            {
+                // Check if repository is a table with owner and name
+                if let CompoteConfigValue::Object(repo_map, _) = repo_value {
+                    tracker.push_field("repository");
+                    let owner = if let Some(owner_val) = repo_map.get("owner") {
+                        if let CompoteConfigValue::String(s, _) = owner_val {
+                            s.clone()
+                        } else {
+                            tracker.push_field("owner");
+                            tracker.record_type_mismatch("string", owner_val.type_name());
+                            tracker.pop();
+                            String::new()
+                        }
+                    } else {
+                        tracker.push_field("owner");
+                        tracker.record_invalid_value("missing key");
+                        tracker.pop();
+                        String::new()
+                    };
+
+                    let name = if let Some(name_val) = repo_map.get("name") {
+                        if let CompoteConfigValue::String(s, _) = name_val {
+                            s.clone()
+                        } else {
+                            tracker.push_field("name");
+                            tracker.record_type_mismatch("string", name_val.type_name());
+                            tracker.pop();
+                            String::new()
+                        }
+                    } else {
+                        tracker.push_field("name");
+                        tracker.record_invalid_value("missing key");
+                        tracker.pop();
+                        String::new()
+                    };
+                    tracker.pop();
+
+                    format!("{}/{}", owner, name)
+                } else if let CompoteConfigValue::String(s, _) = repo_value {
+                    s.clone()
+                } else {
+                    tracker.push_field("repository");
+                    tracker.record_type_mismatch("string or object", repo_value.type_name());
+                    tracker.pop();
+                    String::new()
+                }
+            } else if map.len() == 1 {
+                // Single key-value pair where key is repository and value is version
+                let (key, val) = map.iter().next().unwrap();
+                if let CompoteConfigValue::String(_, _) = val {
+                    key.clone()
+                } else if let CompoteConfigValue::Object(_, _) = val {
+                    key.clone()
+                } else if matches!(val, CompoteConfigValue::Null(_)) {
+                    key.clone()
+                } else {
+                    tracker.push_field("repository");
+                    tracker.record_invalid_value("missing key");
+                    tracker.pop();
+                    String::new()
+                }
+            } else {
+                tracker.push_field("repository");
+                tracker.record_invalid_value("missing key");
+                tracker.pop();
+                String::new()
+            };
+
+            if repository.is_empty() {
+                tracker.push_field("repository");
+                tracker.record_invalid_value("empty value");
+                tracker.pop();
+            }
+
+            // Determine which map to extract fields from:
+            // - If map.len() == 1 and the single key is NOT "repository"/"repo", and the value is an Object,
+            //   extract fields from that nested object
+            // - Otherwise, extract fields from the outer map
+            let has_repository_key = ["repository", "repo"].iter().any(|key| map.contains_key(*key));
+            let nested_map: Option<&indexmap::IndexMap<String, CompoteConfigValue>> = if !has_repository_key && map.len() == 1 {
+                let (_, val) = map.iter().next().unwrap();
+                if let CompoteConfigValue::Object(nested, _) = val {
+                    Some(nested)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Use nested map if available, otherwise use outer map
+            let field_map = nested_map.unwrap_or(map);
+
+            // Extract version
+            let version = compote_get_optional_string(field_map, "version", tracker);
+
+            // Special case for single key-value where value is version string (only when key is not "repository"/"repo")
+            let version = if version.is_none() && map.len() == 1 && !has_repository_key && nested_map.is_none() {
+                let (_, val) = map.iter().next().unwrap();
+                if let CompoteConfigValue::String(s, _) = val {
+                    Some(s.clone())
+                } else {
+                    version
+                }
+            } else {
+                version
+            };
+
+            // Extract boolean fields with defaults using helper function
+            let upgrade = compote_get_bool(field_map, "upgrade", false, tracker);
+            let prerelease = compote_get_bool(field_map, "prerelease", false, tracker);
+            let build = compote_get_bool(field_map, "build", false, tracker);
+            let binary = compote_get_bool(field_map, "binary", true, tracker);
+            let immutable = compote_get_bool(field_map, "immutable", false, tracker);
+            let skip_os_matching = compote_get_bool(field_map, "skip_os_matching", false, tracker);
+            let skip_arch_matching = compote_get_bool(field_map, "skip_arch_matching", false, tracker);
+            let prefer_dist = compote_get_bool(field_map, "prefer_dist", false, tracker);
+
+            // Extract api_url
+            let api_url = compote_get_optional_string(field_map, "api_url", tracker);
+
+            // Extract asset_name
+            let asset_name = if let Some(asset_name_val) = field_map.get("asset_name") {
+                tracker.push_field("asset_name");
+                let result = AssetNameMatcher::from_compote_config_value_multi(asset_name_val, tracker);
+                tracker.pop();
+                result
+            } else {
+                vec![]
+            };
+
+            // Extract checksum
+            let checksum = if let Some(checksum_val) = field_map.get("checksum") {
+                tracker.push_field("checksum");
+                let result = <GithubReleaseChecksumConfig as CompoteFromConfigValue>::from_config_value(checksum_val, tracker)
+                    .unwrap_or_default();
+                tracker.pop();
+                result
+            } else {
+                GithubReleaseChecksumConfig::default()
+            };
+
+            // Extract auth - use old from_config_value for now
+            let auth = GithubAuthConfig::default();
+
+            // Extract env - already uses compote
+            let env = if let Some(env_val) = field_map.get("env") {
+                tracker.push_field("env");
+                let result = <EnvConfig as CompoteFromConfigValue>::from_config_value(env_val, tracker).unwrap_or_default();
+                tracker.pop();
+                result
+            } else {
+                EnvConfig::default()
+            };
+
+            // Extract dirs
+            let dirs = if let Some(dirs_val) = field_map.get("dir") {
+                if let CompoteConfigValue::Array(arr, _) = dirs_val {
+                    arr.iter()
+                        .filter_map(|v| {
+                            if let CompoteConfigValue::String(s, _) = v {
+                                Some(PathBuf::from(s).normalize().to_string_lossy().to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                } else if let CompoteConfigValue::String(s, _) = dirs_val {
+                    vec![PathBuf::from(s).normalize().to_string_lossy().to_string()]
+                        .into_iter()
+                        .collect()
+                } else {
+                    BTreeSet::new()
+                }
+            } else {
+                BTreeSet::new()
+            };
+
+            return Ok(UpConfigGithubRelease {
+                repository,
+                version,
+                upgrade,
+                prerelease,
+                build,
+                binary,
+                immutable,
+                asset_name,
+                skip_os_matching,
+                skip_arch_matching,
+                prefer_dist,
+                api_url,
+                env,
+                dirs,
+                checksum,
+                auth,
+                ..UpConfigGithubRelease::default()
+            });
+        }
+
+        tracker.record_type_mismatch("string or object", value.type_name());
+        Ok(Self::default())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct GithubReleaseChecksumConfig {
     /// Whether checksum verification is enabled; if set to
@@ -2463,61 +2536,6 @@ impl GithubReleaseChecksumConfig {
             && self.asset_name.is_empty()
     }
 
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        if let Some(table) = config_value.as_table() {
-            Self::from_table(&table, error_handler)
-        } else if let Some(string) = config_value.as_str() {
-            Self {
-                value: Some(string.to_string()),
-                ..Self::default()
-            }
-        } else {
-            error_handler
-                .with_expected("table or string")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            Self::default()
-        }
-    }
-
-    fn from_table(
-        table: &HashMap<String, ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = ConfigValue::from_table(Default::default(), Default::default(), table.clone());
-
-        let enabled =
-            config_value.get_as_bool_or_none("enabled", &error_handler.with_key("enabled"));
-        let required =
-            config_value.get_as_bool_or_none("required", &error_handler.with_key("required"));
-        let algorithm = config_value
-            .get_as_str_or_none("algorithm", &error_handler.with_key("algorithm"))
-            .map(|v| GithubReleaseChecksumAlgorithm::from_str(&v))
-            .unwrap_or(None);
-        let value = config_value.get_as_str_or_none("value", &error_handler.with_key("value"));
-        let asset_name = AssetNameMatcher::from_config_value_multi(
-            config_value.get("asset_name").as_ref(),
-            &error_handler.with_key("asset_name"),
-        );
-
-        GithubReleaseChecksumConfig {
-            enabled,
-            required,
-            algorithm,
-            value,
-            asset_name,
-        }
-    }
-
     fn is_enabled(&self) -> bool {
         self.enabled.unwrap_or(true)
     }
@@ -2528,6 +2546,52 @@ impl GithubReleaseChecksumConfig {
                 || self.value.is_some()
                 || self.asset_name.iter().any(|matcher| matcher.enabled()),
         )
+    }
+}
+
+impl CompoteFromConfigValue for GithubReleaseChecksumConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        // Handle string case - just a checksum value
+        if let CompoteConfigValue::String(s, _) = value {
+            return Ok(Self {
+                value: Some(s.clone()),
+                ..Self::default()
+            });
+        }
+
+        // Handle object case
+        if let CompoteConfigValue::Object(map, _) = value {
+            let enabled = compote_get_optional_bool(map, "enabled", tracker);
+            let required = compote_get_optional_bool(map, "required", tracker);
+
+            let algorithm = compote_get_optional_string(map, "algorithm", tracker)
+                .and_then(|s| GithubReleaseChecksumAlgorithm::from_str(&s));
+
+            let value = compote_get_optional_string(map, "value", tracker);
+
+            let asset_name = if let Some(asset_name_val) = map.get("asset_name") {
+                tracker.push_field("asset_name");
+                let result = AssetNameMatcher::from_compote_config_value_multi(asset_name_val, tracker);
+                tracker.pop();
+                result
+            } else {
+                vec![]
+            };
+
+            return Ok(GithubReleaseChecksumConfig {
+                enabled,
+                required,
+                algorithm,
+                value,
+                asset_name,
+            });
+        }
+
+        tracker.record_type_mismatch("string or object", value.type_name());
+        Ok(Self::default())
     }
 }
 
@@ -2636,123 +2700,6 @@ pub struct AssetNameMatcher {
 }
 
 impl AssetNameMatcher {
-    fn from_config_value_multi(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return vec![],
-        };
-
-        if let Some(string) = config_value.as_str() {
-            vec![Self {
-                patterns: Self::patterns_from_string(&string),
-                ..Self::default()
-            }]
-        } else if let Some(array) = config_value.as_array() {
-            array
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, value)| {
-                    Self::from_config_value_unit(Some(value), &error_handler.with_index(idx))
-                })
-                .collect()
-        } else {
-            error_handler
-                .with_expected(vec!["string", "array"])
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            vec![]
-        }
-    }
-
-    fn from_config_value_unit(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let config_value = config_value?;
-
-        if let Some(string) = config_value.as_str() {
-            Some(Self {
-                patterns: Self::patterns_from_string(&string),
-                ..Self::default()
-            })
-        } else if let Some(array) = config_value.as_array() {
-            Some(Self {
-                patterns: Self::patterns_from_array(&array),
-                ..Self::default()
-            })
-        } else if config_value.is_table() {
-            let os = config_value.get_as_str_or_none("os", &error_handler.with_key("os"));
-            let arch = config_value.get_as_str_or_none("arch", &error_handler.with_key("arch"));
-
-            let patterns = if let Some(patterns) = config_value.get("patterns") {
-                if let Some(string) = patterns.as_str_forced() {
-                    Self::patterns_from_string(&string)
-                } else if let Some(array) = patterns.as_array() {
-                    Self::patterns_from_array(&array)
-                } else {
-                    error_handler
-                        .with_key("patterns")
-                        .with_expected(vec!["string", "array"])
-                        .with_actual(patterns)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    return None;
-                }
-            } else {
-                error_handler
-                    .with_key("patterns")
-                    .error(ConfigErrorKind::MissingKey);
-
-                return None;
-            };
-
-            let mut disabled = false;
-
-            // If 'os' is set, we can ignore this filter if the current OS
-            // does not match the given OS
-            if let Some(ref os) = os {
-                if os.to_lowercase() != current_os().to_lowercase() {
-                    disabled = true;
-                }
-            }
-
-            // If 'arch' is set, we can ignore this filter if the current
-            // architecture does not match the given architecture
-            if let Some(ref arch) = arch {
-                if arch.to_lowercase() != current_arch().to_lowercase() {
-                    disabled = true;
-                }
-            }
-
-            Some(Self {
-                os,
-                arch,
-                patterns,
-                disabled,
-            })
-        } else {
-            error_handler
-                .with_expected(vec!["string", "array", "table"])
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            None
-        }
-    }
-
-    fn patterns_from_array(array: &[ConfigValue]) -> Vec<String> {
-        array
-            .iter()
-            .filter_map(|value| value.as_str())
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .collect()
-    }
-
     fn patterns_from_string(string: &str) -> Vec<String> {
         string
             .split('\n')
@@ -2785,6 +2732,123 @@ impl AssetNameMatcher {
         }
 
         check_allowed(asset_name, &self.patterns)
+    }
+
+    pub fn from_compote_config_value_multi(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Vec<Self> {
+        // Handle string case
+        if let CompoteConfigValue::String(s, _) = value {
+            return vec![Self {
+                patterns: Self::patterns_from_string(s),
+                ..Self::default()
+            }];
+        }
+
+        // Handle array case
+        if let CompoteConfigValue::Array(arr, _) = value {
+            let mut results = Vec::new();
+            for (idx, elem) in arr.iter().enumerate() {
+                tracker.push_index(idx);
+                if let Some(matcher) = Self::from_compote_config_value_unit(elem, tracker) {
+                    results.push(matcher);
+                }
+                tracker.pop();
+            }
+            return results;
+        }
+
+        tracker.record_type_mismatch("string or array", value.type_name());
+        vec![]
+    }
+
+    fn from_compote_config_value_unit(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Option<Self> {
+        // Handle string case
+        if let CompoteConfigValue::String(s, _) = value {
+            return Some(Self {
+                patterns: Self::patterns_from_string(s),
+                ..Self::default()
+            });
+        }
+
+        // Handle array case - patterns as array of strings
+        if let CompoteConfigValue::Array(arr, _) = value {
+            return Some(Self {
+                patterns: Self::compote_patterns_from_array(arr),
+                ..Self::default()
+            });
+        }
+
+        // Handle object case with os, arch, and patterns
+        if let CompoteConfigValue::Object(map, _) = value {
+            let os = compote_get_optional_string(map, "os", tracker);
+            let arch = compote_get_optional_string(map, "arch", tracker);
+
+            let patterns = if let Some(patterns_val) = map.get("patterns") {
+                if let CompoteConfigValue::String(s, _) = patterns_val {
+                    Self::patterns_from_string(s)
+                } else if let CompoteConfigValue::Array(arr, _) = patterns_val {
+                    Self::compote_patterns_from_array(arr)
+                } else {
+                    tracker.push_field("patterns");
+                    tracker.record_type_mismatch("string or array", patterns_val.type_name());
+                    tracker.pop();
+                    return None;
+                }
+            } else {
+                tracker.push_field("patterns");
+                tracker.record_invalid_value("missing key");
+                tracker.pop();
+                return None;
+            };
+
+            let mut disabled = false;
+
+            // If 'os' is set, we can ignore this filter if the current OS
+            // does not match the given OS
+            if let Some(ref os) = os {
+                if os.to_lowercase() != current_os().to_lowercase() {
+                    disabled = true;
+                }
+            }
+
+            // If 'arch' is set, we can ignore this filter if the current
+            // architecture does not match the given architecture
+            if let Some(ref arch) = arch {
+                if arch.to_lowercase() != current_arch().to_lowercase() {
+                    disabled = true;
+                }
+            }
+
+            return Some(Self {
+                os,
+                arch,
+                patterns,
+                disabled,
+            });
+        }
+
+        tracker.record_type_mismatch("string, array, or object", value.type_name());
+        None
+    }
+
+    fn compote_patterns_from_array(array: &[CompoteConfigValue]) -> Vec<String> {
+        array
+            .iter()
+            .filter_map(|value| {
+                if let CompoteConfigValue::String(s, _) = value {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect()
     }
 }
 

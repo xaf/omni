@@ -10,11 +10,10 @@ use crate::internal::cache::utils::Empty;
 use crate::internal::commands::utils::abs_path_from_path;
 
 use compote::ConfigError as CompoteConfigError;
-use compote::ConfigSource as CompoteConfigSource;
-use compote::ConfigValue as CompoteConfigValue;
+use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromConfigValue as CompoteFromConfigValue;
-use compote::Value as CompoteValue;
+use compote::FromContextValue as CompoteFromConfigValue;
+use compote::Source as CompoteConfigSource;
 
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct EnvConfig {
@@ -66,8 +65,8 @@ impl CompoteFromConfigValue for EnvConfig {
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        let operations = match &value.value {
-            CompoteValue::Array(array) => {
+        let operations = match value {
+            CompoteConfigValue::Array(array, _) => {
                 let mut ops = Vec::new();
                 for (idx, item) in array.iter().enumerate() {
                     tracker.push_index(idx);
@@ -79,7 +78,7 @@ impl CompoteFromConfigValue for EnvConfig {
                 }
                 ops
             }
-            CompoteValue::Object(table) => {
+            CompoteConfigValue::Object(table, ctx) => {
                 // If this is a map, create a list sorted by key for deterministic output
                 let mut ops = Vec::new();
                 for key in table.keys().sorted() {
@@ -88,10 +87,7 @@ impl CompoteFromConfigValue for EnvConfig {
                     // Create a single-key object for parsing
                     let mut single_entry = indexmap::IndexMap::new();
                     single_entry.insert(key.clone(), item_value.clone());
-                    let entry_value = CompoteConfigValue {
-                        value: CompoteValue::Object(single_entry),
-                        context: value.context.clone(),
-                    };
+                    let entry_value = CompoteConfigValue::object(single_entry, ctx.clone());
                     match EnvOperationConfig::parse_entry(&entry_value, tracker) {
                         Ok(parsed_ops) => ops.extend(parsed_ops),
                         Err(e) => tracker.record(e),
@@ -100,12 +96,12 @@ impl CompoteFromConfigValue for EnvConfig {
                 }
                 ops
             }
-            CompoteValue::Null => Vec::new(),
+            CompoteConfigValue::Null(_) => Vec::new(),
             _ => {
                 return Err(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "array or object".to_string(),
-                    actual: value.value.type_name().to_string(),
+                    actual: value.type_name().to_string(),
                 });
             }
         };
@@ -128,13 +124,13 @@ impl EnvOperationConfig {
         config_value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Vec<Self>, CompoteConfigError> {
-        let table = match &config_value.value {
-            CompoteValue::Object(obj) => obj,
+        let table = match config_value {
+            CompoteConfigValue::Object(obj, _) => obj,
             _ => {
                 return Err(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
-                    actual: config_value.value.type_name().to_string(),
+                    actual: config_value.type_name().to_string(),
                 });
             }
         };
@@ -150,18 +146,18 @@ impl EnvOperationConfig {
         let (name, value) = table.iter().next().unwrap();
 
         // Parse the value based on its structure
-        Self::parse_value(name, value, &config_value.context, tracker)
+        Self::parse_value(name, value, config_value.context(), tracker)
     }
 
     /// Parse the value for an env var entry.
     fn parse_value(
         name: &str,
         value: &CompoteConfigValue,
-        context: &compote::ConfigContext,
+        context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Vec<Self>, CompoteConfigError> {
-        match &value.value {
-            CompoteValue::Object(table) => {
+        match value {
+            CompoteConfigValue::Object(table, _) => {
                 // Check for operation keys
                 if let Some(set_value) = table.get("set") {
                     tracker.push_field("set");
@@ -215,11 +211,11 @@ impl EnvOperationConfig {
         name: &str,
         value: &CompoteConfigValue,
         operation: EnvOperationEnum,
-        context: &compote::ConfigContext,
+        context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Vec<Self>, CompoteConfigError> {
-        match &value.value {
-            CompoteValue::Array(array) => {
+        match value {
+            CompoteConfigValue::Array(array, _) => {
                 let mut operations = Vec::new();
                 for (idx, item) in array.iter().enumerate() {
                     tracker.push_index(idx);
@@ -231,7 +227,7 @@ impl EnvOperationConfig {
                 }
                 Ok(operations)
             }
-            CompoteValue::Object(table) => {
+            CompoteConfigValue::Object(table, _) => {
                 Self::parse_table_value(name, table, context, tracker).map(|ops| {
                     ops.into_iter()
                         .map(|mut op| {
@@ -252,13 +248,13 @@ impl EnvOperationConfig {
     fn parse_table_value(
         name: &str,
         table: &indexmap::IndexMap<String, CompoteConfigValue>,
-        context: &compote::ConfigContext,
+        context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Vec<Self>, CompoteConfigError> {
         let value_type = if let Some(type_cv) = table.get("type") {
-            match &type_cv.value {
-                CompoteValue::String(s) if s == "text" || s == "path" => s.clone(),
-                CompoteValue::String(s) => {
+            match type_cv {
+                CompoteConfigValue::String(s, _) if s == "text" || s == "path" => s.clone(),
+                CompoteConfigValue::String(s, _) => {
                     return Err(CompoteConfigError::InvalidValue {
                         path: tracker.current_path(),
                         message: format!("type must be 'text' or 'path', got '{}'", s),
@@ -268,7 +264,7 @@ impl EnvOperationConfig {
                     return Err(CompoteConfigError::TypeMismatch {
                         path: tracker.current_path(),
                         expected: "string".to_string(),
-                        actual: type_cv.value.type_name().to_string(),
+                        actual: type_cv.type_name().to_string(),
                     });
                 }
             }
@@ -297,15 +293,15 @@ impl EnvOperationConfig {
         name: &str,
         value: &CompoteConfigValue,
         operation: EnvOperationEnum,
-        context: &compote::ConfigContext,
+        context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        let (parsed_value, value_type) = match &value.value {
-            CompoteValue::Object(table) => {
+        let (parsed_value, value_type) = match value {
+            CompoteConfigValue::Object(table, _) => {
                 let vtype = if let Some(type_cv) = table.get("type") {
-                    match &type_cv.value {
-                        CompoteValue::String(s) if s == "text" || s == "path" => s.clone(),
-                        CompoteValue::String(s) => {
+                    match type_cv {
+                        CompoteConfigValue::String(s, _) if s == "text" || s == "path" => s.clone(),
+                        CompoteConfigValue::String(s, _) => {
                             return Err(CompoteConfigError::InvalidValue {
                                 path: tracker.current_path(),
                                 message: format!("type must be 'text' or 'path', got '{}'", s),
@@ -315,7 +311,7 @@ impl EnvOperationConfig {
                             return Err(CompoteConfigError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
-                                actual: type_cv.value.type_name().to_string(),
+                                actual: type_cv.type_name().to_string(),
                             });
                         }
                     }
@@ -364,25 +360,25 @@ impl EnvOperationConfig {
     fn extract_value(
         value: &CompoteConfigValue,
         value_type: &str,
-        context: &compote::ConfigContext,
+        context: &compote::Context,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Option<String>, CompoteConfigError> {
         // Handle null for set operations
-        if matches!(value.value, CompoteValue::Null) {
+        if matches!(value, CompoteConfigValue::Null(_)) {
             return Ok(None);
         }
 
         // Try to coerce to string
-        let string_value = match &value.value {
-            CompoteValue::String(s) => s.clone(),
-            CompoteValue::Int(i) => i.to_string(),
-            CompoteValue::Float(f) => f.to_string(),
-            CompoteValue::Bool(b) => b.to_string(),
+        let string_value = match value {
+            CompoteConfigValue::String(s, _) => s.clone(),
+            CompoteConfigValue::Int(i, _) => i.to_string(),
+            CompoteConfigValue::Float(f, _) => f.to_string(),
+            CompoteConfigValue::Bool(b, _) => b.to_string(),
             _ => {
                 return Err(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string".to_string(),
-                    actual: value.value.type_name().to_string(),
+                    actual: value.type_name().to_string(),
                 });
             }
         };

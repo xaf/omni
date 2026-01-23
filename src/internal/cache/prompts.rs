@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use config_value::Value;
 use rusqlite::params;
 use serde::Deserialize;
 use serde::Serialize;
@@ -23,7 +22,7 @@ impl PromptsCache {
         prompt_id: &str,
         org: String,
         repo: Option<String>,
-        answer: Value,
+        answer: serde_json::Value,
     ) -> Result<bool, CacheManagerError> {
         let db = CacheManager::get();
         let inserted = db.execute(
@@ -33,7 +32,7 @@ impl PromptsCache {
         Ok(inserted > 0)
     }
 
-    pub fn answers(&self, path: &str) -> HashMap<String, Value> {
+    pub fn answers(&self, path: &str) -> HashMap<String, serde_json::Value> {
         let git = git_env(path);
         match git.url() {
             Some(url) => match (url.owner.as_deref(), url.name.as_str()) {
@@ -44,7 +43,7 @@ impl PromptsCache {
         }
     }
 
-    pub fn get_answers(&self, org: &str, repo: &str) -> HashMap<String, Value> {
+    pub fn get_answers(&self, org: &str, repo: &str) -> HashMap<String, serde_json::Value> {
         // Find all answers matching on the org and for which repo
         // is either matching or none
         let db = CacheManager::get();
@@ -59,7 +58,8 @@ impl PromptsCache {
         let converted_answers = answers
             .iter()
             .flat_map(|(id, answer)| {
-                Value::from_yaml_str(answer)
+                // Parse the stored JSON/YAML string back to serde_json::Value
+                serde_json::from_str(answer)
                     .ok()
                     .map(|answer| (id.clone(), answer))
             })

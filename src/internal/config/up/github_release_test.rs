@@ -2,26 +2,43 @@ use super::*;
 
 mod multi_from_config_value {
     use super::*;
+    use compote::Config as CompoteConfig;
+    use compote::Context as CompoteConfigContext;
+    use compote::ErrorTracker as CompoteErrorTracker;
+    use compote::FromContextValue as CompoteFromConfigValue;
+    use compote::Level as CompoteConfigLevel;
+    use compote::Source as CompoteConfigSource;
+
+    fn parse_yaml(yaml: &str) -> CompoteConfigValue {
+        let ctx = CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::User);
+        let mut config = CompoteConfig::default();
+        config.load_yaml(yaml, ctx);
+        config.root().clone()
+    }
 
     #[test]
     fn empty() {
         let yaml = "";
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubReleases as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 0);
     }
 
     #[test]
     fn str() {
         let yaml = "owner/repo";
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubReleases as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 1);
         assert_eq!(config.releases[0].repository, "owner/repo");
         assert_eq!(config.releases[0].version, None);
@@ -34,11 +51,13 @@ mod multi_from_config_value {
     #[test]
     fn object_single() {
         let yaml = r#"{"repository": "owner/repo"}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubReleases as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 1);
         assert_eq!(config.releases[0].repository, "owner/repo");
         assert_eq!(config.releases[0].version, None);
@@ -51,11 +70,13 @@ mod multi_from_config_value {
     #[test]
     fn object_multi() {
         let yaml = r#"{"owner/repo": "1.2.3", "owner2/repo2": {"version": "2.3.4", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}, "owner3/repo3": {}}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubReleases as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 3);
 
         assert_eq!(config.releases[0].repository, "owner/repo");
@@ -86,11 +107,13 @@ mod multi_from_config_value {
     #[test]
     fn list_multi() {
         let yaml = r#"["owner/repo", {"repository": "owner2/repo2", "version": "2.3.4", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}, {"owner3/repo3": "3.4.5"}, {"owner4/repo4": {"version": "4.5.6"}}]"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubReleases as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 4);
 
         assert_eq!(config.releases[0].repository, "owner/repo");
@@ -128,15 +151,30 @@ mod multi_from_config_value {
 
 mod single_from_config_value {
     use super::*;
+    use compote::Config as CompoteConfig;
+    use compote::Context as CompoteConfigContext;
+    use compote::ErrorTracker as CompoteErrorTracker;
+    use compote::FromContextValue as CompoteFromConfigValue;
+    use compote::Level as CompoteConfigLevel;
+    use compote::Source as CompoteConfigSource;
+
+    fn parse_yaml(yaml: &str) -> CompoteConfigValue {
+        let ctx = CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::User);
+        let mut config = CompoteConfig::default();
+        config.load_yaml(yaml, ctx);
+        config.root().clone()
+    }
 
     #[test]
     fn str() {
         let yaml = "owner/repo";
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubRelease::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.repository, "owner/repo");
         assert_eq!(config.version, None);
         assert!(!config.prerelease);
@@ -148,11 +186,13 @@ mod single_from_config_value {
     #[test]
     fn object() {
         let yaml = r#"{"repository": "owner/repo"}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubRelease::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.repository, "owner/repo");
         assert_eq!(config.version, None);
         assert!(!config.prerelease);
@@ -164,11 +204,13 @@ mod single_from_config_value {
     #[test]
     fn object_repo_alias() {
         let yaml = r#"{"repo": "owner/repo"}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubRelease::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.repository, "owner/repo");
         assert_eq!(config.version, None);
         assert!(!config.prerelease);
@@ -180,11 +222,13 @@ mod single_from_config_value {
     #[test]
     fn with_all_values() {
         let yaml = r#"{"repository": "owner/repo", "version": "1.2.3", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubRelease::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = CompoteErrorTracker::new();
+        let config = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.repository, "owner/repo");
         assert_eq!(config.version, Some("1.2.3".to_string()));
         assert!(config.prerelease);
@@ -839,7 +883,20 @@ mod immutable_filtering {
     use crate::internal::cache::github_release::GithubReleasesSelector;
     use crate::internal::cache::github_release::{GithubReleaseVersion, GithubReleases};
     use crate::internal::testutils::run_with_env;
+    use compote::Config as CompoteConfig;
+    use compote::Context as CompoteConfigContext;
+    use compote::ErrorTracker as CompoteErrorTracker;
+    use compote::FromContextValue as CompoteFromConfigValue;
+    use compote::Level as CompoteConfigLevel;
+    use compote::Source as CompoteConfigSource;
     use time::OffsetDateTime;
+
+    fn parse_yaml(yaml: &str) -> CompoteConfigValue {
+        let ctx = CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::User);
+        let mut config = CompoteConfig::default();
+        config.load_yaml(yaml, ctx);
+        config.root().clone()
+    }
 
     #[test]
     fn test_immutable_false_accepts_both() {
@@ -929,22 +986,25 @@ mod immutable_filtering {
         run_with_env(&[], || {
             // Test that immutable field is parsed correctly from YAML
             let yaml = r#"{"repository": "owner/repo", "immutable": true}"#;
-            let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-            let config = UpConfigGithubRelease::from_config_value(
-                Some(&config_value),
-                &ConfigErrorHandler::noop(),
-            );
+            let config_value = parse_yaml(yaml);
+            let mut tracker = CompoteErrorTracker::new();
+            let config = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(
+                &config_value,
+                &mut tracker,
+            )
+            .unwrap();
             assert_eq!(config.repository, "owner/repo");
             assert!(config.immutable);
 
             // Test default value (should be false)
             let yaml2 = r#"{"repository": "owner/repo"}"#;
-            let config_value2 =
-                ConfigValue::from_str(yaml2).expect("failed to create config value");
-            let config2 = UpConfigGithubRelease::from_config_value(
-                Some(&config_value2),
-                &ConfigErrorHandler::noop(),
-            );
+            let config_value2 = parse_yaml(yaml2);
+            let mut tracker2 = CompoteErrorTracker::new();
+            let config2 = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(
+                &config_value2,
+                &mut tracker2,
+            )
+            .unwrap();
             assert_eq!(config2.repository, "owner/repo");
             assert!(!config2.immutable);
         });

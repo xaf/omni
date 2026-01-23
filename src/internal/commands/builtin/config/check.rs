@@ -5,14 +5,18 @@ use std::process::exit;
 
 use itertools::Itertools;
 
+use compote::ErrorTracker;
+use compote::FromContextValue;
+use compote::Level;
+
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::frompath::PathCommand;
 use crate::internal::commands::Command;
+use crate::internal::config::compote_loader::OmniConfigLoader;
 use crate::internal::config::config;
 use crate::internal::config::parser::path_pattern_from_str;
 use crate::internal::config::parser::ConfigError;
 use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::utils::check_allowed;
 use crate::internal::config::CommandSyntax;
@@ -26,6 +30,7 @@ use crate::internal::git::is_path_gitignored;
 use crate::internal::git::package_root_path;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
+use crate::internal::config::parser::ConfigErrorKind;
 use crate::omni_error;
 
 #[derive(Debug, Clone)]
@@ -339,11 +344,26 @@ impl ConfigCheckCommand {
         };
 
         for (file, scope) in config_files {
-            let loader = ConfigLoader::new_from_file(&file, scope);
-            let file_config = OmniConfig::from_config_value(
-                &loader.raw_config,
-                &error_handler.with_file(file.clone()),
-            );
+            // Convert ConfigScope to ConfigLevel
+            let level = match scope {
+                ConfigScope::System => Level::System,
+                ConfigScope::User => Level::User,
+                ConfigScope::Workdir | ConfigScope::Null | ConfigScope::Default => Level::Local,
+            };
+            // Load the file using compote loader
+            let mut loader = OmniConfigLoader::new_from_file(&file, level);
+            let compote_config = match loader.build() {
+                Ok(config) => config,
+                Err(_) => continue,
+            };
+            let mut tracker = ErrorTracker::new();
+            let file_config: OmniConfig = match OmniConfig::from_config_value(compote_config.root(), &mut tracker) {
+                Ok(config) => config,
+                Err(_) => {
+                    // Log error and skip this file
+                    continue;
+                }
+            };
 
             // Load the check configuration for the location of the file,
             // since we do not want to do local configuration checks that
@@ -419,12 +439,32 @@ impl ConfigCheckCommand {
                 })
                 .collect();
 
-            // Load the selected configuration files
-            let mut loader = ConfigLoader::new_empty();
-            for (file, scope) in config_files {
-                loader.import_config_file(&file, scope);
-            }
-            let config: OmniConfig = loader.into();
+            // Convert scopes to levels and load files using compote loader
+            let files_with_levels: Vec<_> = config_files
+                .into_iter()
+                .map(|(file, scope)| {
+                    let level = match scope {
+                        ConfigScope::System => Level::System,
+                        ConfigScope::User => Level::User,
+                        ConfigScope::Workdir | ConfigScope::Null | ConfigScope::Default => {
+                            Level::Local
+                        }
+                    };
+                    (file, level)
+                })
+                .collect();
+            let mut loader = OmniConfigLoader::new_from_files(files_with_levels);
+            let compote_config = match loader.build() {
+                Ok(config) => config,
+                Err(_) => {
+                    // Return early with empty search paths
+                    return;
+                }
+            };
+            let mut tracker = ErrorTracker::new();
+            let config: OmniConfig =
+                OmniConfig::from_config_value(compote_config.root(), &mut tracker)
+                    .unwrap_or_default();
 
             // Prepare the path list
             let mut paths = vec![];

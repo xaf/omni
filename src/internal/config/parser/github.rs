@@ -3,9 +3,12 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::cache::utils::Empty;
-use crate::internal::config::parser::ConfigErrorHandler;
-use config_value::ConfigErrorKind;
-use crate::internal::config::ConfigValue;
+
+// Compote imports
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct GithubConfig {
@@ -19,24 +22,13 @@ impl Empty for GithubConfig {
     }
 }
 
-impl GithubConfig {
-    pub(super) fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        Self {
-            auth_list: GithubAuthConfigWithFilters::from_config_value_multi(
-                config_value.get("auth"),
-                &error_handler.with_key("auth"),
-            ),
-        }
+impl compote::IsEmpty for GithubConfig {
+    fn is_empty(&self) -> bool {
+        Empty::is_empty(self)
     }
+}
 
+impl GithubConfig {
     pub fn auth_for(&self, repo: &str, api_hostname: &str) -> GithubAuthConfig {
         self.auth_list
             .iter()
@@ -69,48 +61,6 @@ impl GithubAuthConfigWithFilters {
     pub fn matches(&self, repo: &str, api_hostname: &str) -> bool {
         self.repo.matches(repo) && self.hostname.matches(api_hostname)
     }
-
-    pub(super) fn from_config_value_multi(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return vec![],
-        };
-
-        if let Some(array) = config_value.as_array() {
-            array
-                .iter()
-                .enumerate()
-                .map(|(index, item)| {
-                    GithubAuthConfigWithFilters::from_config_value(
-                        item,
-                        &error_handler.with_index(index),
-                    )
-                })
-                .collect()
-        } else {
-            vec![GithubAuthConfigWithFilters::from_config_value(
-                &config_value,
-                error_handler,
-            )]
-        }
-    }
-
-    fn from_config_value(config_value: &ConfigValue, error_handler: &ConfigErrorHandler) -> Self {
-        Self {
-            repo: StringFilter::from_config_value(
-                config_value.get("repo"),
-                &error_handler.with_key("repo"),
-            ),
-            hostname: StringFilter::from_config_value(
-                config_value.get("hostname"),
-                &error_handler.with_key("hostname"),
-            ),
-            auth: GithubAuthConfig::from_config_value(Some(config_value.clone()), error_handler),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -140,95 +90,6 @@ impl Default for GithubAuthConfig {
 impl GithubAuthConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
-    }
-
-    pub(in crate::internal::config) fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        if let Some(string) = config_value.as_str() {
-            return match string.as_str() {
-                "skip" => Self::Skip(true),
-                "gh" => Self::default(),
-                _ => {
-                    // If all caps and underscores, consider it's an environment variable
-                    if string.chars().all(|c| c.is_uppercase() || c == '_') {
-                        Self::TokenEnvVar(string.to_string())
-                    } else {
-                        Self::Token(string.to_string())
-                    }
-                }
-            };
-        } else if let Some(table) = config_value.as_table() {
-            if let Some(skip) = table.get("skip") {
-                match skip.as_bool_forced() {
-                    Some(true) => return Self::Skip(true),
-                    Some(false) => {}
-                    None => {
-                        error_handler
-                            .with_key("skip")
-                            .with_expected("bool")
-                            .with_actual(skip)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                };
-            }
-
-            if let Some(token_env_var) = table.get("token_env_var") {
-                if let Some(token_env_var) = token_env_var.as_str_forced() {
-                    return Self::TokenEnvVar(token_env_var.to_string());
-                } else {
-                    error_handler
-                        .with_key("token_env_var")
-                        .with_expected("string")
-                        .with_actual(token_env_var)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-            }
-
-            if let Some(token) = table.get("token") {
-                if let Some(token) = token.as_str_forced() {
-                    return Self::Token(token.to_string());
-                } else {
-                    error_handler
-                        .with_key("token")
-                        .with_expected("string")
-                        .with_actual(token)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-            }
-
-            if let Some(gh_value) = table.get("gh") {
-                let mut hostname = None;
-                let mut user = None;
-
-                if let Some(gh_table) = gh_value.as_table() {
-                    if let Some(hostname_value) = gh_table.get("hostname") {
-                        hostname = hostname_value.as_str_forced();
-                    }
-                    if let Some(user_value) = gh_table.get("user") {
-                        user = user_value.as_str_forced();
-                    }
-                } else if let Some(gh_string) = gh_value.as_str_forced() {
-                    hostname = Some(gh_string.to_string());
-                } else {
-                    error_handler
-                        .with_key("gh")
-                        .with_expected("string or table")
-                        .with_actual(gh_value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-
-                return Self::GhCli { hostname, user };
-            }
-        }
-
-        Self::default()
     }
 }
 
@@ -323,122 +184,335 @@ impl StringFilter {
             StringFilter::Exact(pattern) => value.to_lowercase() == pattern.to_lowercase(),
         }
     }
+}
 
-    pub(super) fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
+// ============================================================================
+// Compote FromConfigValue implementations
+// ============================================================================
 
-        if let Some(string) = config_value.as_str() {
-            // If a string is provided, use it as a glob pattern by default
-            StringFilter::Glob(string.to_string())
-        } else if let Some(table) = config_value.as_table() {
-            if let Some(entry) = table.get("contains") {
-                if let Some(value) = entry.as_str_forced() {
-                    StringFilter::Contains(value)
-                } else {
-                    error_handler
-                        .with_key("contains")
-                        .with_expected("string")
-                        .with_actual(entry)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    Self::default()
-                }
-            } else if let Some(entry) = table.get("starts_with") {
-                if let Some(value) = entry.as_str_forced() {
-                    StringFilter::StartsWith(value)
-                } else {
-                    error_handler
-                        .with_key("starts_with")
-                        .with_expected("string")
-                        .with_actual(entry)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    Self::default()
-                }
-            } else if let Some(entry) = table.get("ends_with") {
-                if let Some(value) = entry.as_str_forced() {
-                    StringFilter::EndsWith(value)
-                } else {
-                    error_handler
-                        .with_key("ends_with")
-                        .with_expected("string")
-                        .with_actual(entry)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    Self::default()
-                }
-            } else if let Some(entry) = table.get("regex") {
-                if let Some(value) = entry.as_str_forced() {
-                    StringFilter::Regex(value)
-                } else {
-                    error_handler
-                        .with_key("regex")
-                        .with_expected("string")
-                        .with_actual(entry)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    Self::default()
-                }
-            } else if let Some(entry) = table.get("glob") {
-                if let Some(value) = entry.as_str_forced() {
-                    StringFilter::Glob(value)
-                } else {
-                    error_handler
-                        .with_key("glob")
-                        .with_expected("string")
-                        .with_actual(entry)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    Self::default()
-                }
-            } else if let Some(entry) = table.get("exact") {
-                if let Some(value) = entry.as_str_forced() {
-                    StringFilter::Exact(value)
-                } else {
-                    error_handler
-                        .with_key("exact")
-                        .with_expected("string")
-                        .with_actual(entry)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    Self::default()
-                }
-            } else if let Some(entry) = table.get("any") {
-                if entry.is_null() {
-                    StringFilter::Any
-                } else if let Some(true) = entry.as_bool_forced() {
-                    StringFilter::Any
-                } else {
-                    error_handler
-                        .with_key("any")
-                        .with_expected(vec!["null", "bool(true)"])
-                        .with_actual(entry)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    Self::default()
-                }
-            } else {
-                error_handler
-                    .with_expected("exact")
-                    .error(ConfigErrorKind::MissingKey);
-
-                Self::default()
+impl CompoteFromConfigValue for StringFilter {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match value {
+            CompoteConfigValue::String(s, _) => {
+                // If a string is provided, use it as a glob pattern by default
+                Ok(StringFilter::Glob(s.clone()))
             }
-        } else if config_value.is_null() {
-            StringFilter::Any
-        } else {
-            error_handler
-                .with_expected(vec!["table", "string", "null"])
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
+            CompoteConfigValue::Null(_) => Ok(StringFilter::Any),
+            CompoteConfigValue::Object(table, _) => {
+                if let Some(entry) = table.get("contains") {
+                    tracker.push_field("contains");
+                    let result = if let CompoteConfigValue::String(s, _) = entry {
+                        Ok(StringFilter::Contains(s.clone()))
+                    } else {
+                        tracker.record_type_mismatch("string", entry.type_name());
+                        Ok(Self::default())
+                    };
+                    tracker.pop();
+                    return result;
+                }
 
-            Self::default()
+                if let Some(entry) = table.get("starts_with") {
+                    tracker.push_field("starts_with");
+                    let result = if let CompoteConfigValue::String(s, _) = entry {
+                        Ok(StringFilter::StartsWith(s.clone()))
+                    } else {
+                        tracker.record_type_mismatch("string", entry.type_name());
+                        Ok(Self::default())
+                    };
+                    tracker.pop();
+                    return result;
+                }
+
+                if let Some(entry) = table.get("ends_with") {
+                    tracker.push_field("ends_with");
+                    let result = if let CompoteConfigValue::String(s, _) = entry {
+                        Ok(StringFilter::EndsWith(s.clone()))
+                    } else {
+                        tracker.record_type_mismatch("string", entry.type_name());
+                        Ok(Self::default())
+                    };
+                    tracker.pop();
+                    return result;
+                }
+
+                if let Some(entry) = table.get("regex") {
+                    tracker.push_field("regex");
+                    let result = if let CompoteConfigValue::String(s, _) = entry {
+                        Ok(StringFilter::Regex(s.clone()))
+                    } else {
+                        tracker.record_type_mismatch("string", entry.type_name());
+                        Ok(Self::default())
+                    };
+                    tracker.pop();
+                    return result;
+                }
+
+                if let Some(entry) = table.get("glob") {
+                    tracker.push_field("glob");
+                    let result = if let CompoteConfigValue::String(s, _) = entry {
+                        Ok(StringFilter::Glob(s.clone()))
+                    } else {
+                        tracker.record_type_mismatch("string", entry.type_name());
+                        Ok(Self::default())
+                    };
+                    tracker.pop();
+                    return result;
+                }
+
+                if let Some(entry) = table.get("exact") {
+                    tracker.push_field("exact");
+                    let result = if let CompoteConfigValue::String(s, _) = entry {
+                        Ok(StringFilter::Exact(s.clone()))
+                    } else {
+                        tracker.record_type_mismatch("string", entry.type_name());
+                        Ok(Self::default())
+                    };
+                    tracker.pop();
+                    return result;
+                }
+
+                if let Some(entry) = table.get("any") {
+                    tracker.push_field("any");
+                    let result = match entry {
+                        CompoteConfigValue::Null(_) => Ok(StringFilter::Any),
+                        CompoteConfigValue::Bool(true, _) => Ok(StringFilter::Any),
+                        _ => {
+                            tracker.record_type_mismatch("null or bool(true)", entry.type_name());
+                            Ok(Self::default())
+                        }
+                    };
+                    tracker.pop();
+                    return result;
+                }
+
+                // No recognized key found
+                tracker.record_invalid_value("expected one of: contains, starts_with, ends_with, regex, glob, exact, any");
+                Ok(Self::default())
+            }
+            _ => {
+                tracker.record_type_mismatch("string, object, or null", value.type_name());
+                Ok(Self::default())
+            }
+        }
+    }
+}
+
+impl CompoteFromConfigValue for GithubAuthConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match value {
+            CompoteConfigValue::Null(_) => Ok(Self::default()),
+            CompoteConfigValue::String(s, _) => {
+                match s.as_str() {
+                    "skip" => Ok(Self::Skip(true)),
+                    "gh" => Ok(Self::default()),
+                    _ => {
+                        // If all caps and underscores, consider it's an environment variable
+                        if s.chars().all(|c| c.is_uppercase() || c == '_') {
+                            Ok(Self::TokenEnvVar(s.clone()))
+                        } else {
+                            Ok(Self::Token(s.clone()))
+                        }
+                    }
+                }
+            }
+            CompoteConfigValue::Object(table, _) => {
+                // Check for skip
+                if let Some(skip_value) = table.get("skip") {
+                    tracker.push_field("skip");
+                    match skip_value {
+                        CompoteConfigValue::Bool(true, _) => {
+                            tracker.pop();
+                            return Ok(Self::Skip(true));
+                        }
+                        CompoteConfigValue::Bool(false, _) => {
+                            // Continue checking other fields
+                        }
+                        _ => {
+                            tracker.record_type_mismatch("bool", skip_value.type_name());
+                        }
+                    }
+                    tracker.pop();
+                }
+
+                // Check for token_env_var
+                if let Some(token_env_var_value) = table.get("token_env_var") {
+                    tracker.push_field("token_env_var");
+                    if let CompoteConfigValue::String(s, _) = token_env_var_value {
+                        tracker.pop();
+                        return Ok(Self::TokenEnvVar(s.clone()));
+                    } else {
+                        tracker.record_type_mismatch("string", token_env_var_value.type_name());
+                    }
+                    tracker.pop();
+                }
+
+                // Check for token
+                if let Some(token_value) = table.get("token") {
+                    tracker.push_field("token");
+                    if let CompoteConfigValue::String(s, _) = token_value {
+                        tracker.pop();
+                        return Ok(Self::Token(s.clone()));
+                    } else {
+                        tracker.record_type_mismatch("string", token_value.type_name());
+                    }
+                    tracker.pop();
+                }
+
+                // Check for gh
+                if let Some(gh_value) = table.get("gh") {
+                    tracker.push_field("gh");
+                    let mut hostname = None;
+                    let mut user = None;
+
+                    match gh_value {
+                        CompoteConfigValue::Object(gh_table, _) => {
+                            if let Some(hostname_value) = gh_table.get("hostname") {
+                                if let CompoteConfigValue::String(s, _) = hostname_value {
+                                    hostname = Some(s.clone());
+                                }
+                            }
+                            if let Some(user_value) = gh_table.get("user") {
+                                if let CompoteConfigValue::String(s, _) = user_value {
+                                    user = Some(s.clone());
+                                }
+                            }
+                        }
+                        CompoteConfigValue::String(s, _) => {
+                            hostname = Some(s.clone());
+                        }
+                        _ => {
+                            tracker.record_type_mismatch("string or object", gh_value.type_name());
+                        }
+                    }
+                    tracker.pop();
+                    return Ok(Self::GhCli { hostname, user });
+                }
+
+                // Default
+                Ok(Self::default())
+            }
+            _ => {
+                tracker.record_type_mismatch("string or object", value.type_name());
+                Ok(Self::default())
+            }
+        }
+    }
+}
+
+impl CompoteFromConfigValue for GithubAuthConfigWithFilters {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match value {
+            CompoteConfigValue::Null(_) => Ok(Self {
+                repo: StringFilter::default(),
+                hostname: StringFilter::default(),
+                auth: GithubAuthConfig::default(),
+            }),
+            CompoteConfigValue::Object(table, _) => {
+                // Parse repo filter
+                let repo = if let Some(repo_value) = table.get("repo") {
+                    tracker.push_field("repo");
+                    let result = <StringFilter as CompoteFromConfigValue>::from_config_value(repo_value, tracker)?;
+                    tracker.pop();
+                    result
+                } else {
+                    StringFilter::default()
+                };
+
+                // Parse hostname filter
+                let hostname = if let Some(hostname_value) = table.get("hostname") {
+                    tracker.push_field("hostname");
+                    let result = <StringFilter as CompoteFromConfigValue>::from_config_value(hostname_value, tracker)?;
+                    tracker.pop();
+                    result
+                } else {
+                    StringFilter::default()
+                };
+
+                // Parse auth (from the same object, flattened)
+                let auth = <GithubAuthConfig as CompoteFromConfigValue>::from_config_value(value, tracker)?;
+
+                Ok(Self { repo, hostname, auth })
+            }
+            _ => {
+                tracker.record_type_mismatch("object", value.type_name());
+                Ok(Self {
+                    repo: StringFilter::default(),
+                    hostname: StringFilter::default(),
+                    auth: GithubAuthConfig::default(),
+                })
+            }
+        }
+    }
+}
+
+impl CompoteFromConfigValue for GithubConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match value {
+            CompoteConfigValue::Null(_) => Ok(Self::default()),
+            CompoteConfigValue::Object(table, _) => {
+                let auth_list = if let Some(auth_value) = table.get("auth") {
+                    tracker.push_field("auth");
+                    let result = parse_auth_list(auth_value, tracker);
+                    tracker.pop();
+                    result
+                } else {
+                    Vec::new()
+                };
+
+                Ok(Self { auth_list })
+            }
+            _ => {
+                tracker.record_type_mismatch("object", value.type_name());
+                Ok(Self::default())
+            }
+        }
+    }
+}
+
+/// Helper function to parse auth list which can be a single item or an array
+fn parse_auth_list(
+    value: &CompoteConfigValue,
+    tracker: &mut CompoteErrorTracker,
+) -> Vec<GithubAuthConfigWithFilters> {
+    match value {
+        CompoteConfigValue::Array(arr, _) => {
+            let mut result = Vec::new();
+            for (idx, item) in arr.iter().enumerate() {
+                tracker.push_index(idx);
+                match <GithubAuthConfigWithFilters as CompoteFromConfigValue>::from_config_value(item, tracker) {
+                    Ok(auth) => result.push(auth),
+                    Err(e) => tracker.record(e),
+                }
+                tracker.pop();
+            }
+            result
+        }
+        CompoteConfigValue::Object(_, _) => {
+            // Single item, treat as a single-element list
+            match <GithubAuthConfigWithFilters as CompoteFromConfigValue>::from_config_value(value, tracker) {
+                Ok(auth) => vec![auth],
+                Err(e) => {
+                    tracker.record(e);
+                    Vec::new()
+                }
+            }
+        }
+        CompoteConfigValue::Null(_) => Vec::new(),
+        _ => {
+            tracker.record_type_mismatch("array or object", value.type_name());
+            Vec::new()
         }
     }
 }

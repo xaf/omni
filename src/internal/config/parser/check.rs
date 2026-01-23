@@ -7,16 +7,110 @@ use serde::Serialize;
 
 use crate::internal::cache::utils::Empty;
 use crate::internal::commands::utils::abs_path_from_path;
-use crate::internal::config::parser::errors::ConfigErrorHandler;
-use crate::internal::config::parser::errors::ConfigErrorKind;
 use crate::internal::config::parser::github::StringFilter;
-use crate::internal::config::ConfigScope;
-use crate::internal::config::ConfigValue;
+
+// Compote imports
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
+use compote::Level as CompoteConfigLevel;
+use compote::Source as CompoteConfigSource;
+
+// ============================================================================
+// CheckPattern: A pattern string that captures its source context
+// ============================================================================
+//
+// This type captures the source path and level from the ConfigValue during
+// parsing, so that pattern resolution can happen correctly later.
+//
+// - source_path: Used to resolve relative patterns to absolute paths
+// - is_global: Determines if the pattern is from system/user config (global)
+//              vs workdir config (local), which affects path interpretation
+//
+// ============================================================================
+
+/// A check pattern that captures its source context during parsing
+#[derive(Debug, Clone)]
+pub struct CheckPattern {
+    /// The pattern string
+    pub pattern: String,
+    /// The path of the config file this pattern came from (for relative path resolution)
+    pub source_path: Option<PathBuf>,
+    /// Whether this is a global pattern (from system/user config, not workdir)
+    pub is_global: bool,
+}
+
+impl CheckPattern {
+    /// Convert to the resolved pattern string
+    pub fn resolve(&self) -> String {
+        match &self.source_path {
+            Some(path) => {
+                let parent = path.parent().unwrap_or(path);
+                let parent_str = parent.to_string_lossy();
+                path_pattern_from_str(&self.pattern, Some(&parent_str), self.is_global)
+            }
+            None => self.pattern.clone(),
+        }
+    }
+}
+
+impl CompoteFromConfigValue for CheckPattern {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        // Parse the pattern string
+        let pattern = String::from_config_value(value, tracker)?;
+
+        // Extract source path from context
+        let source_path = match &value.context().source {
+            CompoteConfigSource::File(path) => Some(path.clone()),
+            _ => None,
+        };
+
+        // Determine if this is a global pattern (not from Local/workdir level)
+        let is_global = !matches!(value.context().level, CompoteConfigLevel::Local);
+
+        Ok(Self {
+            pattern,
+            source_path,
+            is_global,
+        })
+    }
+}
+
+// Serialize as just the pattern string
+impl Serialize for CheckPattern {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.pattern.serialize(serializer)
+    }
+}
+
+// Deserialize from string (for cache compatibility)
+impl<'de> Deserialize<'de> for CheckPattern {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let pattern = String::deserialize(deserializer)?;
+        // When deserializing from cache, we don't have source context
+        // This is fine because patterns should already be resolved when cached
+        Ok(Self {
+            pattern,
+            source_path: None,
+            is_global: false,
+        })
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct CheckConfig {
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    patterns: Vec<ConfigValue>,
+    patterns: Vec<CheckPattern>,
     #[serde(skip_serializing_if = "HashSet::is_empty")]
     pub ignore: HashSet<String>,
     #[serde(skip_serializing_if = "HashSet::is_empty")]
@@ -31,142 +125,15 @@ impl Empty for CheckConfig {
     }
 }
 
-impl CheckConfig {
-    pub(super) fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        if !config_value.is_table() {
-            error_handler
-                .with_expected("table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            return Self::default();
-        }
-
-        let mut patterns = Vec::new();
-        if let Some(value) = config_value.get("patterns") {
-            if value.as_str_forced().is_some() {
-                patterns.push(value.clone());
-            } else if let Some(array) = value.as_array() {
-                for (idx, value) in array.iter().enumerate() {
-                    if value.as_str_forced().is_some() {
-                        patterns.push(value.clone());
-                    } else {
-                        error_handler
-                            .with_key("patterns")
-                            .with_index(idx)
-                            .with_expected("string")
-                            .with_actual(value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                }
-            } else {
-                error_handler
-                    .with_key("patterns")
-                    .with_expected("string or array of strings")
-                    .with_actual(value)
-                    .error(ConfigErrorKind::InvalidValueType);
-            }
-        }
-
-        let ignore = config_value
-            .get_as_str_array("ignore", &error_handler.with_key("ignore"))
-            .into_iter()
-            .collect();
-        let select = config_value
-            .get_as_str_array("select", &error_handler.with_key("select"))
-            .into_iter()
-            .collect();
-
-        let tags = if let Some(value) = config_value.get("tags") {
-            if let Some(table) = value.as_table() {
-                table
-                    .into_iter()
-                    .map(|(key, value)| {
-                        let filter = StringFilter::from_config_value(
-                            Some(value),
-                            &error_handler.with_key("tags").with_key(&key),
-                        );
-                        (key.clone(), filter)
-                    })
-                    .collect()
-            } else if let Some(array) = value.as_array() {
-                let mut tags = HashMap::new();
-                for (idx, value) in array.iter().enumerate() {
-                    if let Some(value) = value.as_str_forced() {
-                        tags.insert(value.to_string(), StringFilter::default());
-                    } else if let Some(table) = value.as_table() {
-                        for (key, value) in table {
-                            let filter = StringFilter::from_config_value(
-                                Some(value),
-                                &error_handler
-                                    .with_key("tags")
-                                    .with_index(idx)
-                                    .with_key(&key),
-                            );
-                            tags.insert(key.clone(), filter);
-                        }
-                    } else {
-                        error_handler
-                            .with_key("tags")
-                            .with_index(idx)
-                            .with_expected(vec!["string", "table"])
-                            .with_actual(value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                }
-                tags
-            } else {
-                error_handler
-                    .with_key("tags")
-                    .with_expected(vec!["table", "array"])
-                    .with_actual(value)
-                    .error(ConfigErrorKind::InvalidValueType);
-
-                HashMap::new()
-            }
-        } else {
-            HashMap::new()
-        };
-
-        Self {
-            patterns,
-            ignore,
-            select,
-            tags,
-        }
-    }
-
-    pub fn patterns(&self) -> Vec<String> {
-        self.patterns
-            .iter()
-            .map(path_pattern_from_config_value)
-            .collect()
+impl compote::IsEmpty for CheckConfig {
+    fn is_empty(&self) -> bool {
+        Empty::is_empty(self)
     }
 }
 
-fn path_pattern_from_config_value(value: &ConfigValue) -> String {
-    let pattern = value.as_str_forced().expect("value should be a string");
-    match value.source().path() {
-        Some(path) => {
-            let as_path = PathBuf::from(path);
-            let parent = as_path.parent().unwrap_or(&as_path);
-            let as_str = parent.to_string_lossy();
-
-            path_pattern_from_str(
-                &pattern,
-                Some(&as_str),
-                !matches!(value.scope(), ConfigScope::Workdir),
-            )
-        }
-        None => pattern.to_string(),
+impl CheckConfig {
+    pub fn patterns(&self) -> Vec<String> {
+        self.patterns.iter().map(|p| p.resolve()).collect()
     }
 }
 
@@ -200,6 +167,183 @@ pub fn path_pattern_from_str(pattern: &str, location: Option<&str>, global: bool
         if negative { "!" } else { "" },
         abs_pattern.to_string_lossy()
     )
+}
+
+// ============================================================================
+// Compote FromConfigValue for CheckConfig
+// ============================================================================
+
+impl CompoteFromConfigValue for CheckConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        let table = match value {
+            CompoteConfigValue::Object(map, _) => map,
+            CompoteConfigValue::Null(_) => return Ok(Self::default()),
+            _ => {
+                return Err(CompoteConfigError::TypeMismatch {
+                    expected: "table".to_string(),
+                    actual: value.type_name().to_string(),
+                    path: tracker.current_path(),
+                });
+            }
+        };
+
+        // Parse patterns - can be a single string or array of strings
+        let mut patterns = Vec::new();
+        if let Some(v) = table.get("patterns") {
+            tracker.push_field("patterns");
+            match v {
+                CompoteConfigValue::String(_, _) => {
+                    // Single pattern
+                    let pattern = <CheckPattern as CompoteFromConfigValue>::from_config_value(v, tracker)?;
+                    patterns.push(pattern);
+                }
+                CompoteConfigValue::Array(arr, _) => {
+                    for (idx, item) in arr.iter().enumerate() {
+                        tracker.push_index(idx);
+                        match <CheckPattern as CompoteFromConfigValue>::from_config_value(item, tracker) {
+                            Ok(pattern) => patterns.push(pattern),
+                            Err(e) => tracker.record(e),
+                        }
+                        tracker.pop();
+                    }
+                }
+                _ => {
+                    tracker.record(CompoteConfigError::TypeMismatch {
+                        expected: "string or array of strings".to_string(),
+                        actual: v.type_name().to_string(),
+                        path: tracker.current_path(),
+                    });
+                }
+            }
+            tracker.pop();
+        }
+
+        // Parse ignore - array of strings to HashSet
+        let ignore = if let Some(v) = table.get("ignore") {
+            tracker.push_field("ignore");
+            let result = parse_string_array_to_hashset(v, tracker);
+            tracker.pop();
+            result
+        } else {
+            HashSet::new()
+        };
+
+        // Parse select - array of strings to HashSet
+        let select = if let Some(v) = table.get("select") {
+            tracker.push_field("select");
+            let result = parse_string_array_to_hashset(v, tracker);
+            tracker.pop();
+            result
+        } else {
+            HashSet::new()
+        };
+
+        // Parse tags - can be table or array
+        let tags = if let Some(v) = table.get("tags") {
+            tracker.push_field("tags");
+            let result = parse_tags(v, tracker);
+            tracker.pop();
+            result
+        } else {
+            HashMap::new()
+        };
+
+        Ok(Self {
+            patterns,
+            ignore,
+            select,
+            tags,
+        })
+    }
+}
+
+/// Parse an array of strings into a HashSet
+fn parse_string_array_to_hashset(
+    value: &CompoteConfigValue,
+    tracker: &mut CompoteErrorTracker,
+) -> HashSet<String> {
+    let mut result = HashSet::new();
+    if let CompoteConfigValue::Array(arr, _) = value {
+        for (idx, item) in arr.iter().enumerate() {
+            tracker.push_index(idx);
+            if let CompoteConfigValue::String(s, _) = item {
+                result.insert(s.clone());
+            } else {
+                tracker.record(CompoteConfigError::TypeMismatch {
+                    expected: "string".to_string(),
+                    actual: item.type_name().to_string(),
+                    path: tracker.current_path(),
+                });
+            }
+            tracker.pop();
+        }
+    }
+    result
+}
+
+/// Parse tags - can be table or array of strings/tables
+fn parse_tags(
+    value: &CompoteConfigValue,
+    tracker: &mut CompoteErrorTracker,
+) -> HashMap<String, StringFilter> {
+    let mut tags = HashMap::new();
+
+    match value {
+        CompoteConfigValue::Object(table, _) => {
+            for (key, v) in table {
+                tracker.push_field(key);
+                match <StringFilter as CompoteFromConfigValue>::from_config_value(v, tracker) {
+                    Ok(filter) => {
+                        tags.insert(key.clone(), filter);
+                    }
+                    Err(e) => tracker.record(e),
+                }
+                tracker.pop();
+            }
+        }
+        CompoteConfigValue::Array(arr, _) => {
+            for (idx, item) in arr.iter().enumerate() {
+                tracker.push_index(idx);
+                match item {
+                    CompoteConfigValue::String(s, _) => {
+                        tags.insert(s.clone(), StringFilter::default());
+                    }
+                    CompoteConfigValue::Object(table, _) => {
+                        for (key, v) in table {
+                            tracker.push_field(key);
+                            match <StringFilter as CompoteFromConfigValue>::from_config_value(v, tracker) {
+                                Ok(filter) => {
+                                    tags.insert(key.clone(), filter);
+                                }
+                                Err(e) => tracker.record(e),
+                            }
+                            tracker.pop();
+                        }
+                    }
+                    _ => {
+                        tracker.record(CompoteConfigError::TypeMismatch {
+                            expected: "string or table".to_string(),
+                            actual: item.type_name().to_string(),
+                            path: tracker.current_path(),
+                        });
+                    }
+                }
+                tracker.pop();
+            }
+        }
+        _ => {
+            tracker.record(CompoteConfigError::TypeMismatch {
+                expected: "table or array".to_string(),
+                actual: value.type_name().to_string(),
+                path: tracker.current_path(),
+            });
+        }
+    }
+
+    tags
 }
 
 #[cfg(test)]

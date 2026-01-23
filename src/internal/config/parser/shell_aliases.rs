@@ -1,14 +1,28 @@
 use serde::Deserialize;
 use serde::Serialize;
+// Note: ShellAliasConfig uses compote::Config which auto-generates Serialize
+// ShellAliasesConfig uses manual Serialize for custom array serialization
 
 use crate::internal::cache::utils::Empty;
-use crate::internal::config::parser::errors::ConfigErrorHandler;
-use crate::internal::config::parser::errors::ConfigErrorKind;
-use crate::internal::config::ConfigValue;
 
-#[derive(Debug, Deserialize, Clone)]
+// Compote imports
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
+
+// ============================================================================
+// NEW IMPLEMENTATION USING COMPOTE
+// ============================================================================
+
+/// ShellAliasesConfig - container for shell aliases.
+///
+/// This struct does NOT use compote::Config derive because it needs custom
+/// serialization behavior (serializes as array directly, not as struct).
+///
+/// The inner ShellAliasConfig structs use compote::Config.
+#[derive(Debug, Clone)]
 pub struct ShellAliasesConfig {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<ShellAliasConfig>,
 }
 
@@ -18,6 +32,14 @@ impl Empty for ShellAliasesConfig {
     }
 }
 
+impl compote::IsEmpty for ShellAliasesConfig {
+    fn is_empty(&self) -> bool {
+        Empty::is_empty(self)
+    }
+}
+
+// Custom Serialize implementation for backwards compatibility
+// (serializes as array directly, not as struct with "aliases" field)
 impl Serialize for ShellAliasesConfig {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -27,94 +49,108 @@ impl Serialize for ShellAliasesConfig {
     }
 }
 
-impl ShellAliasesConfig {
-    pub(super) fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut aliases = vec![];
-        if let Some(config_value) = config_value {
-            if let Some(array) = config_value.as_array() {
-                for (idx, value) in array.iter().enumerate() {
-                    if let Some(alias) =
-                        ShellAliasConfig::from_config_value(value, &error_handler.with_index(idx))
-                    {
-                        aliases.push(alias);
-                    }
-                }
-            } else {
-                error_handler
-                    .with_expected("array")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
-            }
-        }
-        Self { aliases }
+
+// Manual Deserialize implementation for compatibility with existing code
+// (e.g., loading from cache files, etc.)
+impl<'de> Deserialize<'de> for ShellAliasesConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as Vec<ShellAliasConfig> directly for backwards compatibility
+        let aliases = Vec::<ShellAliasConfig>::deserialize(deserializer)?;
+        Ok(ShellAliasesConfig { aliases })
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+impl Default for ShellAliasesConfig {
+    fn default() -> Self {
+        Self { aliases: Vec::new() }
+    }
+}
+
+/// ShellAliasConfig using compote's derive macro.
+///
+/// The compote::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// - `serde::Serialize` implementation for serialization
+///
+/// We still need manual `serde::Deserialize` for compatibility with the existing
+/// codebase that uses serde for some operations.
+#[derive(Debug, Clone, compote::Config)]
 pub struct ShellAliasConfig {
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[compote(default = "String::new()")]
+    #[compote(serde_skip_serializing_if = "String::is_empty")]
     pub alias: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+
+    #[compote(serde_skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
 }
 
-impl ShellAliasConfig {
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if let Some(value) = config_value.as_str() {
-            Some(Self {
-                alias: value.to_string(),
-                target: None,
-            })
-        } else if let Some(table) = config_value.as_table() {
-            let alias = if let Some(value) = table.get("alias") {
-                if let Some(value) = value.as_str() {
-                    value.to_string()
-                } else {
-                    error_handler
-                        .with_key("alias")
-                        .with_expected("string")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
 
-                    return None;
+// Manual Deserialize implementation for compatibility with existing code
+// (e.g., loading from cache files, etc.)
+impl<'de> Deserialize<'de> for ShellAliasConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper {
+            #[serde(default)]
+            alias: String,
+            #[serde(default)]
+            target: Option<String>,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+        Ok(ShellAliasConfig {
+            alias: helper.alias,
+            target: helper.target,
+        })
+    }
+}
+
+impl Default for ShellAliasConfig {
+    fn default() -> Self {
+        Self {
+            alias: String::new(),
+            target: None,
+        }
+    }
+}
+
+// ============================================================================
+// Compote FromConfigValue implementation for ShellAliasesConfig
+// ============================================================================
+
+impl CompoteFromConfigValue for ShellAliasesConfig {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
+        match value {
+            CompoteConfigValue::Array(arr, _) => {
+                let mut aliases = Vec::new();
+                for (idx, item) in arr.iter().enumerate() {
+                    tracker.push_index(idx);
+                    // ShellAliasConfig has FromConfigValue from the derive macro
+                    match <ShellAliasConfig as CompoteFromConfigValue>::from_config_value(
+                        item, tracker,
+                    ) {
+                        Ok(alias) => aliases.push(alias),
+                        Err(e) => tracker.record(e),
+                    }
+                    tracker.pop();
                 }
-            } else {
-                error_handler
-                    .with_key("alias")
-                    .error(ConfigErrorKind::MissingKey);
-
-                return None;
-            };
-
-            let mut target = None;
-            if let Some(value) = table.get("target") {
-                if let Some(value) = value.as_str() {
-                    target = Some(value.to_string());
-                } else {
-                    error_handler
-                        .with_key("target")
-                        .with_expected("string")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    return None;
-                }
+                Ok(Self { aliases })
             }
-
-            Some(Self { alias, target })
-        } else {
-            error_handler
-                .with_expected(vec!["string", "table"])
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            None
+            CompoteConfigValue::Null(_) => Ok(Self::default()),
+            _ => Err(CompoteConfigError::TypeMismatch {
+                expected: "array".to_string(),
+                actual: value.type_name().to_string(),
+                path: tracker.current_path(),
+            }),
         }
     }
 }

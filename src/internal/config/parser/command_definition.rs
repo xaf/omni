@@ -12,8 +12,8 @@ use crate::internal::commands::utils::abs_path;
 use crate::internal::commands::utils::str_to_bool;
 use crate::internal::commands::HelpCommand;
 use crate::internal::config::parser::ConfigErrorHandler;
+use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::ParseArgsErrorKind;
-use config_value::ConfigErrorKind;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::ConfigScope;
 use crate::internal::config::ConfigSource;
@@ -22,10 +22,9 @@ use crate::internal::ORG_LOADER;
 
 // Compote imports for FromConfigValue implementation
 use compote::ConfigError as CompoteConfigError;
-use compote::ConfigValue as CompoteConfigValue;
+use compote::ContextValue as CompoteConfigValue;
 use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromConfigValue as CompoteFromConfigValue;
-use compote::Value as CompoteValue;
+use compote::FromContextValue as CompoteFromConfigValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommandDefinition {
@@ -2062,9 +2061,9 @@ impl CompoteFromConfigValue for CommandDefinition {
         value: &CompoteConfigValue,
         tracker: &mut CompoteErrorTracker,
     ) -> Result<Self, CompoteConfigError> {
-        let table = match &value.value {
-            CompoteValue::Object(map) => map,
-            CompoteValue::Null => {
+        let table = match value {
+            CompoteConfigValue::Object(map, _) => map,
+            CompoteConfigValue::Null(_) => {
                 return Err(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
@@ -2075,7 +2074,7 @@ impl CompoteFromConfigValue for CommandDefinition {
                 return Err(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
-                    actual: value.value.type_name().to_string(),
+                    actual: value.type_name().to_string(),
                 });
             }
         };
@@ -2132,8 +2131,8 @@ impl CompoteFromConfigValue for CommandDefinition {
         // Parse subcommands (recursive)
         let subcommands = if let Some(sub_value) = table.get("subcommands") {
             tracker.push_field("subcommands");
-            let result = match &sub_value.value {
-                CompoteValue::Object(sub_table) => {
+            let result = match sub_value {
+                CompoteConfigValue::Object(sub_table, _) => {
                     let mut subs = HashMap::new();
                     for (key, sub_def) in sub_table {
                         tracker.push_field(key);
@@ -2147,12 +2146,12 @@ impl CompoteFromConfigValue for CommandDefinition {
                     }
                     Some(subs)
                 }
-                CompoteValue::Null => None,
+                CompoteConfigValue::Null(_) => None,
                 _ => {
                     tracker.record(CompoteConfigError::TypeMismatch {
                         path: tracker.current_path(),
                         expected: "object".to_string(),
-                        actual: sub_value.value.type_name().to_string(),
+                        actual: sub_value.type_name().to_string(),
                     });
                     None
                 }
@@ -2170,19 +2169,19 @@ impl CompoteFromConfigValue for CommandDefinition {
         let export = compote_get_bool_or_default(table, "export", false, tracker);
 
         // Convert source
-        let source = match &value.context.source {
-            compote::ConfigSource::File(path) => {
+        let source = match &value.context().source {
+            compote::Source::File(path) => {
                 ConfigSource::File(path.to_string_lossy().to_string())
             }
             _ => ConfigSource::Default,
         };
 
         // Convert scope/level
-        let scope = match &value.context.level {
-            compote::ConfigLevel::System => ConfigScope::System,
-            compote::ConfigLevel::User => ConfigScope::User,
-            compote::ConfigLevel::Local => ConfigScope::Workdir,
-            compote::ConfigLevel::Custom { .. } => ConfigScope::Default,
+        let scope = match &value.context().level {
+            compote::Level::System => ConfigScope::System,
+            compote::Level::User => ConfigScope::User,
+            compote::Level::Local => ConfigScope::Workdir,
+            compote::Level::Custom { .. } => ConfigScope::Default,
         };
 
         Ok(Self {
@@ -2208,23 +2207,23 @@ impl CompoteFromConfigValue for CommandDefinition {
 
 /// Convert a serde_yaml::Value to compote ConfigValue
 fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
-    let context = compote::ConfigContext::new(compote::ConfigSource::Default, compote::ConfigLevel::System);
-    let inner_value = match value {
-        serde_yaml::Value::Null => CompoteValue::Null,
-        serde_yaml::Value::Bool(b) => CompoteValue::Bool(b),
+    let context = compote::Context::new(compote::Source::Default, compote::Level::System);
+    match value {
+        serde_yaml::Value::Null => CompoteConfigValue::null(context),
+        serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, context),
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                CompoteValue::Int(i)
+                CompoteConfigValue::int(i, context)
             } else if let Some(f) = n.as_f64() {
-                CompoteValue::Float(f)
+                CompoteConfigValue::float(f, context)
             } else {
-                CompoteValue::Null
+                CompoteConfigValue::null(context)
             }
         }
-        serde_yaml::Value::String(s) => CompoteValue::String(s),
+        serde_yaml::Value::String(s) => CompoteConfigValue::string(s, context),
         serde_yaml::Value::Sequence(seq) => {
-            let arr = seq.into_iter().map(yaml_value_to_compote_value).collect();
-            CompoteValue::Array(arr)
+            let arr: Vec<CompoteConfigValue> = seq.into_iter().map(yaml_value_to_compote_value).collect();
+            CompoteConfigValue::array(arr, context)
         }
         serde_yaml::Value::Mapping(map) => {
             let obj: indexmap::IndexMap<String, CompoteConfigValue> = map
@@ -2237,11 +2236,10 @@ fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
                     Some((key, yaml_value_to_compote_value(v)))
                 })
                 .collect();
-            CompoteValue::Object(obj)
+            CompoteConfigValue::object(obj, context)
         }
-        serde_yaml::Value::Tagged(_) => CompoteValue::Null,
-    };
-    CompoteConfigValue::new(inner_value, context)
+        serde_yaml::Value::Tagged(_) => CompoteConfigValue::null(context),
+    }
 }
 
 /// Get a string value from a compote object, returning None if not present
@@ -2251,18 +2249,18 @@ fn compote_get_str_or_none(
     tracker: &mut CompoteErrorTracker,
 ) -> Option<String> {
     let value = table.get(key)?;
-    match &value.value {
-        CompoteValue::String(s) => Some(s.clone()),
-        CompoteValue::Int(i) => Some(i.to_string()),
-        CompoteValue::Float(f) => Some(f.to_string()),
-        CompoteValue::Bool(b) => Some(b.to_string()),
-        CompoteValue::Null => None,
+    match value {
+        CompoteConfigValue::String(s, _) => Some(s.clone()),
+        CompoteConfigValue::Int(i, _) => Some(i.to_string()),
+        CompoteConfigValue::Float(f, _) => Some(f.to_string()),
+        CompoteConfigValue::Bool(b, _) => Some(b.to_string()),
+        CompoteConfigValue::Null(_) => None,
         _ => {
             tracker.push_field(key);
             tracker.record(CompoteConfigError::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "string".to_string(),
-                actual: value.value.type_name().to_string(),
+                actual: value.type_name().to_string(),
             });
             tracker.pop();
             None
@@ -2280,15 +2278,15 @@ fn compote_get_bool_or_default(
     let Some(value) = table.get(key) else {
         return default;
     };
-    match &value.value {
-        CompoteValue::Bool(b) => *b,
-        CompoteValue::Null => default,
+    match value {
+        CompoteConfigValue::Bool(b, _) => *b,
+        CompoteConfigValue::Null(_) => default,
         _ => {
             tracker.push_field(key);
             tracker.record(CompoteConfigError::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "boolean".to_string(),
-                actual: value.value.type_name().to_string(),
+                actual: value.type_name().to_string(),
             });
             tracker.pop();
             default
@@ -2317,21 +2315,21 @@ fn compote_value_to_str_array(
     value: &CompoteConfigValue,
     tracker: &mut CompoteErrorTracker,
 ) -> Vec<String> {
-    match &value.value {
-        CompoteValue::Array(arr) => {
+    match value {
+        CompoteConfigValue::Array(arr, _) => {
             let mut result = Vec::new();
             for (idx, item) in arr.iter().enumerate() {
-                match &item.value {
-                    CompoteValue::String(s) => result.push(s.clone()),
-                    CompoteValue::Int(i) => result.push(i.to_string()),
-                    CompoteValue::Float(f) => result.push(f.to_string()),
-                    CompoteValue::Bool(b) => result.push(b.to_string()),
+                match item {
+                    CompoteConfigValue::String(s, _) => result.push(s.clone()),
+                    CompoteConfigValue::Int(i, _) => result.push(i.to_string()),
+                    CompoteConfigValue::Float(f, _) => result.push(f.to_string()),
+                    CompoteConfigValue::Bool(b, _) => result.push(b.to_string()),
                     _ => {
                         tracker.push_index(idx);
                         tracker.record(CompoteConfigError::TypeMismatch {
                             path: tracker.current_path(),
                             expected: "string".to_string(),
-                            actual: item.value.type_name().to_string(),
+                            actual: item.type_name().to_string(),
                         });
                         tracker.pop();
                     }
@@ -2339,13 +2337,13 @@ fn compote_value_to_str_array(
             }
             result
         }
-        CompoteValue::String(s) => vec![s.clone()],
-        CompoteValue::Null => Vec::new(),
+        CompoteConfigValue::String(s, _) => vec![s.clone()],
+        CompoteConfigValue::Null(_) => Vec::new(),
         _ => {
             tracker.record(CompoteConfigError::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "array or string".to_string(),
-                actual: value.value.type_name().to_string(),
+                actual: value.type_name().to_string(),
             });
             Vec::new()
         }
@@ -2358,20 +2356,20 @@ fn compote_parse_string_map(
     tracker: &mut CompoteErrorTracker,
 ) -> BTreeMap<String, String> {
     let mut result = BTreeMap::new();
-    match &value.value {
-        CompoteValue::Object(map) => {
+    match value {
+        CompoteConfigValue::Object(map, _) => {
             for (key, val) in map {
-                match &val.value {
-                    CompoteValue::String(s) => {
+                match val {
+                    CompoteConfigValue::String(s, _) => {
                         result.insert(key.clone(), s.clone());
                     }
-                    CompoteValue::Int(i) => {
+                    CompoteConfigValue::Int(i, _) => {
                         result.insert(key.clone(), i.to_string());
                     }
-                    CompoteValue::Float(f) => {
+                    CompoteConfigValue::Float(f, _) => {
                         result.insert(key.clone(), f.to_string());
                     }
-                    CompoteValue::Bool(b) => {
+                    CompoteConfigValue::Bool(b, _) => {
                         result.insert(key.clone(), b.to_string());
                     }
                     _ => {
@@ -2379,19 +2377,19 @@ fn compote_parse_string_map(
                         tracker.record(CompoteConfigError::TypeMismatch {
                             path: tracker.current_path(),
                             expected: "string".to_string(),
-                            actual: val.value.type_name().to_string(),
+                            actual: val.type_name().to_string(),
                         });
                         tracker.pop();
                     }
                 }
             }
         }
-        CompoteValue::Null => {}
+        CompoteConfigValue::Null(_) => {}
         _ => {
             tracker.record(CompoteConfigError::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "object".to_string(),
-                actual: value.value.type_name().to_string(),
+                actual: value.type_name().to_string(),
             });
         }
     }
@@ -2411,8 +2409,8 @@ impl CommandSyntax {
         let mut parameters = vec![];
         let mut groups = vec![];
 
-        match &value.value {
-            CompoteValue::Array(array) => {
+        match value {
+            CompoteConfigValue::Array(array, _) => {
                 for (idx, item) in array.iter().enumerate() {
                     tracker.push_index(idx);
                     if let Some(param) =
@@ -2423,7 +2421,7 @@ impl CommandSyntax {
                     tracker.pop();
                 }
             }
-            CompoteValue::Object(table) => {
+            CompoteConfigValue::Object(table, _) => {
                 let keys = [
                     ("parameters", None),
                     ("arguments", Some(true)),
@@ -2436,8 +2434,8 @@ impl CommandSyntax {
                 for (key, required) in keys {
                     if let Some(param_value) = table.get(key) {
                         tracker.push_field(key);
-                        match &param_value.value {
-                            CompoteValue::Array(arr) => {
+                        match param_value {
+                            CompoteConfigValue::Array(arr, _) => {
                                 for (idx, item) in arr.iter().enumerate() {
                                     tracker.push_index(idx);
                                     if let Some(param) = SyntaxOptArg::from_compote_config_value(
@@ -2470,32 +2468,32 @@ impl CommandSyntax {
 
                 if let Some(usage_value) = table.get("usage") {
                     tracker.push_field("usage");
-                    match &usage_value.value {
-                        CompoteValue::String(s) => usage = Some(s.clone()),
-                        CompoteValue::Int(i) => usage = Some(i.to_string()),
+                    match usage_value {
+                        CompoteConfigValue::String(s, _) => usage = Some(s.clone()),
+                        CompoteConfigValue::Int(i, _) => usage = Some(i.to_string()),
                         _ => {
                             tracker.record(CompoteConfigError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
-                                actual: usage_value.value.type_name().to_string(),
+                                actual: usage_value.type_name().to_string(),
                             });
                         }
                     }
                     tracker.pop();
                 }
             }
-            CompoteValue::String(s) => {
+            CompoteConfigValue::String(s, _) => {
                 usage = Some(s.clone());
             }
-            CompoteValue::Int(i) => {
+            CompoteConfigValue::Int(i, _) => {
                 usage = Some(i.to_string());
             }
-            CompoteValue::Null => return None,
+            CompoteConfigValue::Null(_) => return None,
             _ => {
                 tracker.record(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "array, object, or string".to_string(),
-                    actual: value.value.type_name().to_string(),
+                    actual: value.type_name().to_string(),
                 });
                 return None;
             }
@@ -2546,13 +2544,13 @@ impl SyntaxOptArg {
         let mut required_if_eq = HashMap::new();
         let mut required_if_eq_all = HashMap::new();
 
-        match &value.value {
-            CompoteValue::Object(table) => {
+        match value {
+            CompoteConfigValue::Object(table, _) => {
                 let value_for_details: Option<&CompoteConfigValue>;
 
                 if let Some(name_value) = table.get("name") {
-                    match &name_value.value {
-                        CompoteValue::String(s) => {
+                    match name_value {
+                        CompoteConfigValue::String(s, _) => {
                             (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
                             value_for_details = Some(value);
                         }
@@ -2561,7 +2559,7 @@ impl SyntaxOptArg {
                             tracker.record(CompoteConfigError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
-                                actual: name_value.value.type_name().to_string(),
+                                actual: name_value.type_name().to_string(),
                             });
                             tracker.pop();
                             return None;
@@ -2581,11 +2579,11 @@ impl SyntaxOptArg {
                 }
 
                 if let Some(details) = value_for_details {
-                    match &details.value {
-                        CompoteValue::String(s) => {
+                    match details {
+                        CompoteConfigValue::String(s, _) => {
                             desc = Some(s.clone());
                         }
-                        CompoteValue::Object(details_table) => {
+                        CompoteConfigValue::Object(details_table, _) => {
                             desc = compote_get_str_or_none(details_table, "desc", tracker);
                             dest = compote_get_str_or_none(details_table, "dest", tracker);
 
@@ -2671,20 +2669,20 @@ impl SyntaxOptArg {
 
                             if let Some(req_if_eq_value) = details_table.get("required_if_eq") {
                                 tracker.push_field("required_if_eq");
-                                match &req_if_eq_value.value {
-                                    CompoteValue::Object(map) => {
+                                match req_if_eq_value {
+                                    CompoteConfigValue::Object(map, _) => {
                                         for (k, v) in map {
-                                            match &v.value {
-                                                CompoteValue::String(s) => {
+                                            match v {
+                                                CompoteConfigValue::String(s, _) => {
                                                     required_if_eq.insert(k.clone(), s.clone());
                                                 }
-                                                CompoteValue::Int(i) => {
+                                                CompoteConfigValue::Int(i, _) => {
                                                     required_if_eq.insert(k.clone(), i.to_string());
                                                 }
-                                                CompoteValue::Float(f) => {
+                                                CompoteConfigValue::Float(f, _) => {
                                                     required_if_eq.insert(k.clone(), f.to_string());
                                                 }
-                                                CompoteValue::Bool(b) => {
+                                                CompoteConfigValue::Bool(b, _) => {
                                                     required_if_eq.insert(k.clone(), b.to_string());
                                                 }
                                                 _ => {
@@ -2692,7 +2690,7 @@ impl SyntaxOptArg {
                                                     tracker.record(CompoteConfigError::TypeMismatch {
                                                         path: tracker.current_path(),
                                                         expected: "string".to_string(),
-                                                        actual: v.value.type_name().to_string(),
+                                                        actual: v.type_name().to_string(),
                                                     });
                                                     tracker.pop();
                                                 }
@@ -2703,7 +2701,7 @@ impl SyntaxOptArg {
                                         tracker.record(CompoteConfigError::TypeMismatch {
                                             path: tracker.current_path(),
                                             expected: "object".to_string(),
-                                            actual: req_if_eq_value.value.type_name().to_string(),
+                                            actual: req_if_eq_value.type_name().to_string(),
                                         });
                                     }
                                 }
@@ -2714,22 +2712,22 @@ impl SyntaxOptArg {
                                 details_table.get("required_if_eq_all")
                             {
                                 tracker.push_field("required_if_eq_all");
-                                match &req_if_eq_all_value.value {
-                                    CompoteValue::Object(map) => {
+                                match req_if_eq_all_value {
+                                    CompoteConfigValue::Object(map, _) => {
                                         for (k, v) in map {
-                                            match &v.value {
-                                                CompoteValue::String(s) => {
+                                            match v {
+                                                CompoteConfigValue::String(s, _) => {
                                                     required_if_eq_all.insert(k.clone(), s.clone());
                                                 }
-                                                CompoteValue::Int(i) => {
+                                                CompoteConfigValue::Int(i, _) => {
                                                     required_if_eq_all
                                                         .insert(k.clone(), i.to_string());
                                                 }
-                                                CompoteValue::Float(f) => {
+                                                CompoteConfigValue::Float(f, _) => {
                                                     required_if_eq_all
                                                         .insert(k.clone(), f.to_string());
                                                 }
-                                                CompoteValue::Bool(b) => {
+                                                CompoteConfigValue::Bool(b, _) => {
                                                     required_if_eq_all
                                                         .insert(k.clone(), b.to_string());
                                                 }
@@ -2738,7 +2736,7 @@ impl SyntaxOptArg {
                                                     tracker.record(CompoteConfigError::TypeMismatch {
                                                         path: tracker.current_path(),
                                                         expected: "string".to_string(),
-                                                        actual: v.value.type_name().to_string(),
+                                                        actual: v.type_name().to_string(),
                                                     });
                                                     tracker.pop();
                                                 }
@@ -2749,7 +2747,7 @@ impl SyntaxOptArg {
                                         tracker.record(CompoteConfigError::TypeMismatch {
                                             path: tracker.current_path(),
                                             expected: "object".to_string(),
-                                            actual: req_if_eq_all_value.value.type_name().to_string(),
+                                            actual: req_if_eq_all_value.type_name().to_string(),
                                         });
                                     }
                                 }
@@ -2763,14 +2761,14 @@ impl SyntaxOptArg {
                     }
                 }
             }
-            CompoteValue::String(s) => {
+            CompoteConfigValue::String(s, _) => {
                 (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
             }
             _ => {
                 tracker.record(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string or object".to_string(),
-                    actual: value.value.type_name().to_string(),
+                    actual: value.type_name().to_string(),
                 });
                 return None;
             }
@@ -2814,15 +2812,15 @@ impl SyntaxOptArgNumValues {
         let value = value?;
 
         tracker.push_field("num_values");
-        let result = match &value.value {
-            CompoteValue::Int(i) => Some(Self::Exactly(*i as usize)),
-            CompoteValue::String(s) => Self::from_str_compote(s, tracker),
-            CompoteValue::Null => None,
+        let result = match value {
+            CompoteConfigValue::Int(i, _) => Some(Self::Exactly(*i as usize)),
+            CompoteConfigValue::String(s, _) => Self::from_str_compote(s, tracker),
+            CompoteConfigValue::Null(_) => None,
             _ => {
                 tracker.record(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "integer or string".to_string(),
-                    actual: value.value.type_name().to_string(),
+                    actual: value.type_name().to_string(),
                 });
                 None
             }
@@ -2942,14 +2940,14 @@ impl SyntaxOptArgType {
         tracker.push_field("type");
 
         // Check if type is an array - treat as enum with those values
-        if let CompoteValue::Array(arr) = &type_value.value {
+        if let CompoteConfigValue::Array(arr, _) = type_value {
             let values = arr
                 .iter()
-                .filter_map(|v| match &v.value {
-                    CompoteValue::String(s) => Some(s.clone()),
-                    CompoteValue::Int(i) => Some(i.to_string()),
-                    CompoteValue::Float(f) => Some(f.to_string()),
-                    CompoteValue::Bool(b) => Some(b.to_string()),
+                .filter_map(|v| match v {
+                    CompoteConfigValue::String(s, _) => Some(s.clone()),
+                    CompoteConfigValue::Int(i, _) => Some(i.to_string()),
+                    CompoteConfigValue::Float(f, _) => Some(f.to_string()),
+                    CompoteConfigValue::Bool(b, _) => Some(b.to_string()),
                     _ => None,
                 })
                 .collect::<Vec<String>>();
@@ -2957,10 +2955,10 @@ impl SyntaxOptArgType {
             return Some(Self::Enum(values));
         }
 
-        let type_str = match &type_value.value {
-            CompoteValue::String(s) => s.clone(),
-            CompoteValue::Int(i) => i.to_string(),
-            CompoteValue::Null => {
+        let type_str = match type_value {
+            CompoteConfigValue::String(s, _) => s.clone(),
+            CompoteConfigValue::Int(i, _) => i.to_string(),
+            CompoteConfigValue::Null(_) => {
                 tracker.pop();
                 return None;
             }
@@ -2968,7 +2966,7 @@ impl SyntaxOptArgType {
                 tracker.record(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string or array".to_string(),
-                    actual: type_value.value.type_name().to_string(),
+                    actual: type_value.type_name().to_string(),
                 });
                 tracker.pop();
                 return None;
@@ -2981,21 +2979,21 @@ impl SyntaxOptArgType {
         match obj {
             Self::Enum(values) if values.is_empty() => {
                 if let Some(values_val) = values_value {
-                    match &values_val.value {
-                        CompoteValue::Array(arr) => {
+                    match values_val {
+                        CompoteConfigValue::Array(arr, _) => {
                             let values = arr
                                 .iter()
-                                .filter_map(|v| match &v.value {
-                                    CompoteValue::String(s) => Some(s.clone()),
-                                    CompoteValue::Int(i) => Some(i.to_string()),
-                                    CompoteValue::Float(f) => Some(f.to_string()),
-                                    CompoteValue::Bool(b) => Some(b.to_string()),
+                                .filter_map(|v| match v {
+                                    CompoteConfigValue::String(s, _) => Some(s.clone()),
+                                    CompoteConfigValue::Int(i, _) => Some(i.to_string()),
+                                    CompoteConfigValue::Float(f, _) => Some(f.to_string()),
+                                    CompoteConfigValue::Bool(b, _) => Some(b.to_string()),
                                     _ => None,
                                 })
                                 .collect::<Vec<String>>();
                             return Some(Self::Enum(values));
                         }
-                        CompoteValue::String(s) => {
+                        CompoteConfigValue::String(s, _) => {
                             if let Some(delim) = value_delimiter {
                                 let values = s
                                     .split(delim)
@@ -3091,8 +3089,8 @@ impl SyntaxGroup {
     ) -> Vec<Self> {
         let mut groups = vec![];
 
-        match &value.value {
-            CompoteValue::Array(array) => {
+        match value {
+            CompoteConfigValue::Array(array, _) => {
                 for (idx, item) in array.iter().enumerate() {
                     tracker.push_index(idx);
                     if let Some(group) = Self::from_compote_config_value(item, None, tracker) {
@@ -3101,7 +3099,7 @@ impl SyntaxGroup {
                     tracker.pop();
                 }
             }
-            CompoteValue::Object(table) => {
+            CompoteConfigValue::Object(table, _) => {
                 for (name, val) in table {
                     tracker.push_field(name);
                     if let Some(group) =
@@ -3112,12 +3110,12 @@ impl SyntaxGroup {
                     tracker.pop();
                 }
             }
-            CompoteValue::Null => {}
+            CompoteConfigValue::Null(_) => {}
             _ => {
                 tracker.record(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "array or object".to_string(),
-                    actual: value.value.type_name().to_string(),
+                    actual: value.type_name().to_string(),
                 });
             }
         }
@@ -3130,8 +3128,8 @@ impl SyntaxGroup {
         name: Option<String>,
         tracker: &mut CompoteErrorTracker,
     ) -> Option<Self> {
-        let table = match &value.value {
-            CompoteValue::Object(map) => {
+        let table = match value {
+            CompoteConfigValue::Object(map, _) => {
                 if map.is_empty() {
                     tracker.push_field("name");
                     tracker.record(CompoteConfigError::MissingField {
@@ -3146,7 +3144,7 @@ impl SyntaxGroup {
                 tracker.record(CompoteConfigError::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
-                    actual: value.value.type_name().to_string(),
+                    actual: value.type_name().to_string(),
                 });
                 return None;
             }
@@ -3158,29 +3156,29 @@ impl SyntaxGroup {
             None => {
                 if table.len() == 1 {
                     let (key, val) = table.iter().next().unwrap();
-                    match &val.value {
-                        CompoteValue::Object(inner) => (key.clone(), inner),
+                    match val {
+                        CompoteConfigValue::Object(inner, _) => (key.clone(), inner),
                         _ => {
                             tracker.push_field(key);
                             tracker.record(CompoteConfigError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "object".to_string(),
-                                actual: val.value.type_name().to_string(),
+                                actual: val.type_name().to_string(),
                             });
                             tracker.pop();
                             return None;
                         }
                     }
                 } else if let Some(name_val) = table.get("name") {
-                    match &name_val.value {
-                        CompoteValue::String(s) => (s.clone(), table),
-                        CompoteValue::Int(i) => (i.to_string(), table),
+                    match name_val {
+                        CompoteConfigValue::String(s, _) => (s.clone(), table),
+                        CompoteConfigValue::Int(i, _) => (i.to_string(), table),
                         _ => {
                             tracker.push_field("name");
                             tracker.record(CompoteConfigError::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
-                                actual: name_val.value.type_name().to_string(),
+                                actual: name_val.type_name().to_string(),
                             });
                             tracker.pop();
                             return None;

@@ -10,10 +10,14 @@ use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
 
+use compote::ConfigError as CompoteConfigError;
+use compote::ContextValue as CompoteConfigValue;
+use compote::ErrorTracker as CompoteErrorTracker;
+use compote::FromContextValue as CompoteFromConfigValue;
+
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils as cache_utils;
 use crate::internal::commands::utils::abs_path;
-use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::up::mise::PostInstallFuncArgs;
 use crate::internal::config::up::utils::data_path_dir_hash;
 use crate::internal::config::up::utils::UpProgressHandler;
@@ -22,7 +26,6 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::env::current_dir;
 use crate::internal::workdir;
-use crate::internal::ConfigValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct UpConfigGolangSerialized {
@@ -86,61 +89,126 @@ impl UpConfigGolang {
         }
     }
 
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
+    fn extract_version_from_gomod(&self) -> Result<Option<String>, UpError> {
+        if self.version_file.is_none() {
+            return Ok(None);
+        }
+
+        extract_version_from_gomod_file(self.version_file.as_ref().unwrap().clone())
+    }
+}
+
+// Helper functions for compote conversion
+fn compote_get_str_or_none(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+) -> Option<String> {
+    map.get(key).and_then(|v| match v {
+        CompoteConfigValue::String(s, _) => Some(s.clone()),
+        _ => None,
+    })
+}
+
+fn compote_get_str_array(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+) -> Vec<String> {
+    map.get(key)
+        .and_then(|v| match v {
+            CompoteConfigValue::Array(arr, _) => Some(
+                arr.iter()
+                    .filter_map(|item| match item {
+                        CompoteConfigValue::String(s, _) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            ),
+            CompoteConfigValue::String(s, _) => Some(vec![s.clone()]),  // single string as array
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+fn compote_get_bool_or_none(
+    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+    key: &str,
+) -> Option<bool> {
+    map.get(key).and_then(|v| match v {
+        CompoteConfigValue::Bool(b, _) => Some(*b),
+        _ => None,
+    })
+}
+
+impl CompoteFromConfigValue for UpConfigGolang {
+    fn from_config_value(
+        value: &CompoteConfigValue,
+        tracker: &mut CompoteErrorTracker,
+    ) -> Result<Self, CompoteConfigError> {
         let mut version = None;
         let mut version_file = None;
         let mut dirs = BTreeSet::new();
         let mut upgrade = false;
 
-        if let Some(config_value) = config_value {
-            if let Some(value) = config_value.as_str() {
-                version = Some(value.to_string());
-            } else if let Some(value) = config_value.as_float() {
-                version = Some(value.to_string());
-            } else if let Some(value) = config_value.as_integer() {
-                version = Some(value.to_string());
-            } else {
-                if let Some(value) =
-                    config_value.get_as_str_or_none("version", &error_handler.with_key("version"))
-                {
-                    version = Some(value.to_string());
-                } else if let Some(value) = config_value
-                    .get_as_str_or_none("version_file", &error_handler.with_key("version_file"))
-                {
-                    version_file = Some(value.to_string());
+        match value {
+            // Handle string, float, or integer as version
+            CompoteConfigValue::String(s, _) => {
+                version = Some(s.clone());
+            }
+            CompoteConfigValue::Float(f, _) => {
+                version = Some(f.to_string());
+            }
+            CompoteConfigValue::Int(i, _) => {
+                version = Some(i.to_string());
+            }
+            // Handle object with version, version_file, dir, and upgrade fields
+            CompoteConfigValue::Object(map, _) => {
+                // Extract version or version_file
+                if let Some(v) = compote_get_str_or_none(map, "version") {
+                    version = Some(v);
+                } else if let Some(v) = compote_get_str_or_none(map, "version_file") {
+                    version_file = Some(v);
                 }
 
-                let list_dirs =
-                    config_value.get_as_str_array("dir", &error_handler.with_key("dir"));
-                for value in list_dirs {
+                // Extract dirs array
+                let list_dirs = compote_get_str_array(map, "dir");
+                for dir_value in list_dirs {
                     dirs.insert(
-                        PathBuf::from(value)
+                        PathBuf::from(dir_value)
                             .normalize()
                             .to_string_lossy()
                             .to_string(),
                     );
                 }
 
-                if let Some(value) =
-                    config_value.get_as_bool_or_none("upgrade", &error_handler.with_key("upgrade"))
-                {
-                    upgrade = value;
+                // Extract upgrade flag
+                if let Some(u) = compote_get_bool_or_none(map, "upgrade") {
+                    upgrade = u;
                 }
+            }
+            _ => {
+                tracker.record_type_mismatch(
+                    "string, number, or object",
+                    value.type_name()
+                );
+                return Err(CompoteConfigError::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "string, number, or object".to_string(),
+                    actual: value.type_name().to_string(),
+                });
             }
         }
 
-        Self {
+        Ok(Self {
             backend: OnceCell::new(),
             version,
             version_file,
             upgrade,
             dirs,
-        }
+        })
     }
+}
 
+impl UpConfigGolang {
     pub fn up(
         &self,
         options: &UpOptions,
@@ -188,14 +256,6 @@ impl UpConfigGolang {
 
     pub fn version(&self) -> Result<String, UpError> {
         self.backend()?.version()
-    }
-
-    fn extract_version_from_gomod(&self) -> Result<Option<String>, UpError> {
-        if self.version_file.is_none() {
-            return Ok(None);
-        }
-
-        extract_version_from_gomod_file(self.version_file.as_ref().unwrap().clone())
     }
 }
 

@@ -1,8 +1,8 @@
 use super::*;
 
+use crate::internal::config::flush_config;
 use crate::internal::testutils::run_with_env;
 use crate::internal::ConfigLoader;
-use crate::internal::ConfigValue;
 
 mod up_environments_cache {
     use super::*;
@@ -244,17 +244,19 @@ mod up_environments_cache {
 
             // Write the max_total to the config file
             let expected_max_total = 5;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
                 // Write to cache.environment.max_total, using a yaml string
-                *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    max_total: {expected_max_total}").as_str(),
-                )
-                .expect("Failed to create config value");
-
+                config.load_yaml(
+                    &format!("cache:\n  environment:\n    max_total: {expected_max_total}"),
+                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                );
                 true
             }) {
                 panic!("Failed to edit main user config file: {err}");
             }
+
+            // Flush the config cache to pick up the changes
+            flush_config("/");
 
             // Check if the config was written correctly
             let max_total = match global_config().cache.environment.max_total {
@@ -287,17 +289,19 @@ mod up_environments_cache {
 
             // Write the max_total to the config file
             let expected_max_total = 5;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
                 // Write to cache.environment.max_total, using a yaml string
-                *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    max_total: {expected_max_total}").as_str(),
-                )
-                .expect("Failed to create config value");
-
+                config.load_yaml(
+                    &format!("cache:\n  environment:\n    max_total: {expected_max_total}"),
+                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                );
                 true
             }) {
                 panic!("Failed to edit main user config file: {err}");
             }
+
+            // Flush the config cache to pick up the changes
+            flush_config("/");
 
             // Check if the config was written correctly
             let max_total = match global_config().cache.environment.max_total {
@@ -331,20 +335,21 @@ mod up_environments_cache {
 
             // Write the max_total to the config file
             let expected_max_per_workdir = 2;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-                // Write to cache.environment.max_total, using a yaml string
-                *config_value = ConfigValue::from_str(
-                    format!(
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+                // Write to cache.environment.max_per_workdir, using a yaml string
+                config.load_yaml(
+                    &format!(
                         "cache:\n  environment:\n    max_per_workdir: {expected_max_per_workdir}"
-                    )
-                    .as_str(),
-                )
-                .expect("Failed to create config value");
-
+                    ),
+                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                );
                 true
             }) {
                 panic!("Failed to edit main user config file: {err}");
             }
+
+            // Flush the config cache to pick up the changes
+            flush_config("/");
 
             // Check if the config was written correctly
             let max_per_workdir = match global_config().cache.environment.max_per_workdir {
@@ -382,12 +387,11 @@ mod up_environments_cache {
 
             // Set retention_stale to 60 seconds for testing
             let retention_stale = 60;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-                *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s")
-                        .as_str(),
-                )
-                .expect("Failed to create config value");
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+                config.load_yaml(
+                    &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
+                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                );
                 true
             }) {
                 panic!("Failed to edit main user config file: {err}");
@@ -438,12 +442,11 @@ mod up_environments_cache {
 
             // Set retention_stale to 60 seconds
             let retention_stale = 60;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-                *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s")
-                        .as_str(),
-                )
-                .expect("Failed to create config value");
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+                config.load_yaml(
+                    &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
+                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                );
                 true
             }) {
                 panic!("Failed to edit main user config file: {err}");
@@ -477,12 +480,11 @@ mod up_environments_cache {
 
             // Set retention_stale to 60 seconds
             let retention_stale = 60;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-                *config_value = ConfigValue::from_str(
-                    format!("cache:\n  environment:\n    retention_stale: {retention_stale}s")
-                        .as_str(),
-                )
-                .expect("Failed to create config value");
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+                config.load_yaml(
+                    &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
+                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                );
                 true
             }) {
                 panic!("Failed to edit main user config file: {err}");
@@ -528,9 +530,11 @@ mod up_environments_cache {
             let cache = UpEnvironmentsCache::get();
 
             // Set retention to 0 to disable cleanup
-            if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-                *config_value = ConfigValue::from_str("cache:\n  environment:\n    retention: 0")
-                    .expect("Failed to create config value");
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+                config.load_yaml(
+                    "cache:\n  environment:\n    retention: 0",
+                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                );
                 true
             }) {
                 panic!("Failed to edit main user config file: {err}");
