@@ -50,9 +50,10 @@ impl compote::CustomSource for OmniSource {
 // Type aliases for compote types
 // =============================================================================
 
-// Note: We use the default type parameters () for Source and Level because
-// compote's FromContextValue trait expects the default types. OmniSource is
-// available for specific cases where package source tracking is needed.
+// Note: The standard type aliases use default () parameters for compatibility
+// with macro-generated FromContextValue implementations. For custom deserialization
+// that needs access to OmniSource, use the Omni* variants and implement
+// FromContextValue<OmniSource, ()> for those specific types.
 
 /// Standard Source type (uses defaults for FromContextValue compatibility)
 pub type Source = compote::Source<()>;
