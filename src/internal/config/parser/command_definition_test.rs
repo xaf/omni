@@ -2680,8 +2680,8 @@ mod parse_arg_name {
 
 mod syntax_opt_arg_type {
     use super::*;
-    use compote::ContextValue as CompoteConfigValue;
-    use compote::ErrorTracker as CompoteErrorTracker;
+    use crate::internal::config::CompoteConfigValue;
+    use crate::internal::config::CompoteErrorTracker;
 
     /// Helper function to create a compote ConfigValue from a YAML string
     fn make_compote_value(yaml: &str) -> CompoteConfigValue {

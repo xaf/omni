@@ -38,7 +38,7 @@ use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::CommandSyntax;
 use crate::internal::config::ConfigLoader;
-use compote::ContextValue as CompoteConfigValue;
+use crate::internal::config::CompoteConfigValue;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
 use crate::internal::config::SyntaxOptArgType;

@@ -1,11 +1,16 @@
-use std::path::PathBuf;
+//! Legacy configuration source and scope types.
+//!
+//! These types are deprecated and should be replaced with compote types
+//! from `crate::internal::config::compote_types`.
 
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::config::parser::PathEntryConfig;
 
-// Omni-specific source type
+/// Legacy omni-specific source type.
+///
+/// Deprecated: Use `compote::Source` with appropriate type parameters instead.
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ConfigSource {
     #[default]
@@ -25,33 +30,10 @@ impl ConfigSource {
     }
 }
 
-impl From<ConfigSource> for compote::Source {
-    fn from(source: ConfigSource) -> Self {
-        match source {
-            ConfigSource::File(path) => compote::Source::File(PathBuf::from(path)),
-            ConfigSource::Package(entry) => {
-                compote::Source::Package(entry.package.unwrap_or_default())
-            }
-            ConfigSource::Default => compote::Source::Default,
-            ConfigSource::Null => compote::Source::Default,
-        }
-    }
-}
-
-impl From<&ConfigSource> for compote::Source {
-    fn from(source: &ConfigSource) -> Self {
-        match source {
-            ConfigSource::File(path) => compote::Source::File(PathBuf::from(path)),
-            ConfigSource::Package(entry) => {
-                compote::Source::Package(entry.package.clone().unwrap_or_default())
-            }
-            ConfigSource::Default => compote::Source::Default,
-            ConfigSource::Null => compote::Source::Default,
-        }
-    }
-}
-
-// Omni-specific scope type
+/// Legacy omni-specific scope type.
+///
+/// Deprecated: Use `compote::Level` instead.
+/// Mapping: System -> System, User -> User, Workdir -> Local
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq, Ord, PartialOrd)]
 pub enum ConfigScope {
     Null,

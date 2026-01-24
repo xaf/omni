@@ -3,11 +3,11 @@ use super::*;
 mod multi_from_config_value {
     use super::*;
     use compote::Config as CompoteConfig;
-    use compote::Context as CompoteConfigContext;
-    use compote::ErrorTracker as CompoteErrorTracker;
-    use compote::FromContextValue as CompoteFromConfigValue;
-    use compote::Level as CompoteConfigLevel;
-    use compote::Source as CompoteConfigSource;
+    use crate::internal::config::CompoteConfigContext;
+    use crate::internal::config::CompoteErrorTracker;
+    use crate::internal::config::CompoteFromConfigValue;
+    use crate::internal::config::CompoteConfigLevel;
+    use crate::internal::config::CompoteConfigSource;
 
     fn parse_yaml(yaml: &str) -> CompoteConfigValue {
         let ctx = CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::User);
@@ -152,11 +152,11 @@ mod multi_from_config_value {
 mod single_from_config_value {
     use super::*;
     use compote::Config as CompoteConfig;
-    use compote::Context as CompoteConfigContext;
-    use compote::ErrorTracker as CompoteErrorTracker;
-    use compote::FromContextValue as CompoteFromConfigValue;
-    use compote::Level as CompoteConfigLevel;
-    use compote::Source as CompoteConfigSource;
+    use crate::internal::config::CompoteConfigContext;
+    use crate::internal::config::CompoteErrorTracker;
+    use crate::internal::config::CompoteFromConfigValue;
+    use crate::internal::config::CompoteConfigLevel;
+    use crate::internal::config::CompoteConfigSource;
 
     fn parse_yaml(yaml: &str) -> CompoteConfigValue {
         let ctx = CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::User);
@@ -884,11 +884,11 @@ mod immutable_filtering {
     use crate::internal::cache::github_release::{GithubReleaseVersion, GithubReleases};
     use crate::internal::testutils::run_with_env;
     use compote::Config as CompoteConfig;
-    use compote::Context as CompoteConfigContext;
-    use compote::ErrorTracker as CompoteErrorTracker;
-    use compote::FromContextValue as CompoteFromConfigValue;
-    use compote::Level as CompoteConfigLevel;
-    use compote::Source as CompoteConfigSource;
+    use crate::internal::config::CompoteConfigContext;
+    use crate::internal::config::CompoteErrorTracker;
+    use crate::internal::config::CompoteFromConfigValue;
+    use crate::internal::config::CompoteConfigLevel;
+    use crate::internal::config::CompoteConfigSource;
     use time::OffsetDateTime;
 
     fn parse_yaml(yaml: &str) -> CompoteConfigValue {

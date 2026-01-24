@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use walkdir::WalkDir;
 
-use compote::ContextValue as CompoteConfigValue;
+use crate::internal::config::CompoteConfigValue;
 use compote::ErrorTracker;
 use compote::FromContextValue;
 use compote::Level;

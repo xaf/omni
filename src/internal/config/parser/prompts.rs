@@ -1,4 +1,4 @@
-use compote::Value as CompoteValue;
+use crate::internal::config::Value as CompoteValue;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -14,13 +14,13 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
 // Compote imports
-use compote::Error as CompoteError;
-use compote::Context as CompoteConfigContext;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
-use compote::Level as CompoteConfigLevel;
-use compote::Source as CompoteConfigSource;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigContext;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
+use crate::internal::config::CompoteConfigLevel;
+use crate::internal::config::CompoteConfigSource;
 
 #[derive(Default, Debug, Deserialize, Clone)]
 pub struct PromptsConfig {

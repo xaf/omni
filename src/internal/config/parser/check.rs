@@ -10,12 +10,12 @@ use crate::internal::commands::utils::abs_path_from_path;
 use crate::internal::config::parser::github::StringFilter;
 
 // Compote imports
-use compote::Error as CompoteError;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
-use compote::Level as CompoteConfigLevel;
-use compote::Source as CompoteConfigSource;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
+use crate::internal::config::CompoteConfigLevel;
+use crate::internal::config::CompoteConfigSource;
 
 // ============================================================================
 // CheckPattern: A pattern string that captures its source context

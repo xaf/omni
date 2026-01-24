@@ -6,10 +6,10 @@ use serde::Serialize;
 use crate::internal::cache::utils::Empty;
 
 // Compote imports
-use compote::Error as CompoteError;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
 
 // ============================================================================
 // NEW IMPLEMENTATION USING COMPOTE

@@ -44,8 +44,8 @@ use crate::internal::config::utils::is_executable;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 
 // Compote imports for new config parsing system
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
 use crate::internal::env::cache_home;
 use crate::internal::env::current_dir;
 use crate::internal::env::data_home;

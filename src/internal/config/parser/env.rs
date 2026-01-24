@@ -9,11 +9,11 @@ use serde::Serialize;
 use crate::internal::cache::utils::Empty;
 use crate::internal::commands::utils::abs_path_from_path;
 
-use compote::Error as CompoteError;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
-use compote::Source as CompoteConfigSource;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
+use crate::internal::config::CompoteConfigSource;
 
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct EnvConfig {
@@ -387,16 +387,7 @@ impl EnvOperationConfig {
         if value_type == "path" {
             let source_path = match &context.source {
                 CompoteConfigSource::File(path) => Some(path.clone()),
-                CompoteConfigSource::Custom(desc) => {
-                    // Try to parse as path (for package sources)
-                    Some(PathBuf::from(desc))
-                }
-                _ => {
-                    return Err(CompoteError::InvalidValue {
-                        path: tracker.current_path(),
-                        message: "path type requires file source context".to_string(),
-                    });
-                }
+                _ => None,
             };
 
             if let Some(source_path) = source_path {

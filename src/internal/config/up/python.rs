@@ -8,10 +8,10 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
-use compote::Error as CompoteError;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::commands::utils::abs_path;

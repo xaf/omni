@@ -19,10 +19,10 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
-use compote::Error as CompoteError;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpConfigCustom {

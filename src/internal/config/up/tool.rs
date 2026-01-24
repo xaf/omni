@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use compote::Context as CompoteConfigContext;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
-use compote::Level as CompoteConfigLevel;
-use compote::Source as CompoteConfigSource;
+use crate::internal::config::CompoteConfigContext;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
+use crate::internal::config::CompoteConfigLevel;
+use crate::internal::config::CompoteConfigSource;
 use itertools::any;
 use itertools::Itertools;
 use serde::Deserialize;

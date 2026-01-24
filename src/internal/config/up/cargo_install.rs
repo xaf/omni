@@ -37,10 +37,10 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::env::data_home;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::StringColor;
-use compote::Error as CompoteError;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {

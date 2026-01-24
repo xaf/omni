@@ -23,10 +23,10 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::env::current_dir;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
-use compote::Error as CompoteError;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
 use crate::omni_warning;
 
 fn nix_command<T: AsRef<str>>(name: T) -> TokioCommand {

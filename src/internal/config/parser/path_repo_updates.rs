@@ -5,10 +5,10 @@ use crate::internal::config::parser::StringFilter;
 use crate::internal::env::shell_is_interactive;
 
 // Compote imports for FromConfigValue implementation
-use compote::Error as CompoteError;
-use compote::ContextValue as CompoteConfigValue;
-use compote::ErrorTracker as CompoteErrorTracker;
-use compote::FromContextValue as CompoteFromConfigValue;
+use crate::internal::config::CompoteError;
+use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::CompoteErrorTracker;
+use crate::internal::config::CompoteFromConfigValue;
 
 // ============================================================================
 // PathRepoUpdatesConfig - Now using compote::Config derive
