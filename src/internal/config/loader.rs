@@ -112,7 +112,7 @@ impl ConfigLoader {
             .into_iter()
             .rev()
             .collect::<Vec<_>>();
-        match compote::Config::edit_first_writeable(&candidates, edit_fn)? {
+        match compote::edit_first_writeable(&candidates, edit_fn)? {
             Some(_path) => Ok(()),
             None => Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -126,7 +126,7 @@ impl ConfigLoader {
     where
         F: FnOnce(&mut compote::Config) -> bool,
     {
-        compote::Config::edit_file(file_path, edit_fn).map(|_| ())
+        compote::edit_file(file_path, edit_fn).map(|_| ())
     }
 
     /// Edit a user config file using compote's Config API (specific file).
@@ -134,6 +134,6 @@ impl ConfigLoader {
     where
         F: FnOnce(&mut compote::Config) -> bool,
     {
-        compote::Config::edit_file(file_path, edit_fn).map(|_| ())
+        compote::edit_file(file_path, edit_fn).map(|_| ())
     }
 }

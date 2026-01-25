@@ -2181,7 +2181,6 @@ impl CompoteFromConfigValue for CommandDefinition {
             compote::Level::System => ConfigScope::System,
             compote::Level::User => ConfigScope::User,
             compote::Level::Local => ConfigScope::Workdir,
-            compote::Level::Custom(_) => ConfigScope::Default,
         };
 
         Ok(Self {
