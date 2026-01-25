@@ -27,23 +27,15 @@ use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::current_dir;
 use crate::internal::workdir;
 
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Parameters for Node.js configuration (separate from the backend config).
+///
+/// Controls whether to auto-install engines and packages from package.json.
+#[derive(Debug, Deserialize, Clone, compote::Config)]
 pub struct UpConfigNodejsParams {
-    #[serde(
-        default = "cache_utils::set_true",
-        skip_serializing_if = "cache_utils::is_true"
-    )]
-    install_engines: bool,
-    #[serde(
-        default = "cache_utils::set_true",
-        skip_serializing_if = "cache_utils::is_true"
-    )]
-    install_packages: bool,
+    #[compote(default = "true", skip_if_default)]
+    pub install_engines: bool,
+    #[compote(default = "true", skip_if_default)]
+    pub install_packages: bool,
 }
 
 impl Default for UpConfigNodejsParams {
@@ -60,50 +52,18 @@ impl UpConfigNodejsParams {
     const DEFAULT_INSTALL_PACKAGES: bool = true;
 }
 
-impl CompoteFromConfigValue for UpConfigNodejsParams {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        errors: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        let mut params = Self::default();
+// Manual FromContextValue implementation replaced by derive macro above
+// The #[compote(default = "true")] handles the default values for both boolean fields
 
-        if let CompoteConfigValue::Object(map, _) = value {
-            // Extract install_engines
-            if let Some(install_engines_value) = map.get("install_engines") {
-                errors.push_field("install_engines");
-                match install_engines_value {
-                    CompoteConfigValue::Bool(b, _) => params.install_engines = *b,
-                    _ => {
-                        errors.record_type_mismatch("boolean", install_engines_value.type_name());
-                    }
-                }
-                errors.pop();
-            }
-
-            // Extract install_packages
-            if let Some(install_packages_value) = map.get("install_packages") {
-                errors.push_field("install_packages");
-                match install_packages_value {
-                    CompoteConfigValue::Bool(b, _) => params.install_packages = *b,
-                    _ => {
-                        errors.record_type_mismatch("boolean", install_packages_value.type_name());
-                    }
-                }
-                errors.pop();
-            }
-        }
-
-        if errors.has_errors() {
-            Err(CompoteError::InvalidValue {
-                path: errors.current_path(),
-                message: "Failed to parse UpConfigNodejsParams".to_string(),
-            })
-        } else {
-            Ok(params)
-        }
-    }
-}
-
+/// Configuration for Node.js tool installation.
+///
+/// This struct combines:
+/// - A mise backend for tool version management
+/// - Node.js specific params (install_engines, install_packages)
+///
+/// Note: This struct requires a manual FromContextValue implementation because
+/// the backend is created using UpConfigMise::compote_from_context_value() with
+/// a specific tool name, which cannot be expressed with derive macro attributes.
 #[derive(Debug, Deserialize, Clone)]
 pub struct UpConfigNodejs {
     #[serde(skip)]
@@ -149,16 +109,17 @@ impl UpConfigNodejs {
     }
 }
 
-impl CompoteFromConfigValue for UpConfigNodejs {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        errors: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        // Parse params using the compote implementation
-        let params = <UpConfigNodejsParams as CompoteFromConfigValue>::from_config_value(value, errors)?;
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigNodejs {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        errors: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        // Parse params using the derived FromContextValue implementation
+        let params = <UpConfigNodejsParams as compote::FromContextValue<S, L>>::from_context_value(value, errors)?;
 
-        // Create backend using the compote version
-        let mut backend = UpConfigMise::compote_from_config_value("node", Some(value), errors);
+        // Create backend using the compote version - this requires manual implementation
+        // because it needs to pass the tool name "node" to the mise backend
+        let mut backend = UpConfigMise::compote_from_context_value("node", Some(value), errors);
 
         backend.add_detect_version_func(detect_version_from_package_json);
         backend.add_detect_version_func(detect_version_from_nvmrc);
@@ -332,8 +293,8 @@ fn setup_individual_npm_prefix(
     };
 
     let params = if let Some(config_value) = args.config_value.as_ref() {
-        let mut tracker = CompoteErrorTracker::new();
-        <UpConfigNodejsParams as CompoteFromConfigValue>::from_config_value(config_value, &mut tracker)
+        let mut tracker = compote::ErrorTracker::new();
+        <UpConfigNodejsParams as compote::FromContextValue<_, _>>::from_context_value(config_value, &mut tracker)
             .unwrap_or_default()
     } else {
         UpConfigNodejsParams::default()

@@ -14,11 +14,9 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
 // Compote imports
-use crate::internal::config::CompoteError;
 use crate::internal::config::CompoteConfigContext;
 use crate::internal::config::CompoteConfigValue;
 use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
 use crate::internal::config::CompoteConfigLevel;
 use crate::internal::config::CompoteConfigSource;
 
@@ -161,7 +159,7 @@ impl SuggestCloneConfig {
                             // Convert to compote::ContextValue and deserialize
                             let config_value = yaml_value_to_compote_config_value(yaml_value);
                             let mut tracker = CompoteErrorTracker::new();
-                            match Self::from_config_value(&config_value, &mut tracker) {
+                            match <Self as compote::FromContextValue<_, _>>::from_context_value(&config_value, &mut tracker) {
                                 Ok(suggest_clone) => {
                                     // In case this is recursive for some reason...
                                     return suggest_clone
@@ -202,11 +200,14 @@ impl SuggestCloneConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Clone, PartialEq, compote::Config)]
+#[compote(value_matched)]
 pub enum SuggestCloneTypeEnum {
     #[serde(rename = "package")]
+    #[compote(variant = "package")]
     Package,
     #[serde(rename = "worktree")]
+    #[compote(variant = "worktree")]
     Worktree,
 }
 
@@ -242,33 +243,35 @@ impl SuggestCloneRepositoryConfig {
 
 /// Helper to select only Local (Workdir) scope values
 /// Returns None if the entire value should be rejected (not from Local scope)
-fn select_local_scope(value: &CompoteConfigValue) -> Option<CompoteConfigValue> {
+fn select_local_scope<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &compote::ContextValue<S, L>,
+) -> Option<compote::ContextValue<S, L>> {
     match value {
-        CompoteConfigValue::Object(map, ctx) => {
-            let filtered: indexmap::IndexMap<String, CompoteConfigValue> = map
+        compote::ContextValue::Object(map, ctx) => {
+            let filtered: indexmap::IndexMap<String, compote::ContextValue<S, L>> = map
                 .iter()
                 .filter_map(|(k, v)| select_local_scope(v).map(|filtered| (k.clone(), filtered)))
                 .collect();
             if filtered.is_empty() {
                 None
             } else {
-                Some(CompoteConfigValue::object(filtered, ctx.clone()))
+                Some(compote::ContextValue::object(filtered, ctx.clone()))
             }
         }
-        CompoteConfigValue::Array(arr, ctx) => {
-            let filtered: Vec<CompoteConfigValue> = arr
+        compote::ContextValue::Array(arr, ctx) => {
+            let filtered: Vec<compote::ContextValue<S, L>> = arr
                 .iter()
                 .filter_map(select_local_scope)
                 .collect();
             if filtered.is_empty() {
                 None
             } else {
-                Some(CompoteConfigValue::array(filtered, ctx.clone()))
+                Some(compote::ContextValue::array(filtered, ctx.clone()))
             }
         }
         _ => {
             // For scalar values, only keep if from Local scope
-            if matches!(value.context().level, CompoteConfigLevel::Local) {
+            if value.context().level.name() == "local" {
                 Some(value.clone())
             } else {
                 None
@@ -277,49 +280,54 @@ fn select_local_scope(value: &CompoteConfigValue) -> Option<CompoteConfigValue> 
     }
 }
 
-impl CompoteFromConfigValue for SuggestCloneTypeEnum {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        let s = String::from_config_value(value, tracker)?;
-        Self::from_str(&s).map_err(|_| CompoteError::InvalidValue {
-            message: format!("Invalid clone type '{}', expected 'package' or 'worktree'", s),
-            path: tracker.current_path(),
-        })
-    }
-}
+// Manual impl replaced by derive macro:
+// impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+//     for SuggestCloneTypeEnum
+// {
+//     fn from_context_value(
+//         value: &compote::ContextValue<S, L>,
+//         tracker: &mut compote::ErrorTracker,
+//     ) -> Result<Self, compote::Error> {
+//         let s = String::from_context_value(value, tracker)?;
+//         Self::from_str(&s).map_err(|_| compote::Error::InvalidValue {
+//             message: format!("Invalid clone type '{}', expected 'package' or 'worktree'", s),
+//             path: tracker.current_path(),
+//         })
+//     }
+// }
 
-impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for SuggestCloneRepositoryConfig
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // Can be a simple string (handle only) or a table
         match value {
-            CompoteConfigValue::String(s, _) => Ok(Self {
+            compote::ContextValue::String(s, _) => Ok(Self {
                 handle: s.clone(),
                 args: vec![],
                 clone_type: SuggestCloneTypeEnum::Package,
             }),
-            CompoteConfigValue::Object(table, _) => {
+            compote::ContextValue::Object(table, _) => {
                 // handle is required
                 let handle = if let Some(v) = table.get("handle") {
                     tracker.push_field("handle");
-                    let result = String::from_config_value(v, tracker)?;
+                    let result = String::from_context_value(v, tracker)?;
                     tracker.pop();
                     result
                 } else {
                     tracker.push_field("handle");
                     let path = tracker.current_path();
                     tracker.pop();
-                    return Err(CompoteError::MissingField { path });
+                    return Err(compote::Error::MissingField { path });
                 };
 
                 // args is optional, parse shell words from string
                 let args = if let Some(v) = table.get("args") {
                     tracker.push_field("args");
-                    let args_str = String::from_config_value(v, tracker)?;
+                    let args_str = String::from_context_value(v, tracker)?;
                     tracker.pop();
                     shell_words::split(&args_str).unwrap_or_default()
                 } else {
@@ -330,7 +338,7 @@ impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
                 let clone_type = if let Some(v) = table.get("clone_type") {
                     tracker.push_field("clone_type");
                     let result =
-                        <SuggestCloneTypeEnum as CompoteFromConfigValue>::from_config_value(
+                        <SuggestCloneTypeEnum as compote::FromContextValue<S, L>>::from_context_value(
                             v, tracker,
                         )?;
                     tracker.pop();
@@ -345,7 +353,7 @@ impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
                     clone_type,
                 })
             }
-            _ => Err(CompoteError::TypeMismatch {
+            _ => Err(compote::Error::TypeMismatch {
                 expected: "string or table".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),
@@ -354,11 +362,13 @@ impl CompoteFromConfigValue for SuggestCloneRepositoryConfig {
     }
 }
 
-impl CompoteFromConfigValue for SuggestCloneConfig {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for SuggestCloneConfig
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // This config only accepts Local (Workdir) scope values
         let filtered = match select_local_scope(value) {
             Some(v) => v,
@@ -366,13 +376,13 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
         };
 
         match &filtered {
-            CompoteConfigValue::Null(_) => Ok(Self::default()),
+            compote::ContextValue::Null(_) => Ok(Self::default()),
             // Array format: list of repository configs
-            CompoteConfigValue::Array(arr, _) => {
+            compote::ContextValue::Array(arr, _) => {
                 let mut repositories = Vec::new();
                 for (idx, v) in arr.iter().enumerate() {
                     tracker.push_index(idx);
-                    match <SuggestCloneRepositoryConfig as CompoteFromConfigValue>::from_config_value(v, tracker) {
+                    match <SuggestCloneRepositoryConfig as compote::FromContextValue<S, L>>::from_context_value(v, tracker) {
                         Ok(repo) => repositories.push(repo),
                         Err(e) => {
                             tracker.record(e);
@@ -386,15 +396,15 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
                 })
             }
             // Table format: can have repositories, template, or template_file
-            CompoteConfigValue::Object(table, _) => {
+            compote::ContextValue::Object(table, _) => {
                 // Check for repositories array
                 if let Some(v) = table.get("repositories") {
-                    if let CompoteConfigValue::Array(arr, _) = v {
+                    if let compote::ContextValue::Array(arr, _) = v {
                         let mut repositories = Vec::new();
                         for (idx, repo_v) in arr.iter().enumerate() {
                             tracker.push_field("repositories");
                             tracker.push_index(idx);
-                            match <SuggestCloneRepositoryConfig as CompoteFromConfigValue>::from_config_value(repo_v, tracker) {
+                            match <SuggestCloneRepositoryConfig as compote::FromContextValue<S, L>>::from_context_value(repo_v, tracker) {
                                 Ok(repo) => repositories.push(repo),
                                 Err(e) => {
                                     tracker.record(e);
@@ -413,7 +423,7 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
                 // Check for template
                 if let Some(v) = table.get("template") {
                     tracker.push_field("template");
-                    let template = String::from_config_value(v, tracker)?;
+                    let template = String::from_context_value(v, tracker)?;
                     tracker.pop();
                     return Ok(Self {
                         template,
@@ -424,7 +434,7 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
                 // Check for template_file
                 if let Some(v) = table.get("template_file") {
                     tracker.push_field("template_file");
-                    let template_file = String::from_config_value(v, tracker)?;
+                    let template_file = String::from_context_value(v, tracker)?;
                     tracker.pop();
                     return Ok(Self {
                         template_file,
@@ -434,7 +444,7 @@ impl CompoteFromConfigValue for SuggestCloneConfig {
 
                 Ok(Self::default())
             }
-            _ => Err(CompoteError::TypeMismatch {
+            _ => Err(compote::Error::TypeMismatch {
                 expected: "array or table".to_string(),
                 actual: filtered.type_name().to_string(),
                 path: tracker.current_path(),

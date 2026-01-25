@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use serde::Deserialize;
-use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
@@ -14,16 +13,22 @@ use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::user_interface::StringColor;
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+fn default_bundler_path() -> Option<String> {
+    Some(UpConfigBundler::DEFAULT_PATH.to_string())
+}
+
+/// Configuration for bundler operation.
+///
+/// Accepts either:
+/// - A string: interpreted as the gemfile path
+/// - An object with `gemfile` and `path` fields
+#[derive(Debug, Deserialize, Clone, compote::Config)]
+#[compote(scalar_as = "gemfile")]
 pub struct UpConfigBundler {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[compote(skip_if_empty)]
     pub gemfile: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[compote(default_fn = "default_bundler_path", skip_if_empty)]
     pub path: Option<String>,
 }
 
@@ -153,52 +158,6 @@ impl UpConfigBundler {
     }
 }
 
-// Helper functions for compote conversion
-fn compote_get_str_or_none(
-    map: &indexmap::IndexMap<String, CompoteConfigValue>,
-    key: &str,
-    _tracker: &mut CompoteErrorTracker,
-) -> Option<String> {
-    map.get(key).and_then(|v| match v {
-        CompoteConfigValue::String(s, _) => Some(s.clone()),
-        _ => None,
-    })
-}
-
-fn compote_get_str_or_default(
-    map: &indexmap::IndexMap<String, CompoteConfigValue>,
-    key: &str,
-    default: &str,
-    _tracker: &mut CompoteErrorTracker,
-) -> String {
-    compote_get_str_or_none(map, key, _tracker).unwrap_or_else(|| default.to_string())
-}
-
-impl CompoteFromConfigValue for UpConfigBundler {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        match value {
-            CompoteConfigValue::Object(map, _) => {
-                let gemfile = compote_get_str_or_none(map, "gemfile", tracker);
-                let path = Some(compote_get_str_or_default(
-                    map,
-                    "path",
-                    Self::DEFAULT_PATH,
-                    tracker,
-                ));
-
-                Ok(Self { gemfile, path })
-            }
-            CompoteConfigValue::String(s, _) => Ok(Self {
-                gemfile: Some(s.clone()),
-                ..Self::default()
-            }),
-            _ => {
-                tracker.record_type_mismatch("table or string", value.type_name());
-                Ok(Self::default())
-            }
-        }
-    }
-}
+// Manual FromContextValue implementation replaced by derive macro above
+// The #[compote(scalar_as = "gemfile")] attribute handles string-to-object wrapping
+// The #[compote(default = "vendor/bundle")] handles the default path value
