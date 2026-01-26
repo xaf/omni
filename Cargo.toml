@@ -24,7 +24,7 @@ self-update = []
 self-update-check = ["self-update"]
 
 [build-dependencies]
-time = { version = "0.3.45", features = ["serde-well-known"] }
+time = { version = "0.3.46", features = ["serde-well-known"] }
 
 [dev-dependencies]
 mockito = "1.7.1"
@@ -87,7 +87,7 @@ tera = "1.20.1"
 term_cursor = "0.2.1"
 term_size = "0.3.2"
 thiserror = "2.0.18"
-time = { version = "0.3.45", features = ["macros", "serde-well-known"] }
+time = { version = "0.3.46", features = ["macros", "serde-well-known"] }
 tokio = { version = "1.48.0", features = ["full"] }
 url = "2.5.8"
 uuid = { version = "1.19.0", features = ["v4", "fast-rng"] }
