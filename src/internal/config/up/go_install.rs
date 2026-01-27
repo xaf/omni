@@ -72,20 +72,10 @@ pub fn go_install_tool_path(package: &str, version: &str) -> PathBuf {
 // Uses compote's transparent + allow_single + allow_map to handle all formats.
 // ============================================================================
 #[derive(Debug, Clone, Default, compote::Config)]
-#[compote(transparent, post_process = "sort_go_installs")]
+#[compote(transparent)]
 pub struct UpConfigGoInstalls {
-    #[compote(default, allow_single, allow_map)]
+    #[compote(default, allow_single, allow_map(order_by = "path"))]
     tools: Vec<UpConfigGoInstall>,
-}
-
-fn sort_go_installs<S: compote::CustomSource, L: compote::CustomLevel>(
-    config: &mut UpConfigGoInstalls,
-    _source: &compote::ContextValue<S, L>,
-    _error_tracker: &mut compote::ErrorTracker,
-) -> Result<(), compote::Error> {
-    // Sort tools by path for consistent ordering (especially for map notation)
-    config.tools.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(())
 }
 
 // Stub Deserialize implementation for compatibility with UpConfigTool enum.
