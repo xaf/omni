@@ -69,72 +69,23 @@ pub fn go_install_tool_path(package: &str, version: &str) -> PathBuf {
 // 3. Object with "path" key: {path: "tool", version: "1.0"} -> single tool
 // 4. Object without "path" key: {"tool1": "v1", "tool2": {version: "v2"}} -> map-to-vec
 //
-// Uses compote's derive for the inner struct, with manual FromContextValue
-// to handle object wrapping (since compote doesn't have object_as attribute).
+// Uses compote's transparent + allow_single + allow_map to handle all formats.
 // ============================================================================
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct UpConfigGoInstalls {
-    tools: Vec<UpConfigGoInstall>,
-}
-
-// Inner type that uses compote derive with allow_single and allow_map on the Vec field
 #[derive(Debug, Clone, Default, compote::Config)]
-struct UpConfigGoInstallsInner {
-    // allow_map (parameterless) uses UpConfigGoInstall's AllowMapKeys trait for detection
+#[compote(transparent, post_process = "sort_go_installs")]
+pub struct UpConfigGoInstalls {
     #[compote(default, allow_single, allow_map)]
     tools: Vec<UpConfigGoInstall>,
 }
 
-// Manual FromContextValue that wraps objects as {tools: object} before delegating
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
-    for UpConfigGoInstalls
-{
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        error_tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        // Wrap the value if needed, then delegate to inner type
-        let wrapped_value: std::borrow::Cow<'_, compote::ContextValue<S, L>> = match value {
-            // Scalar -> wrap as {tools: scalar} (will use allow_single)
-            compote::ContextValue::String(_, _)
-            | compote::ContextValue::Int(_, _)
-            | compote::ContextValue::Float(_, _)
-            | compote::ContextValue::Bool(_, _) => {
-                let mut obj = indexmap::IndexMap::new();
-                obj.insert("tools".to_string(), value.clone());
-                std::borrow::Cow::Owned(compote::ContextValue::object(obj, value.context().clone()))
-            }
-
-            // Array -> wrap as {tools: array}
-            compote::ContextValue::Array(_, _) => {
-                let mut obj = indexmap::IndexMap::new();
-                obj.insert("tools".to_string(), value.clone());
-                std::borrow::Cow::Owned(compote::ContextValue::object(obj, value.context().clone()))
-            }
-
-            // Object -> wrap as {tools: object} (allow_map on the field will handle detection)
-            compote::ContextValue::Object(_, _) => {
-                let mut obj = indexmap::IndexMap::new();
-                obj.insert("tools".to_string(), value.clone());
-                std::borrow::Cow::Owned(compote::ContextValue::object(obj, value.context().clone()))
-            }
-
-            // Null -> empty default
-            compote::ContextValue::Null(_) => {
-                return Ok(Self::default());
-            }
-        };
-
-        // Delegate to inner type
-        let inner: UpConfigGoInstallsInner =
-            compote::FromContextValue::from_context_value(wrapped_value.as_ref(), error_tracker)?;
-
-        // Sort tools by path for consistent ordering (especially for map notation)
-        let mut tools = inner.tools;
-        tools.sort_by(|a, b| a.path.cmp(&b.path));
-
-        Ok(Self { tools })
-    }
+fn sort_go_installs<S: compote::CustomSource, L: compote::CustomLevel>(
+    config: &mut UpConfigGoInstalls,
+    _source: &compote::ContextValue<S, L>,
+    _error_tracker: &mut compote::ErrorTracker,
+) -> Result<(), compote::Error> {
+    // Sort tools by path for consistent ordering (especially for map notation)
+    config.tools.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(())
 }
 
 // Stub Deserialize implementation for compatibility with UpConfigTool enum.
