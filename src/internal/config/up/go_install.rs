@@ -5,7 +5,6 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use itertools::Itertools;
-use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
@@ -16,7 +15,6 @@ use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::up_environments::UpVersionParams;
-use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::GoInstallOperationCache;
 use crate::internal::cache::GoInstallVersions;
 use crate::internal::config::config;
@@ -41,13 +39,6 @@ use crate::internal::env::data_home;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::StringColor;
 
-// Compote imports
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
-use indexmap::IndexMap;
-
 cfg_if::cfg_if! {
     if #[cfg(test)] {
         fn go_install_bin_path() -> PathBuf {
@@ -68,108 +59,92 @@ pub fn go_install_tool_path(package: &str, version: &str) -> PathBuf {
     go_install_bin_path().join(package).join(version)
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+// ============================================================================
+// UpConfigGoInstalls - Wrapper for polymorphic input handling
+// ============================================================================
+//
+// Supports the following input formats:
+// 1. String: "github.com/owner/tool@v1.0.0" -> single tool
+// 2. Array: ["tool1", "tool2"] -> multiple tools
+// 3. Object with "path" key: {path: "tool", version: "1.0"} -> single tool
+// 4. Object without "path" key: {"tool1": "v1", "tool2": {version: "v2"}} -> map-to-vec
+//
+// Uses compote's derive for the inner struct, with manual FromContextValue
+// to handle object wrapping (since compote doesn't have object_as attribute).
+// ============================================================================
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct UpConfigGoInstalls {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tools: Vec<UpConfigGoInstall>,
 }
 
-impl Serialize for UpConfigGoInstalls {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.tools.len() {
-            0 => serializer.serialize_none(),
-            1 => serializer.serialize_newtype_struct("UpConfigGoInstalls", &self.tools[0]),
-            _ => serializer.collect_seq(self.tools.iter()),
-        }
+// Inner type that uses compote derive with allow_single and allow_map on the Vec field
+#[derive(Debug, Clone, Default, compote::Config)]
+struct UpConfigGoInstallsInner {
+    // allow_map (parameterless) uses UpConfigGoInstall's AllowMapKeys trait for detection
+    #[compote(default, allow_single, allow_map)]
+    tools: Vec<UpConfigGoInstall>,
+}
+
+// Manual FromContextValue that wraps objects as {tools: object} before delegating
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for UpConfigGoInstalls
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        error_tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        // Wrap the value if needed, then delegate to inner type
+        let wrapped_value: std::borrow::Cow<'_, compote::ContextValue<S, L>> = match value {
+            // Scalar -> wrap as {tools: scalar} (will use allow_single)
+            compote::ContextValue::String(_, _)
+            | compote::ContextValue::Int(_, _)
+            | compote::ContextValue::Float(_, _)
+            | compote::ContextValue::Bool(_, _) => {
+                let mut obj = indexmap::IndexMap::new();
+                obj.insert("tools".to_string(), value.clone());
+                std::borrow::Cow::Owned(compote::ContextValue::object(obj, value.context().clone()))
+            }
+
+            // Array -> wrap as {tools: array}
+            compote::ContextValue::Array(_, _) => {
+                let mut obj = indexmap::IndexMap::new();
+                obj.insert("tools".to_string(), value.clone());
+                std::borrow::Cow::Owned(compote::ContextValue::object(obj, value.context().clone()))
+            }
+
+            // Object -> wrap as {tools: object} (allow_map on the field will handle detection)
+            compote::ContextValue::Object(_, _) => {
+                let mut obj = indexmap::IndexMap::new();
+                obj.insert("tools".to_string(), value.clone());
+                std::borrow::Cow::Owned(compote::ContextValue::object(obj, value.context().clone()))
+            }
+
+            // Null -> empty default
+            compote::ContextValue::Null(_) => {
+                return Ok(Self::default());
+            }
+        };
+
+        // Delegate to inner type
+        let inner: UpConfigGoInstallsInner =
+            compote::FromContextValue::from_context_value(wrapped_value.as_ref(), error_tracker)?;
+
+        // Sort tools by path for consistent ordering (especially for map notation)
+        let mut tools = inner.tools;
+        tools.sort_by(|a, b| a.path.cmp(&b.path));
+
+        Ok(Self { tools })
     }
 }
 
-impl CompoteFromConfigValue for UpConfigGoInstalls {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        // Check if it's a string (single tool)
-        if matches!(value, CompoteConfigValue::String(_, _)) {
-            let tool = UpConfigGoInstall::compote_from_config_value(value, error_tracker)?;
-            return Ok(Self {
-                tools: vec![tool],
-            });
-        }
-
-        // Check if it's an array
-        if let CompoteConfigValue::Array(arr, _) = value {
-            let tools = arr
-                .iter()
-                .map(|config_value| {
-                    UpConfigGoInstall::compote_from_config_value(config_value, error_tracker)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            return Ok(Self { tools });
-        }
-
-        // Check if it's an object (table)
-        if let CompoteConfigValue::Object(table, ctx) = value {
-            // Check if there is a 'path' key, in which case it's a single
-            // path and we can just parse it and return it
-            if table.contains_key("path") {
-                let tool = UpConfigGoInstall::compote_from_config_value(value, error_tracker)?;
-                return Ok(Self {
-                    tools: vec![tool],
-                });
-            }
-
-            // Otherwise, we have a table of paths, where paths are
-            // the keys and the values are the configuration for the path;
-            // we want to go over them in lexico-graphical order to ensure that
-            // the order is consistent
-            let mut tools = Vec::new();
-            let keys: Vec<String> = table.keys().cloned().collect();
-            let mut sorted_keys = keys;
-            sorted_keys.sort();
-
-            for path_str in sorted_keys {
-                let path_value = table.get(&path_str).expect("path config not found");
-
-                // Create a new ConfigValue with "path" set to the key
-                let mut path_config = if let CompoteConfigValue::Object(map, _) = path_value {
-                    map.clone()
-                } else if let CompoteConfigValue::String(version, _) = path_value {
-                    let mut map = IndexMap::new();
-                    map.insert(
-                        "version".to_string(),
-                        CompoteConfigValue::string(version.clone(), path_value.context().clone()),
-                    );
-                    map
-                } else {
-                    IndexMap::new()
-                };
-
-                path_config.insert(
-                    "path".to_string(),
-                    CompoteConfigValue::string(path_str.clone(), ctx.clone()),
-                );
-
-                let table_value = CompoteConfigValue::object(path_config, ctx.clone());
-
-                tools.push(UpConfigGoInstall::compote_from_config_value(
-                    &table_value,
-                    error_tracker,
-                )?);
-            }
-
-            if tools.is_empty() {
-                error_tracker.record_invalid_value("at least one tool required");
-            }
-
-            return Ok(Self { tools });
-        }
-
-        error_tracker.record_type_mismatch("string, array, or object", value.type_name());
-
+// Stub Deserialize implementation for compatibility with UpConfigTool enum.
+// Actual deserialization is done through compote's FromContextValue.
+impl<'de> Deserialize<'de> for UpConfigGoInstalls {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let _ = serde::de::IgnoredAny::deserialize(deserializer)?;
         Ok(Self::default())
     }
 }
@@ -425,7 +400,7 @@ impl UpConfigGoInstalls {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum GoInstallHandled {
     Handled,
     Noop,
@@ -438,59 +413,142 @@ pub enum GoInstallError {
     InvalidImportPath(String),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+// ============================================================================
+// UpConfigGoInstall - Using compote derive with post_process
+// ============================================================================
+//
+// Input formats supported via compote attributes:
+// - String: "github.com/foo@v1.0" -> {path: "github.com/foo", version: "v1.0"}
+// - allow_map format: {"github.com/foo": "v1.0"} -> {path, version}
+// - Object format: {path: "...", version: "...", ...}
+//
+// The post_process function handles:
+// 1. Splitting path@version into separate path and version fields
+// 2. Validating the import path format
+// 3. Setting exact = true when version is set but exact wasn't explicitly provided
+// ============================================================================
+#[derive(Debug, Clone, compote::Config)]
+#[compote(
+    allow_map(key = path, scalar_as = version),
+    scalar_as = "path",
+    post_process = "finalize_go_install"
+)]
 struct UpConfigGoInstall {
-    /// The path to the path to call the `go install` command on,
+    /// The path to call the `go install` command on,
     /// e.g. `github.com/owner/path`
     pub path: String,
 
     /// The version of the tool to install, which will be used after the `@` in the
     /// `go install` command, e.g. `github.com/owner/path@<version>`
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[compote(default)]
     pub version: Option<String>,
 
     /// Whether to install the exact version specified in the `version` field;
     /// if `true`, there will be no check for the available versions and the
     /// `go install` command will be called with the version specified;
     /// if `false`, the latest version that matches the version will be installed.
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    /// Defaults to `version.is_some()` (set in post_process).
+    #[compote(default)]
     pub exact: bool,
 
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default)]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default)]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default)]
     pub build: bool,
 
     /// A list of directories to make the binary available for
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    #[compote(default, rename = "dir", allow_single)]
     pub dirs: BTreeSet<String>,
 
     /// In case there was an error while parsing the configuration, this field
     /// will contain the error message
-    #[serde(default, skip)]
+    #[compote(skip)]
     config_error: Option<String>,
 
-    #[serde(default, skip)]
+    /// The actual version that was installed
+    #[compote(skip)]
     actual_version: OnceCell<String>,
 
-    #[serde(default, skip)]
+    /// Whether this tool was handled during the up operation
+    #[compote(skip)]
     was_handled: OnceCell<GoInstallHandled>,
+}
+
+/// Post-process function for UpConfigGoInstall.
+/// Handles path@version splitting, validation, and conditional default for `exact`.
+fn finalize_go_install<S: compote::CustomSource, L: compote::CustomLevel>(
+    config: &mut UpConfigGoInstall,
+    source: &compote::ContextValue<S, L>,
+    error_tracker: &mut compote::ErrorTracker,
+) -> Result<(), compote::Error> {
+    // Handle path@version splitting
+    if let Some(at_pos) = config.path.find('@') {
+        let (path, ver) = config.path.split_at(at_pos);
+        let ver = &ver[1..]; // Skip the '@'
+
+        if config.version.is_some() {
+            error_tracker.record_invalid_value(
+                "version should not be specified in both path@version format and version field",
+            );
+            config.config_error = Some(
+                "version should not be specified in both path@version format and version field"
+                    .to_string(),
+            );
+            // Still update the path to the cleaned version
+            config.path = path.to_string();
+            return Ok(());
+        }
+
+        // Validate the version part
+        if let Err(e) = validate_go_install_version(ver) {
+            error_tracker.record_invalid_value(format!("invalid version in path: {}", e));
+            config.config_error = Some(e.to_string());
+            config.path = path.to_string();
+            return Ok(());
+        }
+
+        config.version = Some(ver.to_string());
+        config.path = path.to_string();
+    }
+
+    // Validate and clean the import path format
+    match validate_go_install_path(&config.path) {
+        Ok(cleaned_path) => {
+            config.path = cleaned_path;
+        }
+        Err(e) => {
+            error_tracker.record_invalid_value(format!("invalid go install path: {}", e));
+            config.config_error = Some(e.to_string());
+            return Ok(());
+        }
+    }
+
+    // Conditional default: exact = version.is_some(), only if not explicitly set
+    let explicitly_set = match source {
+        compote::ContextValue::Object(map, _) => map.contains_key("exact"),
+        _ => false,
+    };
+    if !explicitly_set && config.version.is_some() {
+        config.exact = true;
+    }
+
+    Ok(())
 }
 
 impl Default for UpConfigGoInstall {
     fn default() -> Self {
         UpConfigGoInstall {
-            path: "".to_string(),
+            path: String::new(),
             version: None,
             exact: false,
             upgrade: false,
@@ -505,244 +563,6 @@ impl Default for UpConfigGoInstall {
 }
 
 impl UpConfigGoInstall {
-    fn compote_from_config_value(
-        value: &CompoteConfigValue,
-        error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        // If it's a string, parse it as path@version
-        if let CompoteConfigValue::String(s, _) = value {
-            let (path, version) = match parse_go_install_path(s) {
-                Ok((path, version)) => (path, version),
-                Err(err) => {
-                    error_tracker.record_invalid_value(format!("invalid go install path: {}", err));
-                    return Ok(Self {
-                        path: s.to_string(),
-                        config_error: Some(err.to_string()),
-                        ..Default::default()
-                    });
-                }
-            };
-
-            // If version is set through the path, it is exact
-            let exact = version.is_some();
-
-            return Ok(UpConfigGoInstall {
-                path,
-                version,
-                exact,
-                ..UpConfigGoInstall::default()
-            });
-        }
-
-        // If it's an object (table), parse it
-        if let CompoteConfigValue::Object(table, _) = value {
-            return Self::compote_from_table(table, value, error_tracker);
-        }
-
-        error_tracker.record_type_mismatch("string or object", value.type_name());
-
-        Ok(Self {
-            config_error: Some("no import path provided".to_string()),
-            ..Default::default()
-        })
-    }
-
-    fn compote_from_table(
-        table: &IndexMap<String, CompoteConfigValue>,
-        value: &CompoteConfigValue,
-        error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        let ctx = value.context();
-
-        // Extract path
-        let path = if let Some(path_value) = table.get("path") {
-            if let CompoteConfigValue::String(s, _) = path_value {
-                s.clone()
-            } else {
-                error_tracker.record_type_mismatch("string", path_value.type_name());
-                return Ok(UpConfigGoInstall {
-                    config_error: Some("path must be a string".to_string()),
-                    ..Default::default()
-                });
-            }
-        } else {
-            // If there's no path key, and table has exactly one key,
-            // that key is the path
-            if table.len() == 1 {
-                let (key, val) = table.iter().next().unwrap();
-                if let CompoteConfigValue::String(version, _) = val {
-                    return Ok(UpConfigGoInstall {
-                        path: key.clone(),
-                        version: Some(version.clone()),
-                        ..UpConfigGoInstall::default()
-                    });
-                } else if let CompoteConfigValue::Object(nested_table, _) = val {
-                    let mut new_table = nested_table.clone();
-                    new_table.insert(
-                        "path".to_string(),
-                        CompoteConfigValue::string(key.clone(), ctx.clone()),
-                    );
-                    let new_value = CompoteConfigValue::object(new_table.clone(), ctx.clone());
-                    return Self::compote_from_table(
-                        &new_table,
-                        &new_value,
-                        error_tracker,
-                    );
-                } else if matches!(val, CompoteConfigValue::Null(_)) {
-                    let mut new_table = IndexMap::new();
-                    new_table.insert(
-                        "path".to_string(),
-                        CompoteConfigValue::string(key.clone(), ctx.clone()),
-                    );
-                    let new_value = CompoteConfigValue::object(new_table.clone(), ctx.clone());
-                    return Self::compote_from_table(
-                        &new_table,
-                        &new_value,
-                        error_tracker,
-                    );
-                }
-            }
-
-            error_tracker.record_invalid_value("path is required");
-            return Ok(UpConfigGoInstall {
-                config_error: Some("path is required".to_string()),
-                ..Default::default()
-            });
-        };
-
-        // Parse path to extract version if present
-        let (path, path_version) = match parse_go_install_path(&path) {
-            Ok((path, version)) => (path, version),
-            Err(err) => {
-                error_tracker.record_invalid_value(format!("invalid go install path: {}", err));
-                return Ok(UpConfigGoInstall {
-                    path,
-                    config_error: Some(err.to_string()),
-                    ..Default::default()
-                });
-            }
-        };
-
-        // Extract exact flag (default: true if version is in path)
-        let exact = if let Some(exact_value) = table.get("exact") {
-            match exact_value {
-                CompoteConfigValue::Bool(b, _) => *b,
-                _ => {
-                    error_tracker.record_type_mismatch("boolean", exact_value.type_name());
-                    path_version.is_some()
-                }
-            }
-        } else {
-            path_version.is_some()
-        };
-
-        // Check if version is specified in both path and version field
-        let version = if let Some(version_value) = table.get("version") {
-            if let CompoteConfigValue::String(version_field, _) = version_value {
-                if path_version.is_some() {
-                    error_tracker.record_invalid_value(
-                        "version should not be specified in both path and version fields",
-                    );
-                    return Ok(UpConfigGoInstall {
-                        path,
-                        config_error: Some(
-                            "version should not be specified in both path and version fields"
-                                .to_string(),
-                        ),
-                        ..Default::default()
-                    });
-                }
-                Some(version_field.clone())
-            } else {
-                path_version
-            }
-        } else {
-            path_version
-        };
-
-        // Extract boolean flags with defaults
-        let upgrade = table
-            .get("upgrade")
-            .and_then(|v| match v {
-                CompoteConfigValue::Bool(b, _) => Some(*b),
-                _ => {
-                    error_tracker.record_type_mismatch("boolean", v.type_name());
-                    None
-                }
-            })
-            .unwrap_or(false);
-
-        let prerelease = table
-            .get("prerelease")
-            .and_then(|v| match v {
-                CompoteConfigValue::Bool(b, _) => Some(*b),
-                _ => {
-                    error_tracker.record_type_mismatch("boolean", v.type_name());
-                    None
-                }
-            })
-            .unwrap_or(false);
-
-        let build = table
-            .get("build")
-            .and_then(|v| match v {
-                CompoteConfigValue::Bool(b, _) => Some(*b),
-                _ => {
-                    error_tracker.record_type_mismatch("boolean", v.type_name());
-                    None
-                }
-            })
-            .unwrap_or(false);
-
-        // Extract dirs array
-        let dirs = if let Some(dir_value) = table.get("dir") {
-            match dir_value {
-                CompoteConfigValue::Array(arr, _) => arr
-                    .iter()
-                    .filter_map(|v| match v {
-                        CompoteConfigValue::String(s, _) => Some(
-                            PathBuf::from(s)
-                                .normalize()
-                                .to_string_lossy()
-                                .to_string(),
-                        ),
-                        _ => {
-                            error_tracker.record_type_mismatch("string", v.type_name());
-                            None
-                        }
-                    })
-                    .collect::<BTreeSet<_>>(),
-                CompoteConfigValue::String(s, _) => {
-                    let mut set = BTreeSet::new();
-                    set.insert(
-                        PathBuf::from(s)
-                            .normalize()
-                            .to_string_lossy()
-                            .to_string(),
-                    );
-                    set
-                }
-                _ => {
-                    error_tracker.record_type_mismatch("string or array", dir_value.type_name());
-                    BTreeSet::new()
-                }
-            }
-        } else {
-            BTreeSet::new()
-        };
-
-        Ok(UpConfigGoInstall {
-            path,
-            version,
-            exact,
-            upgrade,
-            prerelease,
-            build,
-            dirs,
-            ..Default::default()
-        })
-    }
-
     fn update_cache(
         &self,
         _options: &UpOptions,
@@ -1396,31 +1216,6 @@ fn validate_go_install_path(path: &str) -> Result<String, GoInstallError> {
     Ok(segments.join("/"))
 }
 
-/// Main function that parses and validates a complete go install string
-fn parse_go_install_path<T>(input: T) -> Result<(String, Option<String>), GoInstallError>
-where
-    T: AsRef<str>,
-{
-    let input = input.as_ref();
-    let parts: Vec<&str> = input.split('@').collect();
-    if parts.len() > 2 {
-        return Err(GoInstallError::InvalidImportPath(
-            "multiple @ symbols found".to_string(),
-        ));
-    }
-
-    let cleaned_path = validate_go_install_path(parts[0])?;
-
-    let version = if parts.len() == 2 {
-        validate_go_install_version(parts[1])?;
-        Some(parts[1].to_string())
-    } else {
-        None
-    };
-
-    Ok((cleaned_path, version))
-}
-
 // This returns true if the provided version is in the format of a go pseudo-version
 // e.g.:
 //   - v0.0.0-20191109021931-daa7c04131f5
@@ -1481,7 +1276,7 @@ fn is_go_pseudo_version(version: &str) -> bool {
     true
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 struct GoBin {
     bin: PathBuf,
     version: String,
