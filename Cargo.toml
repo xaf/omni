@@ -93,7 +93,7 @@ url = "2.5.8"
 uuid = { version = "1.19.0", features = ["v4", "fast-rng"] }
 walkdir = "2.4.0"
 which = "8.0.0"
-whoami = "2.0.2"
+whoami = "2.1.0"
 xz2 = "0.1.7"
 zip-extract = "0.3.0"
 
