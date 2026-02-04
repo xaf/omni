@@ -1120,8 +1120,7 @@ impl Org {
                 }
 
                 // If the repo has a port, we need to make sure it matches the org's port (if any)
-                if repo.port.is_some() {
-                    let port = repo.port.unwrap();
+                if let Some(port) = repo.port {
                     if let Some(org_port) = self_url.port() {
                         if port != org_port {
                             return None;
