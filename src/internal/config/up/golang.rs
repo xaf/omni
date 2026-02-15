@@ -10,8 +10,6 @@ use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::internal::config::CompoteConfigValue;
-
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils as cache_utils;
 use crate::internal::commands::utils::abs_path;
@@ -36,22 +34,30 @@ struct UpConfigGolangSerialized {
     dirs: BTreeSet<String>,
 }
 
+fn normalize_dir(value: &mut String) -> Result<(), compote::Error> {
+    *value = PathBuf::from(&*value)
+        .normalize()
+        .to_string_lossy()
+        .to_string();
+    Ok(())
+}
+
 /// Configuration for Go/Golang tool installation.
 ///
 /// Accepts:
-/// - A string or number: interpreted as version
+/// - A string or number: interpreted as version (via scalar_as)
 /// - An object with version, version_file, upgrade, and dir fields
-///
-/// Note: This struct requires a manual FromContextValue implementation because:
-/// - It uses BTreeSet<String> which doesn't work with compote's allow_single (produces Vec)
-/// - It has custom path normalization logic for the dirs field
-/// - The OnceCell<UpConfigMise> backend field requires special handling
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, compote::Config)]
+#[compote(scalar_as = "version", skip_serialize)]
 pub struct UpConfigGolang {
+    #[compote(coerce)]
     pub version: Option<String>,
     pub version_file: Option<String>,
+    #[compote(default)]
     pub upgrade: bool,
+    #[compote(allow_single, default, rename = "dir", transform_each_after = "normalize_dir")]
     pub dirs: BTreeSet<String>,
+    #[compote(skip)]
     #[serde(skip)]
     pub backend: OnceCell<UpConfigMise>,
 }
@@ -102,116 +108,6 @@ impl UpConfigGolang {
         }
 
         extract_version_from_gomod_file(self.version_file.as_ref().unwrap().clone())
-    }
-}
-
-// Helper functions for compote conversion
-fn compote_get_str_or_none<S: compote::CustomSource, L: compote::CustomLevel>(
-    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
-    key: &str,
-) -> Option<String> {
-    map.get(key).and_then(|v| match v {
-        compote::ContextValue::String(s, _) => Some(s.clone()),
-        _ => None,
-    })
-}
-
-fn compote_get_str_array<S: compote::CustomSource, L: compote::CustomLevel>(
-    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
-    key: &str,
-) -> Vec<String> {
-    map.get(key)
-        .and_then(|v| match v {
-            compote::ContextValue::Array(arr, _) => Some(
-                arr.iter()
-                    .filter_map(|item| match item {
-                        compote::ContextValue::String(s, _) => Some(s.clone()),
-                        _ => None,
-                    })
-                    .collect()
-            ),
-            compote::ContextValue::String(s, _) => Some(vec![s.clone()]),  // single string as array
-            _ => None,
-        })
-        .unwrap_or_default()
-}
-
-fn compote_get_bool_or_none<S: compote::CustomSource, L: compote::CustomLevel>(
-    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
-    key: &str,
-) -> Option<bool> {
-    map.get(key).and_then(|v| match v {
-        compote::ContextValue::Bool(b, _) => Some(*b),
-        _ => None,
-    })
-}
-
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigGolang {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        let mut version = None;
-        let mut version_file = None;
-        let mut dirs = BTreeSet::new();
-        let mut upgrade = false;
-
-        match value {
-            // Handle string, float, or integer as version
-            compote::ContextValue::String(s, _) => {
-                version = Some(s.clone());
-            }
-            compote::ContextValue::Float(f, _) => {
-                version = Some(f.to_string());
-            }
-            compote::ContextValue::Int(i, _) => {
-                version = Some(i.to_string());
-            }
-            // Handle object with version, version_file, dir, and upgrade fields
-            compote::ContextValue::Object(map, _) => {
-                // Extract version or version_file
-                if let Some(v) = compote_get_str_or_none(map, "version") {
-                    version = Some(v);
-                } else if let Some(v) = compote_get_str_or_none(map, "version_file") {
-                    version_file = Some(v);
-                }
-
-                // Extract dirs array
-                let list_dirs = compote_get_str_array(map, "dir");
-                for dir_value in list_dirs {
-                    dirs.insert(
-                        PathBuf::from(dir_value)
-                            .normalize()
-                            .to_string_lossy()
-                            .to_string(),
-                    );
-                }
-
-                // Extract upgrade flag
-                if let Some(u) = compote_get_bool_or_none(map, "upgrade") {
-                    upgrade = u;
-                }
-            }
-            _ => {
-                tracker.record_type_mismatch(
-                    "string, number, or object",
-                    value.type_name()
-                );
-                return Err(compote::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "string, number, or object".to_string(),
-                    actual: value.type_name().to_string(),
-                });
-            }
-        }
-
-        Ok(Self {
-            backend: OnceCell::new(),
-            version,
-            version_file,
-            upgrade,
-            dirs,
-        })
     }
 }
 
