@@ -19,15 +19,13 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
 
-// NOTE: UpConfigCustom CANNOT be converted to compote::Config derive macro because:
-// 1. The derive macro generates `Serialize` impl, conflicting with `#[derive(Serialize)]`
-// 2. The `skip` attribute doesn't work properly for `OnceCell` fields
-// The manual FromContextValue impl must be kept for these reasons.
-// The field alias "met?" -> "met" is handled manually in the FromContextValue impl.
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, compote::Config)]
+#[compote(skip_serialize)]
 pub struct UpConfigCustom {
+    #[compote(default = "true")]
     pub meet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[compote(rename = "met?")]
     pub met: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unmeet: Option<String>,
@@ -37,6 +35,7 @@ pub struct UpConfigCustom {
     pub dir: Option<String>,
 
     #[serde(skip)]
+    #[compote(skip)]
     data_paths: OnceCell<Vec<PathBuf>>,
 }
 
@@ -523,57 +522,6 @@ fn is_valid_delimiter(delimiter: &str) -> bool {
         && delimiter
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-// Helper functions for compote conversion
-fn compote_get_str_or_none<S: compote::CustomSource, L: compote::CustomLevel>(
-    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
-    key: &str,
-    _tracker: &mut compote::ErrorTracker,
-) -> Option<String> {
-    map.get(key).and_then(|v| match v {
-        compote::ContextValue::String(s, _) => Some(s.clone()),
-        _ => None,
-    })
-}
-
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigCustom {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        match value {
-            compote::ContextValue::Object(map, _) => {
-                let meet = compote_get_str_or_none(map, "meet", tracker)
-                    .unwrap_or_else(|| {
-                        tracker.push_field("meet");
-                        tracker.record(compote::Error::MissingField {
-                            path: tracker.current_path(),
-                        });
-                        tracker.pop();
-                        Self::DEFAULT_MEET.to_string()
-                    });
-
-                let met = compote_get_str_or_none(map, "met?", tracker);
-                let unmeet = compote_get_str_or_none(map, "unmeet", tracker);
-                let name = compote_get_str_or_none(map, "name", tracker);
-                let dir = compote_get_str_or_none(map, "dir", tracker);
-
-                Ok(UpConfigCustom {
-                    meet,
-                    met,
-                    unmeet,
-                    name,
-                    dir,
-                    data_paths: OnceCell::new(),
-                })
-            }
-            _ => {
-                tracker.record_type_mismatch("table", value.type_name());
-                Ok(Self::default())
-            }
-        }
-    }
 }
 
 #[cfg(test)]

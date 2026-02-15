@@ -11,14 +11,13 @@ use crate::internal::cache::utils::Empty;
 
 /// ShellAliasesConfig - container for shell aliases.
 ///
-/// This struct does NOT use compote::Config derive because it needs custom
-/// serialization behavior (serializes as array directly, not as struct).
-/// Instead, it has a manual FromContextValue implementation that delegates
-/// to the derive-generated impl for ShellAliasConfig.
-///
-/// The inner ShellAliasConfig structs use compote::Config.
-#[derive(Debug, Clone)]
+/// Uses compote::Config with transparent to auto-generate FromContextValue.
+/// Custom Serialize and Deserialize impls are kept for backwards compatibility
+/// (serializes/deserializes as array directly, not as struct).
+#[derive(Debug, Clone, compote::Config)]
+#[compote(transparent, skip_serialize, skip_deserialize)]
 pub struct ShellAliasesConfig {
+    #[compote(default)]
     pub aliases: Vec<ShellAliasConfig>,
 }
 
@@ -93,40 +92,3 @@ impl Default for ShellAliasConfig {
     }
 }
 
-// ============================================================================
-// Compote FromContextValue implementation for ShellAliasesConfig
-// ============================================================================
-// Manual implementation for ShellAliasesConfig to handle array input directly
-// and graceful error handling (skip invalid items).
-// ShellAliasConfig uses the compote::Config derive macro.
-
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for ShellAliasesConfig {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        match value {
-            compote::ContextValue::Array(arr, _) => {
-                let mut aliases = Vec::new();
-                for (idx, item) in arr.iter().enumerate() {
-                    tracker.push_index(idx);
-                    // ShellAliasConfig has FromContextValue from the derive macro
-                    match <ShellAliasConfig as compote::FromContextValue<S, L>>::from_context_value(
-                        item, tracker,
-                    ) {
-                        Ok(alias) => aliases.push(alias),
-                        Err(e) => tracker.record(e),
-                    }
-                    tracker.pop();
-                }
-                Ok(Self { aliases })
-            }
-            compote::ContextValue::Null(_) => Ok(Self::default()),
-            _ => Err(compote::Error::TypeMismatch {
-                expected: "array".to_string(),
-                actual: value.type_name().to_string(),
-                path: tracker.current_path(),
-            }),
-        }
-    }
-}
