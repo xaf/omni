@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::cache::up_environments::UpEnvironment;
@@ -22,7 +21,7 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::env::current_dir;
 use crate::internal::workdir;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 struct UpConfigGolangSerialized {
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
@@ -47,7 +46,7 @@ fn normalize_dir(value: &mut String) -> Result<(), compote::Error> {
 /// Accepts:
 /// - A string or number: interpreted as version (via scalar_as)
 /// - An object with version, version_file, upgrade, and dir fields
-#[derive(Debug, Deserialize, Clone, compote::Config)]
+#[derive(Debug, Clone, compote::Config)]
 #[compote(scalar_as = "version", skip_serialize)]
 pub struct UpConfigGolang {
     #[compote(coerce)]
@@ -58,7 +57,6 @@ pub struct UpConfigGolang {
     #[compote(allow_single, default, rename = "dir", transform_each_after = "normalize_dir")]
     pub dirs: BTreeSet<String>,
     #[compote(skip)]
-    #[serde(skip)]
     pub backend: OnceCell<UpConfigMise>,
 }
 

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::config::parser::AskPassConfig;
@@ -29,7 +28,7 @@ use crate::internal::env::user_home;
 
 
 lazy_static! {
-    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[derive(Debug, Serialize, Clone)]
     static ref DEFAULT_WORKTREE: String = {
         let home = user_home();
         let mut default_worktree_path = format!("{home}/git");
@@ -45,7 +44,7 @@ lazy_static! {
         }
         default_worktree_path
     };
-    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[derive(Debug, Serialize, Clone)]
     static ref DEFAULT_SANDBOX: String = {
         let home = user_home();
         format!("{home}/sandbox")
@@ -65,7 +64,7 @@ fn get_default_repo_path_format() -> String {
     "%{host}/%{org}/%{repo}".to_string()
 }
 
-#[derive(Debug, Clone, Deserialize, compote::Config)]
+#[derive(Debug, Clone, compote::Config)]
 pub struct OmniConfig {
     #[compote(default)]
     pub askpass: AskPassConfig,

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use serde::Deserialize;
 use serde::Serialize;
 use tera::Context;
 use tera::Tera;
@@ -65,13 +64,10 @@ fn yaml_value_to_compote_config_value(value: serde_yaml::Value) -> CompoteConfig
     }
 }
 
-#[derive(Default, Debug, Deserialize, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct SuggestCloneConfig {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     repositories: Vec<SuggestCloneRepositoryConfig>,
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub template: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub template_file: String,
 }
 
@@ -200,13 +196,11 @@ impl SuggestCloneConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, compote::Config)]
+#[derive(Debug, Clone, PartialEq, compote::Config)]
 #[compote(value_matched)]
 pub enum SuggestCloneTypeEnum {
-    #[serde(rename = "package")]
     #[compote(variant = "package")]
     Package,
-    #[serde(rename = "worktree")]
     #[compote(variant = "worktree")]
     Worktree,
 }
@@ -223,7 +217,7 @@ impl FromStr for SuggestCloneTypeEnum {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct SuggestCloneRepositoryConfig {
     pub handle: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -296,6 +290,24 @@ fn select_local_scope<S: compote::CustomSource, L: compote::CustomLevel>(
 //     }
 // }
 
+// ==========================================================================
+// CANNOT CONVERT TO DERIVE MACRO - TECHNICAL LIMITATION
+// ==========================================================================
+//
+// SuggestCloneRepositoryConfig requires manual FromContextValue because:
+//
+// 1. **Custom shell word parsing**: The `args` field uses `shell_words::split()`
+//    to parse a string into a Vec<String>. Compote's derive macro doesn't
+//    support custom transform functions that change types (String -> Vec<String>).
+//
+// 2. **Scalar-as-object pattern**: The struct accepts both a simple string
+//    (interpreted as handle only) and an object. While `#[compote(scalar_as)]`
+//    exists, combining it with the shell_words transform isn't possible.
+//
+// To convert this, compote would need either:
+// - A `transform_parse = "shell_words"` attribute for shell word splitting
+// - Or a way to specify type-changing transforms (String input -> Vec output)
+// ==========================================================================
 impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
     for SuggestCloneRepositoryConfig
 {
@@ -362,6 +374,24 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
     }
 }
 
+// ==========================================================================
+// CANNOT CONVERT TO DERIVE MACRO - TECHNICAL LIMITATION
+// ==========================================================================
+//
+// SuggestCloneConfig requires manual FromContextValue because:
+//
+// 1. **Level-based filtering**: The config only accepts values from Local
+//    (Workdir) scope. It uses `select_local_scope()` to filter out values
+//    from other levels. Compote doesn't support level-based value filtering.
+//
+// 2. **Multi-format input**: Accepts array, object with repositories/template/
+//    template_file keys, or returns default. This polymorphic parsing pattern
+//    goes beyond what derive macros can express.
+//
+// To convert this, compote would need:
+// - A `#[compote(filter_by_level = "local")]` attribute
+// - Or a way to specify pre-processing filters on the input value
+// ==========================================================================
 impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
     for SuggestCloneConfig
 {

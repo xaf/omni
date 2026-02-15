@@ -89,7 +89,7 @@ impl PathCommand {
             compote_config.merge(suggest_config_value);
             // Deserialize from the merged config
             let mut tracker = ErrorTracker::new();
-            OmniConfig::from_config_value(compote_config.root(), &mut tracker).unwrap_or_default()
+            OmniConfig::from_context_value(compote_config.root(), &mut tracker).unwrap_or_default()
         };
 
         // Get the package and worktree paths for the current repo
@@ -157,7 +157,7 @@ impl PathCommand {
                         Err(_) => continue,
                     };
                     let mut tracker = ErrorTracker::new();
-                    let file_config: OmniConfig = match OmniConfig::from_config_value(compote_config.root(), &mut tracker) {
+                    let file_config: OmniConfig = match OmniConfig::from_context_value(compote_config.root(), &mut tracker) {
                         Ok(config) => config,
                         Err(_) => continue,
                     };

@@ -37,11 +37,8 @@ use crate::internal::cache::GithubReleases;
 use crate::internal::config;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::EnvConfig;
-use crate::internal::config::CompoteError;
 use crate::internal::config::CompoteConfigContext;
 use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
 use crate::internal::config::CompoteConfigLevel;
 use crate::internal::config::CompoteConfigSource;
 use crate::internal::config::parser::EnvOperationEnum;
@@ -125,9 +122,8 @@ struct ReleaseMetadata {
     immutable: bool,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct UpConfigGithubReleases {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     releases: Vec<UpConfigGithubRelease>,
 }
 
@@ -411,15 +407,46 @@ impl UpConfigGithubReleases {
 }
 
 // Helper functions for compote parsing
-fn compote_get_bool(
-    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+
+/// Converts a generic ContextValue to the concrete CompoteConfigValue type.
+/// This is needed when we need to create new values programmatically while
+/// working with generic type parameters.
+fn convert_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &compote::ContextValue<S, L>,
+) -> CompoteConfigValue {
+    let ctx = CompoteConfigContext::new(
+        CompoteConfigSource::Programmatic,
+        CompoteConfigLevel::Local,
+    );
+    match value {
+        compote::ContextValue::Null(_) => CompoteConfigValue::null(ctx),
+        compote::ContextValue::Bool(b, _) => CompoteConfigValue::bool(*b, ctx),
+        compote::ContextValue::Int(i, _) => CompoteConfigValue::int(*i, ctx),
+        compote::ContextValue::Float(f, _) => CompoteConfigValue::float(*f, ctx),
+        compote::ContextValue::String(s, _) => CompoteConfigValue::string(s.clone(), ctx),
+        compote::ContextValue::Array(arr, _) => {
+            let converted: Vec<CompoteConfigValue> = arr.iter().map(convert_context_value).collect();
+            CompoteConfigValue::array(converted, ctx)
+        }
+        compote::ContextValue::Object(map, _) => {
+            let converted: indexmap::IndexMap<String, CompoteConfigValue> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), convert_context_value(v)))
+                .collect();
+            CompoteConfigValue::object(converted, ctx)
+        }
+    }
+}
+
+fn compote_get_bool<S: compote::CustomSource, L: compote::CustomLevel>(
+    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
     key: &str,
     default: bool,
-    tracker: &mut CompoteErrorTracker,
+    tracker: &mut compote::ErrorTracker,
 ) -> bool {
     map.get(key)
         .map(|v| {
-            if let CompoteConfigValue::Bool(b, _) = v {
+            if let compote::ContextValue::Bool(b, _) = v {
                 *b
             } else {
                 tracker.push_field(key);
@@ -431,13 +458,13 @@ fn compote_get_bool(
         .unwrap_or(default)
 }
 
-fn compote_get_optional_string(
-    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+fn compote_get_optional_string<S: compote::CustomSource, L: compote::CustomLevel>(
+    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
     key: &str,
-    tracker: &mut CompoteErrorTracker,
+    tracker: &mut compote::ErrorTracker,
 ) -> Option<String> {
     map.get(key).and_then(|v| {
-        if let CompoteConfigValue::String(s, _) = v {
+        if let compote::ContextValue::String(s, _) = v {
             Some(s.clone())
         } else {
             tracker.push_field(key);
@@ -448,13 +475,13 @@ fn compote_get_optional_string(
     })
 }
 
-fn compote_get_optional_bool(
-    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+fn compote_get_optional_bool<S: compote::CustomSource, L: compote::CustomLevel>(
+    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
     key: &str,
-    tracker: &mut CompoteErrorTracker,
+    tracker: &mut compote::ErrorTracker,
 ) -> Option<bool> {
     map.get(key).and_then(|v| {
-        if let CompoteConfigValue::Bool(b, _) = v {
+        if let compote::ContextValue::Bool(b, _) = v {
             Some(*b)
         } else {
             tracker.push_field(key);
@@ -465,15 +492,15 @@ fn compote_get_optional_bool(
     })
 }
 
-impl CompoteFromConfigValue for UpConfigGithubReleases {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigGithubReleases {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // Handle string case - single release specified as string
-        if let CompoteConfigValue::String(_, _) = value {
+        if let compote::ContextValue::String(_, _) = value {
             tracker.push_index(0);
-            let release = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(value, tracker)?;
+            let release = <UpConfigGithubRelease as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?;
             tracker.pop();
             return Ok(Self {
                 releases: vec![release],
@@ -481,11 +508,11 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
         }
 
         // Handle array case - multiple releases in an array
-        if let CompoteConfigValue::Array(arr, _) = value {
+        if let compote::ContextValue::Array(arr, _) = value {
             let mut releases = Vec::new();
             for (idx, elem) in arr.iter().enumerate() {
                 tracker.push_index(idx);
-                if let Ok(release) = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(elem, tracker) {
+                if let Ok(release) = <UpConfigGithubRelease as compote::FromContextValue<S, L>>::from_context_value(elem, tracker) {
                     releases.push(release);
                 }
                 tracker.pop();
@@ -494,14 +521,14 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
         }
 
         // Handle object case
-        if let CompoteConfigValue::Object(map, _) = value {
+        if let compote::ContextValue::Object(map, _) = value {
             // Check if there is a 'repository' or 'repo' key, in which case it's a single repository
             if ["repository", "repo"]
                 .iter()
                 .any(|key| map.contains_key(*key))
             {
                 tracker.push_field("release");
-                let release = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(value, tracker)?;
+                let release = <UpConfigGithubRelease as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?;
                 tracker.pop();
                 return Ok(Self {
                     releases: vec![release],
@@ -519,9 +546,9 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
                     CompoteConfigSource::Programmatic,
                     CompoteConfigLevel::Local,
                 );
-                let mut repo_map = if let CompoteConfigValue::Object(obj, _) = repo_value {
-                    obj.clone()
-                } else if let CompoteConfigValue::String(version, _) = repo_value {
+                let mut repo_map = if let compote::ContextValue::Object(obj, _) = repo_value {
+                    obj.iter().map(|(k, v)| (k.clone(), convert_context_value(v))).collect()
+                } else if let compote::ContextValue::String(version, _) = repo_value {
                     let mut new_map = indexmap::IndexMap::new();
                     new_map.insert(
                         "version".to_string(),
@@ -540,7 +567,7 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
                 let repo_config_value = CompoteConfigValue::object(repo_map, programmatic_ctx.clone());
 
                 tracker.push_field(repo);
-                if let Ok(release) = <UpConfigGithubRelease as CompoteFromConfigValue>::from_config_value(&repo_config_value, tracker) {
+                if let Ok(release) = <UpConfigGithubRelease as compote::FromContextValue<CompoteConfigSource, CompoteConfigLevel>>::from_context_value(&repo_config_value, tracker) {
                     if release.is_gh() {
                         // Special case for the `gh` tool, bump to top
                         releases.insert(0, release);
@@ -552,7 +579,7 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
             }
 
             if releases.is_empty() {
-                tracker.record(CompoteError::InvalidValue {
+                tracker.record(compote::Error::InvalidValue {
                     message: "at least one release required".to_string(),
                     path: tracker.current_path(),
                 });
@@ -561,7 +588,7 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
             return Ok(Self { releases });
         }
 
-        tracker.record(CompoteError::TypeMismatch {
+        tracker.record(compote::Error::TypeMismatch {
             expected: "string, array, or object".to_string(),
             actual: value.type_name().to_string(),
             path: tracker.current_path(),
@@ -570,14 +597,14 @@ impl CompoteFromConfigValue for UpConfigGithubReleases {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum GithubReleaseHandled {
     Handled,
     Noop,
     Unhandled,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct UpConfigGithubRelease {
     /// The repository to install the tool from, should
     /// be in the format `owner/repo`
@@ -2272,13 +2299,13 @@ impl UpConfigGithubRelease {
     }
 }
 
-impl CompoteFromConfigValue for UpConfigGithubRelease {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigGithubRelease {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // Handle string case - just a repository name
-        if let CompoteConfigValue::String(repository, _) = value {
+        if let compote::ContextValue::String(repository, _) = value {
             return Ok(Self {
                 repository: repository.clone(),
                 ..Self::default()
@@ -2286,17 +2313,17 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
         }
 
         // Handle object case
-        if let CompoteConfigValue::Object(map, _) = value {
+        if let compote::ContextValue::Object(map, _) = value {
             // Extract repository
             let repository = if let Some(repo_value) = ["repository", "repo"]
                 .iter()
                 .find_map(|key| map.get(*key))
             {
                 // Check if repository is a table with owner and name
-                if let CompoteConfigValue::Object(repo_map, _) = repo_value {
+                if let compote::ContextValue::Object(repo_map, _) = repo_value {
                     tracker.push_field("repository");
                     let owner = if let Some(owner_val) = repo_map.get("owner") {
-                        if let CompoteConfigValue::String(s, _) = owner_val {
+                        if let compote::ContextValue::String(s, _) = owner_val {
                             s.clone()
                         } else {
                             tracker.push_field("owner");
@@ -2312,7 +2339,7 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
                     };
 
                     let name = if let Some(name_val) = repo_map.get("name") {
-                        if let CompoteConfigValue::String(s, _) = name_val {
+                        if let compote::ContextValue::String(s, _) = name_val {
                             s.clone()
                         } else {
                             tracker.push_field("name");
@@ -2329,7 +2356,7 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
                     tracker.pop();
 
                     format!("{}/{}", owner, name)
-                } else if let CompoteConfigValue::String(s, _) = repo_value {
+                } else if let compote::ContextValue::String(s, _) = repo_value {
                     s.clone()
                 } else {
                     tracker.push_field("repository");
@@ -2340,11 +2367,11 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
             } else if map.len() == 1 {
                 // Single key-value pair where key is repository and value is version
                 let (key, val) = map.iter().next().unwrap();
-                if let CompoteConfigValue::String(_, _) = val {
+                if let compote::ContextValue::String(_, _) = val {
                     key.clone()
-                } else if let CompoteConfigValue::Object(_, _) = val {
+                } else if let compote::ContextValue::Object(_, _) = val {
                     key.clone()
-                } else if matches!(val, CompoteConfigValue::Null(_)) {
+                } else if matches!(val, compote::ContextValue::Null(_)) {
                     key.clone()
                 } else {
                     tracker.push_field("repository");
@@ -2370,9 +2397,9 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
             //   extract fields from that nested object
             // - Otherwise, extract fields from the outer map
             let has_repository_key = ["repository", "repo"].iter().any(|key| map.contains_key(*key));
-            let nested_map: Option<&indexmap::IndexMap<String, CompoteConfigValue>> = if !has_repository_key && map.len() == 1 {
+            let nested_map: Option<&indexmap::IndexMap<String, compote::ContextValue<S, L>>> = if !has_repository_key && map.len() == 1 {
                 let (_, val) = map.iter().next().unwrap();
-                if let CompoteConfigValue::Object(nested, _) = val {
+                if let compote::ContextValue::Object(nested, _) = val {
                     Some(nested)
                 } else {
                     None
@@ -2390,7 +2417,7 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
             // Special case for single key-value where value is version string (only when key is not "repository"/"repo")
             let version = if version.is_none() && map.len() == 1 && !has_repository_key && nested_map.is_none() {
                 let (_, val) = map.iter().next().unwrap();
-                if let CompoteConfigValue::String(s, _) = val {
+                if let compote::ContextValue::String(s, _) = val {
                     Some(s.clone())
                 } else {
                     version
@@ -2415,7 +2442,7 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
             // Extract asset_name
             let asset_name = if let Some(asset_name_val) = field_map.get("asset_name") {
                 tracker.push_field("asset_name");
-                let result = AssetNameMatcher::from_compote_config_value_multi(asset_name_val, tracker);
+                let result = AssetNameMatcher::from_context_value_multi(asset_name_val, tracker);
                 tracker.pop();
                 result
             } else {
@@ -2425,7 +2452,7 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
             // Extract checksum
             let checksum = if let Some(checksum_val) = field_map.get("checksum") {
                 tracker.push_field("checksum");
-                let result = <GithubReleaseChecksumConfig as CompoteFromConfigValue>::from_config_value(checksum_val, tracker)
+                let result = <GithubReleaseChecksumConfig as compote::FromContextValue<S, L>>::from_context_value(checksum_val, tracker)
                     .unwrap_or_default();
                 tracker.pop();
                 result
@@ -2433,13 +2460,13 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
                 GithubReleaseChecksumConfig::default()
             };
 
-            // Extract auth - use old from_config_value for now
+            // Extract auth - use old from_context_value for now
             let auth = GithubAuthConfig::default();
 
             // Extract env - already uses compote
             let env = if let Some(env_val) = field_map.get("env") {
                 tracker.push_field("env");
-                let result = <EnvConfig as CompoteFromConfigValue>::from_config_value(env_val, tracker).unwrap_or_default();
+                let result = <EnvConfig as compote::FromContextValue<S, L>>::from_context_value(env_val, tracker).unwrap_or_default();
                 tracker.pop();
                 result
             } else {
@@ -2448,17 +2475,17 @@ impl CompoteFromConfigValue for UpConfigGithubRelease {
 
             // Extract dirs
             let dirs = if let Some(dirs_val) = field_map.get("dir") {
-                if let CompoteConfigValue::Array(arr, _) = dirs_val {
+                if let compote::ContextValue::Array(arr, _) = dirs_val {
                     arr.iter()
                         .filter_map(|v| {
-                            if let CompoteConfigValue::String(s, _) = v {
+                            if let compote::ContextValue::String(s, _) = v {
                                 Some(PathBuf::from(s).normalize().to_string_lossy().to_string())
                             } else {
                                 None
                             }
                         })
                         .collect()
-                } else if let CompoteConfigValue::String(s, _) = dirs_val {
+                } else if let compote::ContextValue::String(s, _) = dirs_val {
                     vec![PathBuf::from(s).normalize().to_string_lossy().to_string()]
                         .into_iter()
                         .collect()
@@ -2549,13 +2576,13 @@ impl GithubReleaseChecksumConfig {
     }
 }
 
-impl CompoteFromConfigValue for GithubReleaseChecksumConfig {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for GithubReleaseChecksumConfig {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // Handle string case - just a checksum value
-        if let CompoteConfigValue::String(s, _) = value {
+        if let compote::ContextValue::String(s, _) = value {
             return Ok(Self {
                 value: Some(s.clone()),
                 ..Self::default()
@@ -2563,7 +2590,7 @@ impl CompoteFromConfigValue for GithubReleaseChecksumConfig {
         }
 
         // Handle object case
-        if let CompoteConfigValue::Object(map, _) = value {
+        if let compote::ContextValue::Object(map, _) = value {
             let enabled = compote_get_optional_bool(map, "enabled", tracker);
             let required = compote_get_optional_bool(map, "required", tracker);
 
@@ -2574,7 +2601,7 @@ impl CompoteFromConfigValue for GithubReleaseChecksumConfig {
 
             let asset_name = if let Some(asset_name_val) = map.get("asset_name") {
                 tracker.push_field("asset_name");
-                let result = AssetNameMatcher::from_compote_config_value_multi(asset_name_val, tracker);
+                let result = AssetNameMatcher::from_context_value_multi(asset_name_val, tracker);
                 tracker.pop();
                 result
             } else {
@@ -2734,12 +2761,12 @@ impl AssetNameMatcher {
         check_allowed(asset_name, &self.patterns)
     }
 
-    pub fn from_compote_config_value_multi(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
+    pub fn from_context_value_multi<S: compote::CustomSource, L: compote::CustomLevel>(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
     ) -> Vec<Self> {
         // Handle string case
-        if let CompoteConfigValue::String(s, _) = value {
+        if let compote::ContextValue::String(s, _) = value {
             return vec![Self {
                 patterns: Self::patterns_from_string(s),
                 ..Self::default()
@@ -2747,11 +2774,11 @@ impl AssetNameMatcher {
         }
 
         // Handle array case
-        if let CompoteConfigValue::Array(arr, _) = value {
+        if let compote::ContextValue::Array(arr, _) = value {
             let mut results = Vec::new();
             for (idx, elem) in arr.iter().enumerate() {
                 tracker.push_index(idx);
-                if let Some(matcher) = Self::from_compote_config_value_unit(elem, tracker) {
+                if let Some(matcher) = Self::from_context_value_unit(elem, tracker) {
                     results.push(matcher);
                 }
                 tracker.pop();
@@ -2763,12 +2790,12 @@ impl AssetNameMatcher {
         vec![]
     }
 
-    fn from_compote_config_value_unit(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
+    fn from_context_value_unit<S: compote::CustomSource, L: compote::CustomLevel>(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
     ) -> Option<Self> {
         // Handle string case
-        if let CompoteConfigValue::String(s, _) = value {
+        if let compote::ContextValue::String(s, _) = value {
             return Some(Self {
                 patterns: Self::patterns_from_string(s),
                 ..Self::default()
@@ -2776,23 +2803,23 @@ impl AssetNameMatcher {
         }
 
         // Handle array case - patterns as array of strings
-        if let CompoteConfigValue::Array(arr, _) = value {
+        if let compote::ContextValue::Array(arr, _) = value {
             return Some(Self {
-                patterns: Self::compote_patterns_from_array(arr),
+                patterns: Self::context_value_patterns_from_array(arr),
                 ..Self::default()
             });
         }
 
         // Handle object case with os, arch, and patterns
-        if let CompoteConfigValue::Object(map, _) = value {
+        if let compote::ContextValue::Object(map, _) = value {
             let os = compote_get_optional_string(map, "os", tracker);
             let arch = compote_get_optional_string(map, "arch", tracker);
 
             let patterns = if let Some(patterns_val) = map.get("patterns") {
-                if let CompoteConfigValue::String(s, _) = patterns_val {
+                if let compote::ContextValue::String(s, _) = patterns_val {
                     Self::patterns_from_string(s)
-                } else if let CompoteConfigValue::Array(arr, _) = patterns_val {
-                    Self::compote_patterns_from_array(arr)
+                } else if let compote::ContextValue::Array(arr, _) = patterns_val {
+                    Self::context_value_patterns_from_array(arr)
                 } else {
                     tracker.push_field("patterns");
                     tracker.record_type_mismatch("string or array", patterns_val.type_name());
@@ -2836,11 +2863,13 @@ impl AssetNameMatcher {
         None
     }
 
-    fn compote_patterns_from_array(array: &[CompoteConfigValue]) -> Vec<String> {
+    fn context_value_patterns_from_array<S: compote::CustomSource, L: compote::CustomLevel>(
+        array: &[compote::ContextValue<S, L>],
+    ) -> Vec<String> {
         array
             .iter()
             .filter_map(|value| {
-                if let CompoteConfigValue::String(s, _) = value {
+                if let compote::ContextValue::String(s, _) = value {
                     Some(s.clone())
                 } else {
                     None

@@ -4,10 +4,6 @@ pub(crate) use compote_loader::OmniConfigLoader;
 pub(crate) mod compote_types;
 pub(crate) use compote_types::*;
 
-// Legacy config_value module - to be removed after migration
-pub(crate) mod config_value;
-pub(crate) use config_value::ConfigScope;
-pub(crate) use config_value::ConfigSource;
 
 pub(crate) mod loader;
 pub(crate) use loader::ConfigLoader;

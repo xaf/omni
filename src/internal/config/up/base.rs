@@ -1,5 +1,4 @@
 use itertools::Itertools;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::cache::up_environments::UpEnvironment;
@@ -22,13 +21,7 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::internal::workdir;
 use crate::omni_warning;
 
-// Compote imports for FromConfigValue implementation
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
-
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct UpConfig {
     pub steps: Vec<UpConfigTool>,
     pub errors: Vec<UpError>,
@@ -322,24 +315,24 @@ impl UpConfig {
 }
 
 // ============================================================================
-// Compote FromConfigValue implementation for UpConfig
+// Compote FromContextValue implementation for UpConfig
 // ============================================================================
 //
 // This implementation uses native compote parsing via UpConfigTool's
-// compote_from_config_value method.
+// compote_from_context_value method.
 // ============================================================================
 
-impl CompoteFromConfigValue for UpConfig {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfig {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         let mut steps = Vec::new();
         let mut up_errors = Vec::new();
 
         // The value must be an array of tool configurations
         let config_array = match value {
-            CompoteConfigValue::Array(arr, _) => arr,
+            compote::ContextValue::Array(arr, _) => arr,
             _ => {
                 tracker.record_type_mismatch("array", value.type_name());
                 return Ok(Self {
@@ -354,7 +347,7 @@ impl CompoteFromConfigValue for UpConfig {
 
             match step_value {
                 // Handle object with single key: { tool_name: config }
-                CompoteConfigValue::Object(map, _) => {
+                compote::ContextValue::Object(map, _) => {
                     if map.len() != 1 {
                         tracker.record_invalid_value("expected exactly one key in tool configuration");
                         up_errors.push(UpError::Config(format!(
@@ -368,7 +361,7 @@ impl CompoteFromConfigValue for UpConfig {
                     let (up_name, config_value) = map.iter().next().unwrap();
                     tracker.push_field(up_name);
 
-                    if let Some(up_config) = UpConfigTool::compote_from_config_value(
+                    if let Some(up_config) = UpConfigTool::compote_from_context_value::<S, L>(
                         up_name,
                         Some(config_value),
                         tracker,
@@ -385,8 +378,8 @@ impl CompoteFromConfigValue for UpConfig {
                     tracker.pop(); // pop field
                 }
                 // Handle string: just the tool name
-                CompoteConfigValue::String(up_name, _) => {
-                    if let Some(up_config) = UpConfigTool::compote_from_config_value(
+                compote::ContextValue::String(up_name, _) => {
+                    if let Some(up_config) = UpConfigTool::compote_from_context_value::<S, L>(
                         up_name,
                         None,
                         tracker,
@@ -401,9 +394,9 @@ impl CompoteFromConfigValue for UpConfig {
                     }
                 }
                 // Handle int/float as string (e.g., for version numbers used as tool names)
-                CompoteConfigValue::Int(i, _) => {
+                compote::ContextValue::Int(i, _) => {
                     let up_name = i.to_string();
-                    if let Some(up_config) = UpConfigTool::compote_from_config_value(
+                    if let Some(up_config) = UpConfigTool::compote_from_context_value::<S, L>(
                         &up_name,
                         None,
                         tracker,
@@ -417,9 +410,9 @@ impl CompoteFromConfigValue for UpConfig {
                         )));
                     }
                 }
-                CompoteConfigValue::Float(f, _) => {
+                compote::ContextValue::Float(f, _) => {
                     let up_name = f.to_string();
-                    if let Some(up_config) = UpConfigTool::compote_from_config_value(
+                    if let Some(up_config) = UpConfigTool::compote_from_context_value::<S, L>(
                         &up_name,
                         None,
                         tracker,

@@ -45,7 +45,6 @@ use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 
 // Compote imports for new config parsing system
 use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
 use crate::internal::env::cache_home;
 use crate::internal::env::current_dir;
 use crate::internal::env::data_home;
@@ -823,12 +822,12 @@ struct MiseRegistryEntry {
     repository: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct UpConfigMiseParams {
     pub tool_url: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct FullyQualifiedToolName {
     /// The name of the tool to install. e.g. python, rust, etc.
     tool: String,
@@ -1077,7 +1076,7 @@ impl FullyQualifiedToolName {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct UpConfigMise {
     /// The name of the tool to install.
     #[serde(skip)]
@@ -1213,12 +1212,12 @@ impl UpConfigMise {
 
     /// Compote-based config parsing method
     #[allow(dead_code)]
-    pub fn compote_from_config_value(
+    pub fn compote_from_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
         tool: &str,
-        config_value: Option<&CompoteConfigValue>,
-        error_tracker: &mut CompoteErrorTracker,
+        config_value: Option<&compote::ContextValue<S, L>>,
+        error_tracker: &mut compote::ErrorTracker,
     ) -> Self {
-        Self::compote_from_config_value_with_params(
+        Self::compote_from_context_value_with_params(
             tool,
             config_value,
             UpConfigMiseParams::default(),
@@ -1228,11 +1227,11 @@ impl UpConfigMise {
 
     /// New compote-based config parsing method with params
     #[allow(dead_code)]
-    pub fn compote_from_config_value_with_params(
+    pub fn compote_from_context_value_with_params<S: compote::CustomSource, L: compote::CustomLevel>(
         tool: &str,
-        config_value: Option<&CompoteConfigValue>,
+        config_value: Option<&compote::ContextValue<S, L>>,
         params: UpConfigMiseParams,
-        error_tracker: &mut CompoteErrorTracker,
+        error_tracker: &mut compote::ErrorTracker,
     ) -> Self {
         let mut version = "latest".to_string();
         let mut backend = None;
@@ -1251,24 +1250,24 @@ impl UpConfigMise {
         if let Some(config_value) = config_value {
             match config_value {
                 // Handle simple string/number values for version
-                CompoteConfigValue::String(s, _) => {
+                compote::ContextValue::String(s, _) => {
                     version = s.clone();
                 }
-                CompoteConfigValue::Float(f, _) => {
+                compote::ContextValue::Float(f, _) => {
                     version = f.to_string();
                 }
-                CompoteConfigValue::Int(i, _) => {
+                compote::ContextValue::Int(i, _) => {
                     version = i.to_string();
                 }
                 // Handle object with fields
-                CompoteConfigValue::Object(map, _) => {
+                compote::ContextValue::Object(map, _) => {
                     // Extract version
                     if let Some(val) = map.get("version") {
                         error_tracker.push_field("version");
                         match val {
-                            CompoteConfigValue::String(s, _) => version = s.clone(),
-                            CompoteConfigValue::Float(f, _) => version = f.to_string(),
-                            CompoteConfigValue::Int(i, _) => version = i.to_string(),
+                            compote::ContextValue::String(s, _) => version = s.clone(),
+                            compote::ContextValue::Float(f, _) => version = f.to_string(),
+                            compote::ContextValue::Int(i, _) => version = i.to_string(),
                             _ => {
                                 error_tracker.record_invalid_value("version must be a string or number");
                             }
@@ -1280,7 +1279,7 @@ impl UpConfigMise {
                     if let Some(val) = map.get("backend") {
                         error_tracker.push_field("backend");
                         match val {
-                            CompoteConfigValue::String(s, _) => backend = Some(s.clone()),
+                            compote::ContextValue::String(s, _) => backend = Some(s.clone()),
                             _ => {
                                 error_tracker.record_invalid_value("backend must be a string");
                             }
@@ -1292,11 +1291,11 @@ impl UpConfigMise {
                     if let Some(val) = map.get("dir") {
                         error_tracker.push_field("dir");
                         match val {
-                            CompoteConfigValue::Array(arr, _) => {
+                            compote::ContextValue::Array(arr, _) => {
                                 for (idx, item) in arr.iter().enumerate() {
                                     error_tracker.push_index(idx);
                                     match item {
-                                        CompoteConfigValue::String(s, _) => {
+                                        compote::ContextValue::String(s, _) => {
                                             dirs.insert(
                                                 PathBuf::from(s)
                                                     .normalize()
@@ -1322,7 +1321,7 @@ impl UpConfigMise {
                     if let Some(val) = map.get("url") {
                         error_tracker.push_field("url");
                         match val {
-                            CompoteConfigValue::String(s, _) => override_tool_url = Some(s.clone()),
+                            compote::ContextValue::String(s, _) => override_tool_url = Some(s.clone()),
                             _ => {
                                 error_tracker.record_invalid_value("url must be a string");
                             }
@@ -1334,7 +1333,7 @@ impl UpConfigMise {
                     if let Some(val) = map.get("upgrade") {
                         error_tracker.push_field("upgrade");
                         match val {
-                            CompoteConfigValue::Bool(b, _) => upgrade = *b,
+                            compote::ContextValue::Bool(b, _) => upgrade = *b,
                             _ => {
                                 error_tracker.record_invalid_value("upgrade must be a boolean");
                             }
@@ -1356,7 +1355,9 @@ impl UpConfigMise {
             backend,
             upgrade,
             dirs,
-            config_value: config_value.cloned(),
+            // Note: config_value is not stored as it would require the struct to be generic
+            // The config_value was only used for post-install functions which can work without it
+            config_value: None,
             ..UpConfigMise::default()
         }
     }

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
@@ -19,12 +18,13 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+// NOTE: UpConfigCustom CANNOT be converted to compote::Config derive macro because:
+// 1. The derive macro generates `Serialize` impl, conflicting with `#[derive(Serialize)]`
+// 2. The `skip` attribute doesn't work properly for `OnceCell` fields
+// The manual FromContextValue impl must be kept for these reasons.
+// The field alias "met?" -> "met" is handled manually in the FromContextValue impl.
+#[derive(Debug, Serialize, Clone)]
 pub struct UpConfigCustom {
     pub meet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -526,28 +526,28 @@ fn is_valid_delimiter(delimiter: &str) -> bool {
 }
 
 // Helper functions for compote conversion
-fn compote_get_str_or_none(
-    map: &indexmap::IndexMap<String, CompoteConfigValue>,
+fn compote_get_str_or_none<S: compote::CustomSource, L: compote::CustomLevel>(
+    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
     key: &str,
-    _tracker: &mut CompoteErrorTracker,
+    _tracker: &mut compote::ErrorTracker,
 ) -> Option<String> {
     map.get(key).and_then(|v| match v {
-        CompoteConfigValue::String(s, _) => Some(s.clone()),
+        compote::ContextValue::String(s, _) => Some(s.clone()),
         _ => None,
     })
 }
 
-impl CompoteFromConfigValue for UpConfigCustom {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigCustom {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         match value {
-            CompoteConfigValue::Object(map, _) => {
+            compote::ContextValue::Object(map, _) => {
                 let meet = compote_get_str_or_none(map, "meet", tracker)
                     .unwrap_or_else(|| {
                         tracker.push_field("meet");
-                        tracker.record(CompoteError::MissingField {
+                        tracker.record(compote::Error::MissingField {
                             path: tracker.current_path(),
                         });
                         tracker.pop();

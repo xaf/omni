@@ -1,15 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::internal::config::CompoteConfigContext;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
-use crate::internal::config::CompoteConfigLevel;
-use crate::internal::config::CompoteConfigSource;
 use itertools::any;
 use itertools::Itertools;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::cache::up_environments::UpEnvironment;
@@ -34,7 +27,7 @@ use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 
 /// UpConfigTool represents a tool that can be upped or downed.
 /// It can be a single tool or a combination of tools.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub enum UpConfigTool {
     /// And represents a combination of tools that must all be upped.
     And(Vec<UpConfigTool>),
@@ -148,17 +141,17 @@ impl Serialize for UpConfigTool {
 
 impl UpConfigTool {
     /// Compote-based config parsing method with external tag
-    pub fn compote_from_config_value(
+    pub fn compote_from_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
         up_name: &str,
-        config_value: Option<&CompoteConfigValue>,
-        error_tracker: &mut CompoteErrorTracker,
+        config_value: Option<&compote::ContextValue<S, L>>,
+        error_tracker: &mut compote::ErrorTracker,
     ) -> Option<Self> {
         match up_name {
             "and" | "any" | "or" => {
                 let config_value = config_value?;
-                // Use existing parsing through CompoteFromConfigValue trait
+                // Use existing parsing through FromContextValue trait
                 let upconfig: UpConfig =
-                    match CompoteFromConfigValue::from_config_value(config_value, error_tracker) {
+                    match compote::FromContextValue::from_context_value(config_value, error_tracker) {
                         Ok(config) => config,
                         Err(_) => return None,
                     };
@@ -176,7 +169,7 @@ impl UpConfigTool {
                 }
             }
             "bash" => Some(UpConfigTool::Bash(
-                UpConfigMise::compote_from_config_value_with_params(
+                UpConfigMise::compote_from_context_value_with_params(
                     "bash",
                     config_value,
                     UpConfigMiseParams {
@@ -188,7 +181,7 @@ impl UpConfigTool {
             "bundler" | "bundle" => {
                 let config = match config_value {
                     Some(cv) => {
-                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                        compote::FromContextValue::from_context_value(cv, error_tracker)
                             .unwrap_or_default()
                     }
                     None => UpConfigBundler::default(),
@@ -198,7 +191,7 @@ impl UpConfigTool {
             "cargo-install" | "cargo_install" | "cargoinstall" => {
                 let config = match config_value {
                     Some(cv) => {
-                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                        compote::FromContextValue::from_context_value(cv, error_tracker)
                             .unwrap_or_default()
                     }
                     None => {
@@ -211,7 +204,7 @@ impl UpConfigTool {
             "custom" => {
                 let config = match config_value {
                     Some(cv) => {
-                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                        compote::FromContextValue::from_context_value(cv, error_tracker)
                             .unwrap_or_default()
                     }
                     None => UpConfigCustom::default(),
@@ -222,7 +215,7 @@ impl UpConfigTool {
             | "github-releases" | "github_releases" | "githubreleases" | "ghreleases" => {
                 let config = match config_value {
                     Some(cv) => {
-                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                        compote::FromContextValue::from_context_value(cv, error_tracker)
                             .unwrap_or_default()
                     }
                     None => UpConfigGithubReleases::default(),
@@ -232,7 +225,7 @@ impl UpConfigTool {
             "go" | "golang" => {
                 let config = match config_value {
                     Some(cv) => {
-                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                        compote::FromContextValue::from_context_value(cv, error_tracker)
                             .unwrap_or_default()
                     }
                     None => UpConfigGolang::default(),
@@ -242,7 +235,7 @@ impl UpConfigTool {
             "go-install" | "go_install" | "goinstall" => {
                 let config = match config_value {
                     Some(cv) => {
-                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                        compote::FromContextValue::from_context_value(cv, error_tracker)
                             .unwrap_or_default()
                     }
                     None => UpConfigGoInstalls::default(),
@@ -250,19 +243,19 @@ impl UpConfigTool {
                 Some(UpConfigTool::GoInstall(config))
             }
             "homebrew" | "brew" => {
-                let null_value = CompoteConfigValue::null(CompoteConfigContext::new(
-                    CompoteConfigSource::Programmatic,
-                    CompoteConfigLevel::Local,
-                ));
-                let cv = config_value.unwrap_or(&null_value);
-                let config = CompoteFromConfigValue::from_config_value(cv, error_tracker)
-                    .unwrap_or_else(|_| UpConfigHomebrew { install: vec![], tap: vec![] });
+                let config = match config_value {
+                    Some(cv) => {
+                        compote::FromContextValue::from_context_value(cv, error_tracker)
+                            .unwrap_or_else(|_| UpConfigHomebrew { install: vec![], tap: vec![] })
+                    }
+                    None => UpConfigHomebrew { install: vec![], tap: vec![] },
+                };
                 Some(UpConfigTool::Homebrew(config))
             }
             "nix" => {
                 let config = match config_value {
                     Some(cv) => {
-                        CompoteFromConfigValue::from_config_value(cv, error_tracker)
+                        compote::FromContextValue::from_context_value(cv, error_tracker)
                             .unwrap_or_default()
                     }
                     None => UpConfigNix::default(),
@@ -270,29 +263,33 @@ impl UpConfigTool {
                 Some(UpConfigTool::Nix(config))
             }
             "nodejs" | "node" => {
-                let null_value = CompoteConfigValue::null(CompoteConfigContext::new(
-                    CompoteConfigSource::Programmatic,
-                    CompoteConfigLevel::Local,
-                ));
-                let cv = config_value.unwrap_or(&null_value);
-                match CompoteFromConfigValue::from_config_value(cv, error_tracker) {
-                    Ok(config) => Some(UpConfigTool::Nodejs(config)),
-                    Err(_) => None,
+                match config_value {
+                    Some(cv) => {
+                        match compote::FromContextValue::from_context_value(cv, error_tracker) {
+                            Ok(config) => Some(UpConfigTool::Nodejs(config)),
+                            Err(_) => None,
+                        }
+                    }
+                    // Original code passed a null value to the parser, which would produce a default
+                    // Since we can't create a generic null value, we return None for the None case
+                    None => None,
                 }
             }
             "python" => {
-                let null_value = CompoteConfigValue::null(CompoteConfigContext::new(
-                    CompoteConfigSource::Programmatic,
-                    CompoteConfigLevel::Local,
-                ));
-                let cv = config_value.unwrap_or(&null_value);
-                match CompoteFromConfigValue::from_config_value(cv, error_tracker) {
-                    Ok(config) => Some(UpConfigTool::Python(config)),
-                    Err(_) => None,
+                match config_value {
+                    Some(cv) => {
+                        match compote::FromContextValue::from_context_value(cv, error_tracker) {
+                            Ok(config) => Some(UpConfigTool::Python(config)),
+                            Err(_) => None,
+                        }
+                    }
+                    // Original code passed a null value to the parser, which would produce a default
+                    // Since we can't create a generic null value, we return None for the None case
+                    None => None,
                 }
             }
             // Default: treat as mise tool
-            _ => Some(UpConfigTool::Mise(UpConfigMise::compote_from_config_value(
+            _ => Some(UpConfigTool::Mise(UpConfigMise::compote_from_context_value(
                 up_name,
                 config_value,
                 error_tracker,

@@ -10,7 +10,6 @@ use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
-use crate::internal::cache::utils as cache_utils;
 use crate::internal::config::up::mise::PostInstallFuncArgs;
 use crate::internal::config::up::mise_tool_path;
 use crate::internal::config::up::utils::data_path_dir_hash;
@@ -30,7 +29,7 @@ use crate::internal::workdir;
 /// Parameters for Node.js configuration (separate from the backend config).
 ///
 /// Controls whether to auto-install engines and packages from package.json.
-#[derive(Debug, Deserialize, Clone, compote::Config)]
+#[derive(Debug, Clone, compote::Config)]
 pub struct UpConfigNodejsParams {
     #[compote(default = "true", skip_if_default)]
     pub install_engines: bool,
@@ -64,11 +63,9 @@ impl UpConfigNodejsParams {
 /// Note: This struct requires a manual FromContextValue implementation because
 /// the backend is created using UpConfigMise::compote_from_context_value() with
 /// a specific tool name, which cannot be expressed with derive macro attributes.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct UpConfigNodejs {
-    #[serde(skip)]
     pub backend: UpConfigMise,
-    #[serde(skip)]
     pub params: UpConfigNodejsParams,
 }
 

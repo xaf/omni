@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
@@ -23,7 +22,7 @@ fn default_bundler_path() -> Option<String> {
 /// Accepts either:
 /// - A string: interpreted as the gemfile path
 /// - An object with `gemfile` and `path` fields
-#[derive(Debug, Deserialize, Clone, compote::Config)]
+#[derive(Debug, Clone, compote::Config)]
 #[compote(scalar_as = "gemfile")]
 pub struct UpConfigBundler {
     #[compote(skip_if_empty)]

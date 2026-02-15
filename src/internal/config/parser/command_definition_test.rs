@@ -2730,7 +2730,7 @@ mod syntax_opt_arg_type {
     }
 
     #[test]
-    fn test_from_config_value_list_as_enum() {
+    fn test_from_context_value_list_as_enum() {
         let mut tracker = CompoteErrorTracker::new();
 
         // Test with array of strings as type
@@ -2754,7 +2754,7 @@ mod syntax_opt_arg_type {
     }
 
     #[test]
-    fn test_from_config_value_traditional_enum() {
+    fn test_from_context_value_traditional_enum() {
         let mut tracker = CompoteErrorTracker::new();
 
         // Test traditional enum syntax with separate values
@@ -2778,7 +2778,7 @@ mod syntax_opt_arg_type {
     }
 
     #[test]
-    fn test_from_config_value_inline_enum() {
+    fn test_from_context_value_inline_enum() {
         let mut tracker = CompoteErrorTracker::new();
 
         // Test inline enum syntax
@@ -2801,7 +2801,7 @@ mod syntax_opt_arg_type {
     }
 
     #[test]
-    fn test_from_config_value_basic_types() {
+    fn test_from_context_value_basic_types() {
         let mut tracker = CompoteErrorTracker::new();
 
         // Test basic string type
@@ -2836,7 +2836,7 @@ mod syntax_opt_arg_type {
     }
 
     #[test]
-    fn test_from_config_value_empty_list() {
+    fn test_from_context_value_empty_list() {
         let mut tracker = CompoteErrorTracker::new();
 
         // Test with empty array
@@ -2852,7 +2852,7 @@ mod syntax_opt_arg_type {
     }
 
     #[test]
-    fn test_from_config_value_single_item_list() {
+    fn test_from_context_value_single_item_list() {
         let mut tracker = CompoteErrorTracker::new();
 
         // Test with single item array
@@ -2871,7 +2871,7 @@ mod syntax_opt_arg_type {
     }
 
     #[test]
-    fn test_from_config_value_precedence() {
+    fn test_from_context_value_precedence() {
         let mut tracker = CompoteErrorTracker::new();
 
         // Test that list syntax takes precedence over values field

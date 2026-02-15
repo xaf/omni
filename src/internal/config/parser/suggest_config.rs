@@ -6,11 +6,8 @@ use serde::Serialize;
 use crate::internal::cache::utils::Empty;
 
 // Compote imports
-use crate::internal::config::CompoteError;
 use crate::internal::config::CompoteConfigContext;
 use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
 use crate::internal::config::CompoteConfigLevel;
 use crate::internal::config::CompoteConfigSource;
 use crate::internal::config::Value as CompoteValue;
@@ -85,11 +82,13 @@ impl<'de> Deserialize<'de> for StoredConfig {
     }
 }
 
-impl CompoteFromConfigValue for StoredConfig {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        _tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for StoredConfig
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        _tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // Convert ContextValue to Value (stripping context)
         Ok(StoredConfig(CompoteValue::from(value)))
     }
@@ -159,46 +158,6 @@ fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteValue {
     }
 }
 
-/// Convert serde_yaml::Value to compote::ContextValue
-fn yaml_value_to_compote_config_value(value: serde_yaml::Value) -> CompoteConfigValue {
-    let ctx = synthetic_context();
-    match value {
-        serde_yaml::Value::Null => CompoteConfigValue::null(ctx),
-        serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, ctx),
-        serde_yaml::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                CompoteConfigValue::int(i, ctx)
-            } else if let Some(f) = n.as_f64() {
-                CompoteConfigValue::float(f, ctx)
-            } else {
-                CompoteConfigValue::null(ctx)
-            }
-        }
-        serde_yaml::Value::String(s) => CompoteConfigValue::string(s, ctx),
-        serde_yaml::Value::Sequence(arr) => {
-            let items: Vec<CompoteConfigValue> = arr
-                .into_iter()
-                .map(yaml_value_to_compote_config_value)
-                .collect();
-            CompoteConfigValue::array(items, ctx)
-        }
-        serde_yaml::Value::Mapping(map) => {
-            let items: indexmap::IndexMap<String, CompoteConfigValue> = map
-                .into_iter()
-                .filter_map(|(k, v)| {
-                    let key = match k {
-                        serde_yaml::Value::String(s) => s,
-                        _ => return None,
-                    };
-                    Some((key, yaml_value_to_compote_config_value(v)))
-                })
-                .collect();
-            CompoteConfigValue::object(items, ctx)
-        }
-        serde_yaml::Value::Tagged(tagged) => yaml_value_to_compote_config_value(tagged.value),
-    }
-}
-
 /// Serialize compote::Value using serde
 fn serialize_compote_value<S>(value: &CompoteValue, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -241,10 +200,28 @@ impl<'a> Serialize for SerializableCompoteValue<'a> {
     }
 }
 
-// Note: We implement FromConfigValue manually because:
-// 1. The struct has variant-style parsing (config vs template vs template_file)
-// 2. We need custom Serialize behavior (serialize config directly, not as struct field)
-// 3. compote::Config derive would conflict with our custom Serialize impl
+// ==========================================================================
+// CANNOT CONVERT TO DERIVE MACRO - TECHNICAL LIMITATIONS
+// ==========================================================================
+//
+// SuggestConfig requires manual FromContextValue because:
+//
+// 1. **Variant-key detection pattern**: The struct checks for specific keys
+//    (`config`, `template`, `template_file`) to determine which field to
+//    populate. If none found, the entire value becomes `config`. This is
+//    not a standard enum tagged pattern - it's key-presence detection.
+//
+// 2. **Custom Serialize behavior**: The Serialize impl serializes `config`
+//    directly (not wrapped in a struct field). The derive macro would
+//    generate struct-style serialization which would break compatibility.
+//
+// 3. **Serialize impl conflict**: Since we need custom Serialize, using
+//    `#[derive(compote::Config)]` would generate a conflicting Serialize impl.
+//
+// To convert this, compote would need:
+// - A `#[compote(key_presence_variant)]` or similar pattern
+// - A way to opt-out of Serialize generation while keeping FromContextValue
+// ==========================================================================
 #[derive(Debug, Clone)]
 pub struct SuggestConfig {
     /// Arbitrary config value, stored as compote::Value
@@ -255,14 +232,16 @@ pub struct SuggestConfig {
     pub template_file: String,
 }
 
-/// Implement FromConfigValue manually to handle variant-style parsing
-impl CompoteFromConfigValue for SuggestConfig {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+/// Implement FromContextValue manually to handle variant-style parsing
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for SuggestConfig
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // Check if it's an object with special keys
-        if let CompoteConfigValue::Object(map, _) = value {
+        if let compote::ContextValue::Object(map, _) = value {
             // Check for "config" key - use its value directly
             if let Some(config_val) = map.get("config") {
                 return Ok(Self {
@@ -274,7 +253,7 @@ impl CompoteFromConfigValue for SuggestConfig {
 
             // Check for "template" key
             if let Some(template_val) = map.get("template") {
-                if let CompoteConfigValue::String(s, _) = template_val {
+                if let compote::ContextValue::String(s, _) = template_val {
                     return Ok(Self {
                         config: StoredConfig::default(),
                         template: s.clone(),
@@ -285,7 +264,7 @@ impl CompoteFromConfigValue for SuggestConfig {
 
             // Check for "template_file" key
             if let Some(template_file_val) = map.get("template_file") {
-                if let CompoteConfigValue::String(s, _) = template_file_val {
+                if let compote::ContextValue::String(s, _) = template_file_val {
                     return Ok(Self {
                         config: StoredConfig::default(),
                         template: String::new(),
@@ -296,7 +275,8 @@ impl CompoteFromConfigValue for SuggestConfig {
         }
 
         // If not a special variant, treat the entire value as config
-        let stored_config = StoredConfig::from_config_value(value, tracker)?;
+        let stored_config =
+            <StoredConfig as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?;
         Ok(Self {
             config: stored_config,
             template: String::new(),

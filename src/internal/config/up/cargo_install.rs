@@ -14,7 +14,6 @@ use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::up_environments::UpVersionParams;
-use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::CargoInstallOperationCache;
 use crate::internal::cache::CargoInstallVersions;
 use crate::internal::config::config;
@@ -37,10 +36,8 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::env::data_home;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::StringColor;
-use crate::internal::config::CompoteError;
 use crate::internal::config::CompoteConfigValue;
 use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
@@ -62,9 +59,14 @@ pub fn cargo_install_tool_path(crate_name: &str, version: &str) -> PathBuf {
     cargo_install_bin_path().join(crate_name).join(version)
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+// NOTE: UpConfigCargoInstalls CANNOT be converted to compote::Config derive macro because:
+// 1. It has complex map-to-vec parsing where object keys become crate names, but only if
+//    the object does NOT contain a "crate" key (detection logic cannot be expressed in derive)
+// 2. It parses string shorthand "name@version" which requires custom logic
+// 3. It has a custom Serialize impl for single-vs-array output format
+// The manual FromContextValue impl must be kept for these reasons.
+#[derive(Debug, Clone, Default)]
 pub struct UpConfigCargoInstalls {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     crates: Vec<UpConfigCargoInstall>,
 }
 
@@ -80,6 +82,7 @@ impl Serialize for UpConfigCargoInstalls {
         }
     }
 }
+
 
 impl UpConfigCargoInstalls {
     // TODO: Remove this when the bridge is eliminated and tool.rs calls this directly
@@ -160,12 +163,83 @@ impl UpConfigCargoInstalls {
     }
 }
 
-impl CompoteFromConfigValue for UpConfigCargoInstalls {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        Ok(Self::from_compote_config_value(value, tracker))
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigCargoInstalls {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        // Handle string case - single crate
+        if matches!(value, compote::ContextValue::String(_, _)) {
+            return Ok(Self {
+                crates: vec![<UpConfigCargoInstall as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?],
+            });
+        }
+
+        // Handle array case - multiple crates
+        if let compote::ContextValue::Array(arr, _) = value {
+            let crates: Vec<_> = arr
+                .iter()
+                .filter_map(|item| {
+                    <UpConfigCargoInstall as compote::FromContextValue<S, L>>::from_context_value(item, tracker).ok()
+                })
+                .collect();
+            return Ok(Self { crates });
+        }
+
+        // Handle object case
+        if let compote::ContextValue::Object(obj, ctx) = value {
+            // Check if there is a 'crate' key, in which case it's a single crate
+            if obj.contains_key("crate") {
+                return Ok(Self {
+                    crates: vec![<UpConfigCargoInstall as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?],
+                });
+            }
+
+            // Otherwise, we have a table of crates where keys are crate names
+            // Go over them in lexicographical order for consistency
+            let mut crates = Vec::new();
+            for crate_name_str in obj.keys().sorted() {
+                let crate_value = obj.get(crate_name_str).expect("crate config not found");
+
+                // Build a new ContextValue with the crate name included
+                let mut crate_config = match crate_value {
+                    compote::ContextValue::Object(crate_obj, _) => crate_obj.clone(),
+                    compote::ContextValue::String(version, _) => {
+                        let mut map = IndexMap::new();
+                        map.insert(
+                            "version".to_string(),
+                            compote::ContextValue::string(version.clone(), crate_value.context().clone()),
+                        );
+                        map
+                    }
+                    _ => IndexMap::new(),
+                };
+
+                // Add the crate name to the config
+                crate_config.insert(
+                    "crate".to_string(),
+                    compote::ContextValue::string(crate_name_str.clone(), ctx.clone()),
+                );
+
+                // Create a new ContextValue with the merged config
+                let merged_value = compote::ContextValue::object(crate_config, crate_value.context().clone());
+
+                if let Ok(config) = <UpConfigCargoInstall as compote::FromContextValue<S, L>>::from_context_value(&merged_value, tracker) {
+                    crates.push(config);
+                }
+            }
+
+            if crates.is_empty() {
+                tracker.record_invalid_value("at least one crate required");
+            }
+
+            return Ok(Self { crates });
+        }
+
+        // Invalid type
+        tracker.record_type_mismatch("string, array, or object", value.type_name());
+
+        Ok(UpConfigCargoInstalls::default())
     }
 }
 
@@ -417,7 +491,7 @@ impl UpConfigCargoInstalls {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum CargoInstallHandled {
     Handled,
     Noop,
@@ -430,61 +504,79 @@ pub enum CargoInstallError {
     InvalidCrateName(String),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Helper function for conditional default: exact defaults to version.is_some()
+///
+/// This implements the pattern that would be expressed as:
+/// ```ignore
+/// #[compote(default_fn = "default_exact_from_version(version)")]
+/// pub exact: bool,
+/// ```
+/// if using the derive macro. Since we need manual FromContextValue
+/// implementation for special parsing cases, we call this directly.
+fn default_exact_from_version(version: &Option<String>) -> bool {
+    version.is_some()
+}
+
+// NOTE: UpConfigCargoInstall CANNOT use compote::Config derive macro because
+// it has complex parsing requirements that cannot be expressed with attributes:
+// 1. String shorthand parsing ("name@version" format) requires custom splitting
+// 2. Single-key object handling ({crate_name: version} or {crate_name: {config}})
+// 3. Version can be embedded in crate name via @ symbol
+//
+// The conditional default for `exact` uses the helper function
+// `default_exact_from_version(version)` which implements the same pattern as
+// `#[compote(default_fn = "default_exact_from_version(version)")]` would.
+#[derive(Debug, Clone)]
 struct UpConfigCargoInstall {
     /// The name of the crate to install
+    /// Note: In compote this would be #[compote(rename = "crate")]
     pub crate_name: String,
 
     /// The version of the crate to install
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 
     /// Whether to install the exact version specified in the `version` field;
     /// if `true`, there will be no check for the available versions and the
     /// `cargo install` command will be called with the version specified;
     /// if `false`, the latest version that matches the version will be installed.
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    /// Defaults to `version.is_some()` via `default_exact_from_version()`.
     pub exact: bool,
 
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
     pub build: bool,
 
     /// The URL of the Crates API; this is only used for testing purposes
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_url: Option<String>,
 
     /// A list of directories to make the binary available for
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    /// Note: In compote this would be #[compote(rename = "dir")]
     pub dirs: BTreeSet<String>,
 
     /// In case there was an error while parsing the configuration, this field
     /// will contain the error message
-    #[serde(default, skip)]
+    /// Note: In compote this would be #[compote(skip)]
     config_error: Option<String>,
 
-    #[serde(default, skip)]
+    /// Note: In compote this would be #[compote(skip)]
     actual_version: OnceCell<String>,
 
-    #[serde(default, skip)]
+    /// Note: In compote this would be #[compote(skip)]
     was_handled: OnceCell<CargoInstallHandled>,
 }
 
 impl Default for UpConfigCargoInstall {
     fn default() -> Self {
-        UpConfigCargoInstall {
-            crate_name: "".to_string(),
+        Self {
+            crate_name: String::new(),
             version: None,
             exact: false,
             upgrade: false,
@@ -496,6 +588,67 @@ impl Default for UpConfigCargoInstall {
             actual_version: OnceCell::new(),
             was_handled: OnceCell::new(),
         }
+    }
+}
+
+impl Serialize for UpConfigCargoInstall {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        // Count non-default fields to determine map size
+        let mut field_count = 1; // crate is always included
+        if self.version.is_some() {
+            field_count += 1;
+        }
+        if self.exact {
+            field_count += 1;
+        }
+        if self.upgrade {
+            field_count += 1;
+        }
+        if self.prerelease {
+            field_count += 1;
+        }
+        if self.build {
+            field_count += 1;
+        }
+        if self.api_url.is_some() {
+            field_count += 1;
+        }
+        if !self.dirs.is_empty() {
+            field_count += 1;
+        }
+
+        let mut map = serializer.serialize_map(Some(field_count))?;
+
+        map.serialize_entry("crate", &self.crate_name)?;
+
+        if self.version.is_some() {
+            map.serialize_entry("version", &self.version)?;
+        }
+        if self.exact {
+            map.serialize_entry("exact", &self.exact)?;
+        }
+        if self.upgrade {
+            map.serialize_entry("upgrade", &self.upgrade)?;
+        }
+        if self.prerelease {
+            map.serialize_entry("prerelease", &self.prerelease)?;
+        }
+        if self.build {
+            map.serialize_entry("build", &self.build)?;
+        }
+        if self.api_url.is_some() {
+            map.serialize_entry("api_url", &self.api_url)?;
+        }
+        if !self.dirs.is_empty() {
+            map.serialize_entry("dir", &self.dirs)?;
+        }
+
+        map.end()
     }
 }
 
@@ -612,19 +765,7 @@ impl UpConfigCargoInstall {
             }
         };
 
-        // Get exact flag
-        let exact = match obj.get("exact") {
-            Some(exact_value) => match exact_value {
-                CompoteConfigValue::Bool(b, _) => *b,
-                _ => {
-                    errors.record_type_mismatch("bool", exact_value.type_name());
-                    crate_version.is_some()
-                }
-            },
-            None => crate_version.is_some(),
-        };
-
-        // Get version field
+        // Get version field first (needed for exact default calculation)
         let version = match obj.get("version") {
             Some(version_value) => {
                 if let CompoteConfigValue::String(s, _) = version_value {
@@ -646,6 +787,18 @@ impl UpConfigCargoInstall {
                 }
             }
             None => crate_version,
+        };
+
+        // Get exact flag - uses helper function for conditional default
+        let exact = match obj.get("exact") {
+            Some(exact_value) => match exact_value {
+                CompoteConfigValue::Bool(b, _) => *b,
+                _ => {
+                    errors.record_type_mismatch("bool", exact_value.type_name());
+                    default_exact_from_version(&version)
+                }
+            },
+            None => default_exact_from_version(&version),
         };
 
         // Get upgrade, prerelease, build flags
@@ -696,6 +849,18 @@ impl UpConfigCargoInstall {
                 _ => default,
             },
             None => default,
+        }
+    }
+
+    // Generic helper for bool extraction
+    fn get_bool_from_generic_obj<S: compote::CustomSource, L: compote::CustomLevel>(
+        obj: &IndexMap<String, compote::ContextValue<S, L>>,
+        key: &str,
+        default: bool,
+    ) -> bool {
+        match obj.get(key) {
+            Some(compote::ContextValue::Bool(b, _)) => *b,
+            _ => default,
         }
     }
 
@@ -1398,7 +1563,7 @@ struct CratesApiVersion {
     yanked: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 struct CargoBin {
     bin: PathBuf,
     version: String,
@@ -1439,6 +1604,199 @@ impl CargoBin {
         cmd.env("CARGO_HOME", format!("{}/cargo", mise_path()));
         cmd.env("RUSTUP_TOOLCHAIN", &self.version);
         cmd
+    }
+}
+
+// Generic FromContextValue implementation for UpConfigCargoInstall
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigCargoInstall {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        errors: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        // Handle string case - crate name only or crate@version
+        if let compote::ContextValue::String(s, _) = value {
+            let (crate_name, version) = match parse_cargo_crate_name(s) {
+                Ok((crate_name, version)) => (crate_name, version),
+                Err(err) => {
+                    errors.record_invalid_value(&format!("invalid crate name: {}", err));
+                    return Ok(Self {
+                        crate_name: s.to_string(),
+                        config_error: Some(err.to_string()),
+                        ..Default::default()
+                    });
+                }
+            };
+
+            // If version is set through the path, it is exact
+            let exact = version.is_some();
+
+            return Ok(UpConfigCargoInstall {
+                crate_name,
+                version,
+                exact,
+                ..Default::default()
+            });
+        }
+
+        // Handle object case
+        if let compote::ContextValue::Object(obj, ctx) = value {
+            return Self::from_generic_table(obj, ctx, errors);
+        }
+
+        // Invalid type
+        errors.record_type_mismatch("string or object", value.type_name());
+
+        Ok(Self {
+            config_error: Some("no crate provided".to_string()),
+            ..Default::default()
+        })
+    }
+}
+
+impl UpConfigCargoInstall {
+    fn from_generic_table<S: compote::CustomSource, L: compote::CustomLevel>(
+        obj: &IndexMap<String, compote::ContextValue<S, L>>,
+        ctx: &compote::Context<S, L>,
+        errors: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        // Extract crate name
+        let crate_name = match obj.get("crate") {
+            Some(crate_value) => {
+                if let compote::ContextValue::String(s, _) = crate_value {
+                    s.clone()
+                } else {
+                    errors.record_type_mismatch("string", crate_value.type_name());
+                    return Ok(UpConfigCargoInstall {
+                        config_error: Some("crate_name must be a string".to_string()),
+                        ..Default::default()
+                    });
+                }
+            }
+            None => {
+                // If there's exactly one key-value pair, use the key as crate name
+                if obj.len() == 1 {
+                    let (key, val) = obj.iter().next().unwrap();
+
+                    // If value is a string, treat it as version
+                    if let compote::ContextValue::String(version, _) = val {
+                        return Ok(UpConfigCargoInstall {
+                            crate_name: key.clone(),
+                            version: Some(version.clone()),
+                            ..Default::default()
+                        });
+                    } else if let compote::ContextValue::Object(nested_obj, _) = val {
+                        // If value is an object, recurse with crate name added
+                        let mut new_obj = nested_obj.clone();
+                        new_obj.insert(
+                            "crate".to_string(),
+                            compote::ContextValue::string(key.clone(), ctx.clone()),
+                        );
+                        return Self::from_generic_table(&new_obj, ctx, errors);
+                    } else if matches!(val, compote::ContextValue::Null(_)) {
+                        // If value is null, use key as crate name
+                        return Ok(UpConfigCargoInstall {
+                            crate_name: key.clone(),
+                            ..Default::default()
+                        });
+                    }
+                }
+
+                errors.record_invalid_value("crate field is required");
+                return Ok(UpConfigCargoInstall {
+                    config_error: Some("crate is required".to_string()),
+                    ..Default::default()
+                });
+            }
+        };
+
+        // Parse crate name to extract version if present
+        let (crate_name, crate_version) = match parse_cargo_crate_name(&crate_name) {
+            Ok((crate_name, version)) => (crate_name, version),
+            Err(err) => {
+                errors.record_invalid_value(&format!("invalid crate name: {}", err));
+                return Ok(UpConfigCargoInstall {
+                    crate_name,
+                    config_error: Some(err.to_string()),
+                    ..Default::default()
+                });
+            }
+        };
+
+        // Get version field first (needed for exact default calculation)
+        let version = match obj.get("version") {
+            Some(version_value) => {
+                if let compote::ContextValue::String(s, _) = version_value {
+                    // Check if version is also in crate name
+                    if crate_version.is_some() {
+                        errors.record_invalid_value("version should not be specified in both crate and version fields");
+                        return Ok(UpConfigCargoInstall {
+                            crate_name,
+                            config_error: Some(
+                                "version should not be specified in both crate and version fields".to_string(),
+                            ),
+                            ..Default::default()
+                        });
+                    }
+                    Some(s.clone())
+                } else {
+                    errors.record_type_mismatch("string", version_value.type_name());
+                    None
+                }
+            }
+            None => crate_version,
+        };
+
+        // Get exact flag - uses helper function for conditional default
+        let exact = match obj.get("exact") {
+            Some(exact_value) => match exact_value {
+                compote::ContextValue::Bool(b, _) => *b,
+                _ => {
+                    errors.record_type_mismatch("bool", exact_value.type_name());
+                    default_exact_from_version(&version)
+                }
+            },
+            None => default_exact_from_version(&version),
+        };
+
+        // Get upgrade, prerelease, build flags
+        let upgrade = Self::get_bool_from_generic_obj(obj, "upgrade", false);
+        let prerelease = Self::get_bool_from_generic_obj(obj, "prerelease", false);
+        let build = Self::get_bool_from_generic_obj(obj, "build", false);
+
+        // Get dirs array
+        let dirs = match obj.get("dir") {
+            Some(dir_value) => match dir_value {
+                compote::ContextValue::Array(arr, _) => {
+                    arr.iter()
+                        .filter_map(|item| {
+                            if let compote::ContextValue::String(s, _) = item {
+                                Some(PathBuf::from(s).normalize().to_string_lossy().to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                }
+                compote::ContextValue::String(s, _) => {
+                    vec![PathBuf::from(s).normalize().to_string_lossy().to_string()]
+                        .into_iter()
+                        .collect()
+                }
+                _ => BTreeSet::new(),
+            },
+            None => BTreeSet::new(),
+        };
+
+        Ok(UpConfigCargoInstall {
+            crate_name,
+            version,
+            exact,
+            upgrade,
+            prerelease,
+            build,
+            dirs,
+            ..Default::default()
+        })
     }
 }
 

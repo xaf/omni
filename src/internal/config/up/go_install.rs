@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 use time::macros::format_description;
@@ -78,17 +77,6 @@ pub struct UpConfigGoInstalls {
     tools: Vec<UpConfigGoInstall>,
 }
 
-// Stub Deserialize implementation for compatibility with UpConfigTool enum.
-// Actual deserialization is done through compote's FromContextValue.
-impl<'de> Deserialize<'de> for UpConfigGoInstalls {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let _ = serde::de::IgnoredAny::deserialize(deserializer)?;
-        Ok(Self::default())
-    }
-}
 
 impl UpConfigGoInstalls {
     pub fn up(

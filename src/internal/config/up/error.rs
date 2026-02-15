@@ -1,8 +1,7 @@
-use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Error, Debug, Clone, Serialize, PartialEq)]
 pub enum UpError {
     #[error("configuration error: {0}")]
     Config(String),

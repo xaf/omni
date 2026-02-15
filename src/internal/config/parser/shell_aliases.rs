@@ -84,29 +84,6 @@ pub struct ShellAliasConfig {
 }
 
 
-// Manual Deserialize implementation for compatibility with existing code
-// (e.g., loading from cache files, etc.)
-impl<'de> Deserialize<'de> for ShellAliasConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper {
-            #[serde(default)]
-            alias: String,
-            #[serde(default)]
-            target: Option<String>,
-        }
-
-        let helper = Helper::deserialize(deserializer)?;
-        Ok(ShellAliasConfig {
-            alias: helper.alias,
-            target: helper.target,
-        })
-    }
-}
-
 impl Default for ShellAliasConfig {
     fn default() -> Self {
         Self {

@@ -8,8 +8,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
 use crate::internal::config::CompoteErrorTracker;
 use crate::internal::config::CompoteFromConfigValue;
 
@@ -39,7 +37,7 @@ use crate::internal::user_interface::StringColor;
 const MIN_VERSION_VENV: Version = Version::new(3, 3, 0);
 // const MIN_VERSION_VIRTUALENV: Version = Version::new(2, 6, 0);
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct UpConfigPythonParams {
     #[serde(default, rename = "pip", skip_serializing_if = "Vec::is_empty")]
     pip_files: Vec<String>,
@@ -49,25 +47,27 @@ pub struct UpConfigPythonParams {
     pip_disabled: bool,
 }
 
-impl CompoteFromConfigValue for UpConfigPythonParams {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        errors: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for UpConfigPythonParams
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        errors: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         let mut pip_files = Vec::new();
         let mut pip_auto = false;
         let mut pip_disabled = false;
 
         // Extract the "pip" field from the object
-        if let CompoteConfigValue::Object(map, _) = value {
+        if let compote::ContextValue::Object(map, _) = value {
             if let Some(pip_value) = map.get("pip") {
                 errors.push_field("pip");
                 match pip_value {
                     // Handle array of strings
-                    CompoteConfigValue::Array(arr, _) => {
+                    compote::ContextValue::Array(arr, _) => {
                         for (idx, item) in arr.iter().enumerate() {
                             match item {
-                                CompoteConfigValue::String(s, _) => {
+                                compote::ContextValue::String(s, _) => {
                                     pip_files.push(s.clone());
                                 }
                                 _ => {
@@ -79,7 +79,7 @@ impl CompoteFromConfigValue for UpConfigPythonParams {
                         }
                     }
                     // Handle boolean
-                    CompoteConfigValue::Bool(b, _) => {
+                    compote::ContextValue::Bool(b, _) => {
                         if *b {
                             pip_auto = true;
                         } else {
@@ -87,7 +87,7 @@ impl CompoteFromConfigValue for UpConfigPythonParams {
                         }
                     }
                     // Handle string (either "auto" or a file path)
-                    CompoteConfigValue::String(s, _) => match s.as_str() {
+                    compote::ContextValue::String(s, _) => match s.as_str() {
                         "auto" => pip_auto = true,
                         _ => pip_files.push(s.clone()),
                     },
@@ -110,11 +110,9 @@ impl CompoteFromConfigValue for UpConfigPythonParams {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct UpConfigPython {
-    #[serde(skip)]
     pub backend: UpConfigMise,
-    #[serde(skip)]
     pub params: UpConfigPythonParams,
 }
 
@@ -145,17 +143,20 @@ impl Serialize for UpConfigPython {
     }
 }
 
-impl CompoteFromConfigValue for UpConfigPython {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        errors: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
-        let mut backend = UpConfigMise::compote_from_config_value("python", Some(value), errors);
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for UpConfigPython
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        errors: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        let mut backend = UpConfigMise::compote_from_context_value("python", Some(value), errors);
         backend.add_detect_version_func(detect_version_from_pyproject_toml);
         backend.add_post_install_func(setup_python_venv);
         backend.add_post_install_func(setup_python_requirements);
 
-        let params = <UpConfigPythonParams as CompoteFromConfigValue>::from_config_value(value, errors)?;
+        let params =
+            <UpConfigPythonParams as compote::FromContextValue<S, L>>::from_context_value(value, errors)?;
 
         Ok(Self { backend, params })
     }
@@ -491,7 +492,7 @@ fn setup_python_requirements(
 ) -> Result<(), UpError> {
     let params = if let Some(config_value) = args.config_value.as_ref() {
         let mut tracker = CompoteErrorTracker::new();
-        <UpConfigPythonParams as CompoteFromConfigValue>::from_config_value(config_value, &mut tracker)
+        <UpConfigPythonParams as CompoteFromConfigValue>::from_context_value(config_value, &mut tracker)
             .unwrap_or_default()
     } else {
         UpConfigPythonParams::default()

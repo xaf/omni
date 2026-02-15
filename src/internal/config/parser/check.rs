@@ -9,14 +9,6 @@ use crate::internal::cache::utils::Empty;
 use crate::internal::commands::utils::abs_path_from_path;
 use crate::internal::config::parser::github::StringFilter;
 
-// Compote imports
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
-use crate::internal::config::CompoteConfigLevel;
-use crate::internal::config::CompoteConfigSource;
-
 // ============================================================================
 // CheckPattern: A pattern string that captures its source context
 // ============================================================================
@@ -55,22 +47,20 @@ impl CheckPattern {
     }
 }
 
-impl CompoteFromConfigValue for CheckPattern {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for CheckPattern {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // Parse the pattern string
-        let pattern = String::from_config_value(value, tracker)?;
+        let pattern = String::from_context_value(value, tracker)?;
 
-        // Extract source path from context
-        let source_path = match &value.context().source {
-            CompoteConfigSource::File(path) => Some(path.clone()),
-            _ => None,
-        };
+        // Extract source path from context using CustomSource trait method
+        let source_path = value.context().source.file_path().map(|p| p.to_path_buf());
 
         // Determine if this is a global pattern (not from Local/workdir level)
-        let is_global = !matches!(value.context().level, CompoteConfigLevel::Local);
+        // Using CustomLevel::name() method instead of pattern matching
+        let is_global = value.context().level.name() != "local";
 
         Ok(Self {
             pattern,
@@ -107,7 +97,7 @@ impl<'de> Deserialize<'de> for CheckPattern {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct CheckConfig {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     patterns: Vec<CheckPattern>,
@@ -173,16 +163,16 @@ pub fn path_pattern_from_str(pattern: &str, location: Option<&str>, global: bool
 // Compote FromConfigValue for CheckConfig
 // ============================================================================
 
-impl CompoteFromConfigValue for CheckConfig {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for CheckConfig {
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         let table = match value {
-            CompoteConfigValue::Object(map, _) => map,
-            CompoteConfigValue::Null(_) => return Ok(Self::default()),
+            compote::ContextValue::Object(map, _) => map,
+            compote::ContextValue::Null(_) => return Ok(Self::default()),
             _ => {
-                return Err(CompoteError::TypeMismatch {
+                return Err(compote::Error::TypeMismatch {
                     expected: "table".to_string(),
                     actual: value.type_name().to_string(),
                     path: tracker.current_path(),
@@ -195,15 +185,15 @@ impl CompoteFromConfigValue for CheckConfig {
         if let Some(v) = table.get("patterns") {
             tracker.push_field("patterns");
             match v {
-                CompoteConfigValue::String(_, _) => {
+                compote::ContextValue::String(_, _) => {
                     // Single pattern
-                    let pattern = <CheckPattern as CompoteFromConfigValue>::from_config_value(v, tracker)?;
+                    let pattern = <CheckPattern as compote::FromContextValue<S, L>>::from_context_value(v, tracker)?;
                     patterns.push(pattern);
                 }
-                CompoteConfigValue::Array(arr, _) => {
+                compote::ContextValue::Array(arr, _) => {
                     for (idx, item) in arr.iter().enumerate() {
                         tracker.push_index(idx);
-                        match <CheckPattern as CompoteFromConfigValue>::from_config_value(item, tracker) {
+                        match <CheckPattern as compote::FromContextValue<S, L>>::from_context_value(item, tracker) {
                             Ok(pattern) => patterns.push(pattern),
                             Err(e) => tracker.record(e),
                         }
@@ -211,7 +201,7 @@ impl CompoteFromConfigValue for CheckConfig {
                     }
                 }
                 _ => {
-                    tracker.record(CompoteError::TypeMismatch {
+                    tracker.record(compote::Error::TypeMismatch {
                         expected: "string or array of strings".to_string(),
                         actual: v.type_name().to_string(),
                         path: tracker.current_path(),
@@ -244,7 +234,7 @@ impl CompoteFromConfigValue for CheckConfig {
         // Parse tags - can be table or array
         let tags = if let Some(v) = table.get("tags") {
             tracker.push_field("tags");
-            let result = parse_tags(v, tracker);
+            let result = parse_tags::<S, L>(v, tracker);
             tracker.pop();
             result
         } else {
@@ -261,18 +251,18 @@ impl CompoteFromConfigValue for CheckConfig {
 }
 
 /// Parse an array of strings into a HashSet
-fn parse_string_array_to_hashset(
-    value: &CompoteConfigValue,
-    tracker: &mut CompoteErrorTracker,
+fn parse_string_array_to_hashset<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &compote::ContextValue<S, L>,
+    tracker: &mut compote::ErrorTracker,
 ) -> HashSet<String> {
     let mut result = HashSet::new();
-    if let CompoteConfigValue::Array(arr, _) = value {
+    if let compote::ContextValue::Array(arr, _) = value {
         for (idx, item) in arr.iter().enumerate() {
             tracker.push_index(idx);
-            if let CompoteConfigValue::String(s, _) = item {
+            if let compote::ContextValue::String(s, _) = item {
                 result.insert(s.clone());
             } else {
-                tracker.record(CompoteError::TypeMismatch {
+                tracker.record(compote::Error::TypeMismatch {
                     expected: "string".to_string(),
                     actual: item.type_name().to_string(),
                     path: tracker.current_path(),
@@ -285,17 +275,17 @@ fn parse_string_array_to_hashset(
 }
 
 /// Parse tags - can be table or array of strings/tables
-fn parse_tags(
-    value: &CompoteConfigValue,
-    tracker: &mut CompoteErrorTracker,
+fn parse_tags<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &compote::ContextValue<S, L>,
+    tracker: &mut compote::ErrorTracker,
 ) -> HashMap<String, StringFilter> {
     let mut tags = HashMap::new();
 
     match value {
-        CompoteConfigValue::Object(table, _) => {
+        compote::ContextValue::Object(table, _) => {
             for (key, v) in table {
                 tracker.push_field(key);
-                match <StringFilter as CompoteFromConfigValue>::from_config_value(v, tracker) {
+                match <StringFilter as compote::FromContextValue<S, L>>::from_context_value(v, tracker) {
                     Ok(filter) => {
                         tags.insert(key.clone(), filter);
                     }
@@ -304,17 +294,17 @@ fn parse_tags(
                 tracker.pop();
             }
         }
-        CompoteConfigValue::Array(arr, _) => {
+        compote::ContextValue::Array(arr, _) => {
             for (idx, item) in arr.iter().enumerate() {
                 tracker.push_index(idx);
                 match item {
-                    CompoteConfigValue::String(s, _) => {
+                    compote::ContextValue::String(s, _) => {
                         tags.insert(s.clone(), StringFilter::default());
                     }
-                    CompoteConfigValue::Object(table, _) => {
+                    compote::ContextValue::Object(table, _) => {
                         for (key, v) in table {
                             tracker.push_field(key);
-                            match <StringFilter as CompoteFromConfigValue>::from_config_value(v, tracker) {
+                            match <StringFilter as compote::FromContextValue<S, L>>::from_context_value(v, tracker) {
                                 Ok(filter) => {
                                     tags.insert(key.clone(), filter);
                                 }
@@ -324,7 +314,7 @@ fn parse_tags(
                         }
                     }
                     _ => {
-                        tracker.record(CompoteError::TypeMismatch {
+                        tracker.record(compote::Error::TypeMismatch {
                             expected: "string or table".to_string(),
                             actual: item.type_name().to_string(),
                             path: tracker.current_path(),
@@ -335,7 +325,7 @@ fn parse_tags(
             }
         }
         _ => {
-            tracker.record(CompoteError::TypeMismatch {
+            tracker.record(compote::Error::TypeMismatch {
                 expected: "table or array".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),

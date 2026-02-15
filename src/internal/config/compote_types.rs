@@ -23,7 +23,6 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::config::parser::PathEntryConfig;
@@ -53,7 +52,7 @@ use crate::internal::config::parser::PathEntryConfig;
 /// let pkg = PathEntryConfig { /* ... */ };
 /// let pkg_source = OmniSource::Package(pkg);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub enum OmniSource {
     /// Loaded from a file
     File(PathBuf),
@@ -65,6 +64,12 @@ pub enum OmniSource {
     Default,
     /// Source is a package with associated metadata
     Package(PathEntryConfig),
+}
+
+impl Default for OmniSource {
+    fn default() -> Self {
+        OmniSource::Default
+    }
 }
 
 impl compote::CustomSource for OmniSource {
@@ -93,6 +98,18 @@ impl compote::CustomSource for OmniSource {
             _ => None,
         }
     }
+
+    fn from_file(path: PathBuf) -> Self {
+        OmniSource::File(path)
+    }
+
+    fn programmatic() -> Self {
+        OmniSource::Programmatic
+    }
+
+    fn environment() -> Self {
+        OmniSource::Environment
+    }
 }
 
 // =============================================================================
@@ -113,11 +130,6 @@ pub type Context = compote::Context<Source, Level>;
 /// ContextValue type using built-in Source and Level.
 pub type ContextValue = compote::ContextValue<Source, Level>;
 
-/// Context type with OmniSource for package tracking.
-pub type OmniContext = compote::Context<OmniSource, Level>;
-
-/// ContextValue type with OmniSource for package tracking.
-pub type OmniContextValue = compote::ContextValue<OmniSource, Level>;
 
 // =============================================================================
 // Backward compatibility aliases (for gradual migration)
@@ -135,9 +147,6 @@ pub type CompoteConfigContext = Context;
 /// Alias for ContextValue matching existing code patterns.
 pub type CompoteConfigValue = ContextValue;
 
-/// Alias for Error matching existing code patterns.
-pub type CompoteError = compote::Error;
-
 /// Alias for ErrorTracker matching existing code patterns.
 pub type CompoteErrorTracker = compote::ErrorTracker;
 
@@ -150,50 +159,9 @@ pub use compote::FromContextValue as CompoteFromConfigValue;
 // =============================================================================
 
 pub use compote::{
-    // Error handling
-    ConfigWarning,
-    Error,
-    ErrorTracker,
-    // Deserialization traits
-    AllowMapKeys,
-    FromContextValue,
-    FromContextValueWithTag,
-    FromTagValue,
-    // Values and modifiers
-    MergeModifier,
+    // Values
     Value,
-    // Formats
-    Format,
-    // Loading
-    ConfigLoaderBuilder,
-    // Config container
-    Config,
-    // Edit API
-    ConfigEntry,
-    IntoPath,
-    RemoveResult,
     // Traits (for custom implementations)
-    CustomLevel,
-    CustomSource,
     IsEmpty,
-    LevelType,
-    SourceType,
-    // Mutability
-    MutabilityConstraint,
-    MutabilityHashMap,
-    MutabilityInfo,
-    // Template utilities
-    TemplateError,
-    extract_field_references,
-    interpolate_template,
-    topological_sort,
-    value_to_string,
-    // Serialization
-    to_format,
 };
 
-// Re-export serialization functions (yaml and json are enabled for omni)
-pub use compote::{to_json, to_json_compact, to_yaml};
-
-// Re-export the derive macro with a distinct name to avoid confusion with Config type
-pub use compote::Config as DeriveConfig;

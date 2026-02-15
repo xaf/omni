@@ -1,14 +1,12 @@
-use serde::ser::SerializeMap;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::cache::utils::Empty;
 
 // Compote imports - no longer needed, using compote:: directly
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Default, compote::Config)]
 pub struct GithubConfig {
-    #[serde(default, rename = "auth", skip_serializing_if = "Vec::is_empty")]
+    #[compote(default, rename = "auth", allow_single, skip_if_empty)]
     auth_list: Vec<GithubAuthConfigWithFilters>,
 }
 
@@ -34,24 +32,12 @@ impl GithubConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, compote::Config)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, compote::Config)]
 pub struct GithubAuthConfigWithFilters {
-    #[serde(
-        default,
-        with = "serde_yaml::with::singleton_map",
-        skip_serializing_if = "StringFilter::is_default"
-    )]
     #[compote(default, skip_if_default)]
     pub repo: StringFilter,
-    #[serde(
-        default,
-        with = "serde_yaml::with::singleton_map",
-        skip_serializing_if = "StringFilter::is_default"
-    )]
     #[compote(default, skip_if_default)]
     pub hostname: StringFilter,
-    #[serde(flatten)]
     #[compote(flatten)]
     pub auth: GithubAuthConfig,
 }
@@ -62,7 +48,7 @@ impl GithubAuthConfigWithFilters {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum GithubAuthConfig {
     Token(String),
@@ -92,53 +78,19 @@ impl GithubAuthConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Default)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Default, compote::Config)]
+#[compote(external_tag, rename_all = "snake_case")]
 pub enum StringFilter {
     Contains(String),
     StartsWith(String),
     EndsWith(String),
     Regex(String),
+    #[compote(variant = any_string)]
     Glob(String),
     Exact(String),
     #[default]
+    #[compote(variant = null)]
     Any,
-}
-
-impl Serialize for StringFilter {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::ser::Serializer,
-    {
-        // Serialize `any` as null, and `glob` as a string;
-        // the rest is going to be a key: value pair in a map
-        match self {
-            StringFilter::Any => serializer.serialize_none(),
-            StringFilter::Glob(pattern) => serializer.serialize_str(pattern),
-            _ => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                match self {
-                    StringFilter::Contains(pattern) => {
-                        map.serialize_entry("contains", pattern)?;
-                    }
-                    StringFilter::StartsWith(pattern) => {
-                        map.serialize_entry("starts_with", pattern)?;
-                    }
-                    StringFilter::EndsWith(pattern) => {
-                        map.serialize_entry("ends_with", pattern)?;
-                    }
-                    StringFilter::Regex(pattern) => {
-                        map.serialize_entry("regex", pattern)?;
-                    }
-                    StringFilter::Exact(pattern) => {
-                        map.serialize_entry("exact", pattern)?;
-                    }
-                    StringFilter::Any | StringFilter::Glob(_) => unreachable!(),
-                }
-                map.end()
-            }
-        }
-    }
 }
 
 impl std::fmt::Display for StringFilter {
@@ -156,6 +108,8 @@ impl std::fmt::Display for StringFilter {
 }
 
 impl StringFilter {
+    // Used by serde's skip_serializing_if attribute
+    #[allow(dead_code)]
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
@@ -188,116 +142,16 @@ impl StringFilter {
 // ============================================================================
 // Compote FromContextValue implementations
 // ============================================================================
-
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for StringFilter {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        match value {
-            compote::ContextValue::String(s, _) => {
-                // If a string is provided, use it as a glob pattern by default
-                Ok(StringFilter::Glob(s.clone()))
-            }
-            compote::ContextValue::Null(_) => Ok(StringFilter::Any),
-            compote::ContextValue::Object(table, _) => {
-                if let Some(entry) = table.get("contains") {
-                    tracker.push_field("contains");
-                    let result = if let compote::ContextValue::String(s, _) = entry {
-                        Ok(StringFilter::Contains(s.clone()))
-                    } else {
-                        tracker.record_type_mismatch("string", entry.type_name());
-                        Ok(Self::default())
-                    };
-                    tracker.pop();
-                    return result;
-                }
-
-                if let Some(entry) = table.get("starts_with") {
-                    tracker.push_field("starts_with");
-                    let result = if let compote::ContextValue::String(s, _) = entry {
-                        Ok(StringFilter::StartsWith(s.clone()))
-                    } else {
-                        tracker.record_type_mismatch("string", entry.type_name());
-                        Ok(Self::default())
-                    };
-                    tracker.pop();
-                    return result;
-                }
-
-                if let Some(entry) = table.get("ends_with") {
-                    tracker.push_field("ends_with");
-                    let result = if let compote::ContextValue::String(s, _) = entry {
-                        Ok(StringFilter::EndsWith(s.clone()))
-                    } else {
-                        tracker.record_type_mismatch("string", entry.type_name());
-                        Ok(Self::default())
-                    };
-                    tracker.pop();
-                    return result;
-                }
-
-                if let Some(entry) = table.get("regex") {
-                    tracker.push_field("regex");
-                    let result = if let compote::ContextValue::String(s, _) = entry {
-                        Ok(StringFilter::Regex(s.clone()))
-                    } else {
-                        tracker.record_type_mismatch("string", entry.type_name());
-                        Ok(Self::default())
-                    };
-                    tracker.pop();
-                    return result;
-                }
-
-                if let Some(entry) = table.get("glob") {
-                    tracker.push_field("glob");
-                    let result = if let compote::ContextValue::String(s, _) = entry {
-                        Ok(StringFilter::Glob(s.clone()))
-                    } else {
-                        tracker.record_type_mismatch("string", entry.type_name());
-                        Ok(Self::default())
-                    };
-                    tracker.pop();
-                    return result;
-                }
-
-                if let Some(entry) = table.get("exact") {
-                    tracker.push_field("exact");
-                    let result = if let compote::ContextValue::String(s, _) = entry {
-                        Ok(StringFilter::Exact(s.clone()))
-                    } else {
-                        tracker.record_type_mismatch("string", entry.type_name());
-                        Ok(Self::default())
-                    };
-                    tracker.pop();
-                    return result;
-                }
-
-                if let Some(entry) = table.get("any") {
-                    tracker.push_field("any");
-                    let result = match entry {
-                        compote::ContextValue::Null(_) => Ok(StringFilter::Any),
-                        compote::ContextValue::Bool(true, _) => Ok(StringFilter::Any),
-                        _ => {
-                            tracker.record_type_mismatch("null or bool(true)", entry.type_name());
-                            Ok(Self::default())
-                        }
-                    };
-                    tracker.pop();
-                    return result;
-                }
-
-                // No recognized key found
-                tracker.record_invalid_value("expected one of: contains, starts_with, ends_with, regex, glob, exact, any");
-                Ok(Self::default())
-            }
-            _ => {
-                tracker.record_type_mismatch("string, object, or null", value.type_name());
-                Ok(Self::default())
-            }
-        }
-    }
-}
+//
+// StringFilter now uses #[derive(compote::Config)] with external_tag, which generates
+// FromContextValue, Serialize, AND Deserialize (via the `deserialize` flag).
+//
+// GithubAuthConfig requires manual FromContextValue due to heuristic-based string parsing
+// that can't be expressed with derive macro attributes:
+//    - Uses custom logic: all-caps strings -> TokenEnvVar, others -> Token
+//    - "skip" and "gh" are special string values
+//    - Object can have multiple keys (skip, token, token_env_var, gh)
+//    - The gh variant accepts string (hostname only) or object {hostname, user}
 
 impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for GithubAuthConfig {
     fn from_context_value(
@@ -454,65 +308,66 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 //     }
 // }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for GithubConfig {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        match value {
-            compote::ContextValue::Null(_) => Ok(Self::default()),
-            compote::ContextValue::Object(table, _) => {
-                let auth_list = if let Some(auth_value) = table.get("auth") {
-                    tracker.push_field("auth");
-                    let result = parse_auth_list::<S, L>(auth_value, tracker);
-                    tracker.pop();
-                    result
-                } else {
-                    Vec::new()
-                };
-
-                Ok(Self { auth_list })
-            }
-            _ => {
-                tracker.record_type_mismatch("object", value.type_name());
-                Ok(Self::default())
-            }
-        }
-    }
-}
-
-/// Helper function to parse auth list which can be a single item or an array
-fn parse_auth_list<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &compote::ContextValue<S, L>,
-    tracker: &mut compote::ErrorTracker,
-) -> Vec<GithubAuthConfigWithFilters> {
-    match value {
-        compote::ContextValue::Array(arr, _) => {
-            let mut result = Vec::new();
-            for (idx, item) in arr.iter().enumerate() {
-                tracker.push_index(idx);
-                match <GithubAuthConfigWithFilters as compote::FromContextValue<S, L>>::from_context_value(item, tracker) {
-                    Ok(auth) => result.push(auth),
-                    Err(e) => tracker.record(e),
-                }
-                tracker.pop();
-            }
-            result
-        }
-        compote::ContextValue::Object(_, _) => {
-            // Single item, treat as a single-element list
-            match <GithubAuthConfigWithFilters as compote::FromContextValue<S, L>>::from_context_value(value, tracker) {
-                Ok(auth) => vec![auth],
-                Err(e) => {
-                    tracker.record(e);
-                    Vec::new()
-                }
-            }
-        }
-        compote::ContextValue::Null(_) => Vec::new(),
-        _ => {
-            tracker.record_type_mismatch("array or object", value.type_name());
-            Vec::new()
-        }
-    }
-}
+// Manual impl replaced by derive macro:
+// impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for GithubConfig {
+//     fn from_context_value(
+//         value: &compote::ContextValue<S, L>,
+//         tracker: &mut compote::ErrorTracker,
+//     ) -> Result<Self, compote::Error> {
+//         match value {
+//             compote::ContextValue::Null(_) => Ok(Self::default()),
+//             compote::ContextValue::Object(table, _) => {
+//                 let auth_list = if let Some(auth_value) = table.get("auth") {
+//                     tracker.push_field("auth");
+//                     let result = parse_auth_list::<S, L>(auth_value, tracker);
+//                     tracker.pop();
+//                     result
+//                 } else {
+//                     Vec::new()
+//                 };
+//
+//                 Ok(Self { auth_list })
+//             }
+//             _ => {
+//                 tracker.record_type_mismatch("object", value.type_name());
+//                 Ok(Self::default())
+//             }
+//         }
+//     }
+// }
+//
+// /// Helper function to parse auth list which can be a single item or an array
+// fn parse_auth_list<S: compote::CustomSource, L: compote::CustomLevel>(
+//     value: &compote::ContextValue<S, L>,
+//     tracker: &mut compote::ErrorTracker,
+// ) -> Vec<GithubAuthConfigWithFilters> {
+//     match value {
+//         compote::ContextValue::Array(arr, _) => {
+//             let mut result = Vec::new();
+//             for (idx, item) in arr.iter().enumerate() {
+//                 tracker.push_index(idx);
+//                 match <GithubAuthConfigWithFilters as compote::FromContextValue<S, L>>::from_context_value(item, tracker) {
+//                     Ok(auth) => result.push(auth),
+//                     Err(e) => tracker.record(e),
+//                 }
+//                 tracker.pop();
+//             }
+//             result
+//         }
+//         compote::ContextValue::Object(_, _) => {
+//             // Single item, treat as a single-element list
+//             match <GithubAuthConfigWithFilters as compote::FromContextValue<S, L>>::from_context_value(value, tracker) {
+//                 Ok(auth) => vec![auth],
+//                 Err(e) => {
+//                     tracker.record(e);
+//                     Vec::new()
+//                 }
+//             }
+//         }
+//         compote::ContextValue::Null(_) => Vec::new(),
+//         _ => {
+//             tracker.record_type_mismatch("array or object", value.type_name());
+//             Vec::new()
+//         }
+//     }
+// }

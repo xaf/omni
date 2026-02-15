@@ -23,10 +23,6 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::env::current_dir;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
 use crate::omni_warning;
 
 fn nix_command<T: AsRef<str>>(name: T) -> TokioCommand {
@@ -48,7 +44,11 @@ fn nix_gcroot_command<T: AsRef<Path>>(tmp_profile: T, perm_profile: T) -> TokioC
     command
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+// NOTE: UpConfigNix CANNOT be converted to compote::Config derive macro because:
+// 1. The derive macro generates `Serialize` impl, conflicting with `#[derive(Serialize)]`
+// 2. The `skip` attribute doesn't work properly for `OnceCell` fields
+// The manual FromContextValue impl must be kept for these reasons.
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct UpConfigNix {
     /// List of nix packages to install.
     #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
@@ -207,20 +207,25 @@ impl UpConfigNix {
 }
 
 // Helper functions for compote conversion
-fn compote_get_str(value: &CompoteConfigValue) -> Option<String> {
+fn compote_get_str<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &compote::ContextValue<S, L>,
+) -> Option<String> {
     match value {
-        CompoteConfigValue::String(s, _) => Some(s.clone()),
+        compote::ContextValue::String(s, _) => Some(s.clone()),
         _ => None,
     }
 }
 
-fn compote_get_str_array(value: &CompoteConfigValue, errors: &mut CompoteErrorTracker) -> Vec<String> {
+fn compote_get_str_array<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &compote::ContextValue<S, L>,
+    errors: &mut compote::ErrorTracker,
+) -> Vec<String> {
     match value {
-        CompoteConfigValue::Array(arr, _) => arr
+        compote::ContextValue::Array(arr, _) => arr
             .iter()
             .enumerate()
             .filter_map(|(idx, item)| match item {
-                CompoteConfigValue::String(s, _) => Some(s.clone()),
+                compote::ContextValue::String(s, _) => Some(s.clone()),
                 _ => {
                     errors.push_index(idx);
                     errors.record_type_mismatch("string", item.type_name());
@@ -229,7 +234,7 @@ fn compote_get_str_array(value: &CompoteConfigValue, errors: &mut CompoteErrorTr
                 }
             })
             .collect(),
-        CompoteConfigValue::String(s, _) => vec![s.clone()],
+        compote::ContextValue::String(s, _) => vec![s.clone()],
         _ => {
             errors.record_type_mismatch("array or string", value.type_name());
             Vec::new()
@@ -237,10 +242,10 @@ fn compote_get_str_array(value: &CompoteConfigValue, errors: &mut CompoteErrorTr
     }
 }
 
-impl CompoteFromConfigValue for UpConfigNix {
-    fn from_config_value(value: &CompoteConfigValue, errors: &mut CompoteErrorTracker) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigNix {
+    fn from_context_value(value: &compote::ContextValue<S, L>, errors: &mut compote::ErrorTracker) -> Result<Self, compote::Error> {
         let result = match value {
-            CompoteConfigValue::Object(map, _) => {
+            compote::ContextValue::Object(map, _) => {
                 // Check for 'file' key first
                 if let Some(nixfile_value) = map.get("file") {
                     if let Some(nixfile) = compote_get_str(nixfile_value) {
@@ -265,21 +270,21 @@ impl CompoteFromConfigValue for UpConfigNix {
                 } else {
                     // No recognized keys
                     errors.push_field("packages");
-                    errors.record(CompoteError::MissingField {
+                    errors.record(compote::Error::MissingField {
                         path: errors.current_path(),
                     });
                     errors.pop();
                     Self::default()
                 }
             }
-            CompoteConfigValue::Array(_, _) => {
+            compote::ContextValue::Array(_, _) => {
                 let packages = compote_get_str_array(value, errors);
                 Self {
                     packages,
                     ..Self::default()
                 }
             }
-            CompoteConfigValue::String(s, _) => Self {
+            compote::ContextValue::String(s, _) => Self {
                 nixfile: Some(s.clone()),
                 ..Self::default()
             },

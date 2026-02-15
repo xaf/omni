@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use itertools::Itertools;
 
-use crate::internal::config::ConfigScope;
+use crate::internal::config::Level;
 use crate::internal::env::config_home;
 use crate::internal::env::user_home;
 use crate::internal::env::xdg_config_home;
@@ -22,26 +22,26 @@ pub const WORKDIR_CONFIG_FILES: [&str; 2] = [".omni.yaml", ".omni/config.yaml"];
 pub struct ConfigLoader;
 
 impl ConfigLoader {
-    /// Returns all configuration files in load order with their scopes.
+    /// Returns all configuration files in load order with their levels.
     ///
-    /// Order: system pre -> user -> system post -> workdir
-    pub fn all_config_files() -> Vec<(String, ConfigScope)> {
+    /// Order: system pre -> user -> system post -> workdir (local)
+    pub fn all_config_files() -> Vec<(String, Level)> {
         let mut config_files = vec![];
 
         config_files.extend(
             Self::system_config_files("pre")
                 .into_iter()
-                .map(|f| (f, ConfigScope::System)),
+                .map(|f| (f, Level::System)),
         );
         config_files.extend(
             Self::user_config_files()
                 .into_iter()
-                .map(|f| (f, ConfigScope::User)),
+                .map(|f| (f, Level::User)),
         );
         config_files.extend(
             Self::system_config_files("post")
                 .into_iter()
-                .map(|f| (f, ConfigScope::System)),
+                .map(|f| (f, Level::System)),
         );
 
         let wd = workdir(".");
@@ -49,7 +49,7 @@ impl ConfigLoader {
             for workdir_config_file in WORKDIR_CONFIG_FILES.iter() {
                 let file = PathBuf::from(wd_root).join(workdir_config_file);
                 if file.exists() {
-                    config_files.push((file.to_string_lossy().to_string(), ConfigScope::Workdir));
+                    config_files.push((file.to_string_lossy().to_string(), Level::Local));
                 }
             }
         }

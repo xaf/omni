@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use crate::internal::git::ParsedRepoUrl;
-use serde::Deserialize;
 use serde::Serialize;
 use tera::Tera;
 
@@ -13,7 +12,7 @@ use crate::internal::git::Repo;
 use crate::internal::git_env;
 use crate::internal::workdir;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct TemplateRepo {
     pub handle: String,
     pub host: String,

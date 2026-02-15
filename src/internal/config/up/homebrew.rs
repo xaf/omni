@@ -6,14 +6,8 @@ use std::path::PathBuf;
 use duct::cmd;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
-
-use crate::internal::config::CompoteError;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils as cache_utils;
@@ -36,7 +30,7 @@ use crate::omni_warning;
 static LOCAL_TAP: &str = "omni/local";
 static BREW_UPDATED: OnceCell<bool> = OnceCell::new();
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct UpConfigHomebrew {
     #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
     pub install: Vec<HomebrewInstall>,
@@ -338,31 +332,33 @@ impl UpConfigHomebrew {
     }
 }
 
-impl CompoteFromConfigValue for UpConfigHomebrew {
-    fn from_config_value(
-        value: &CompoteConfigValue,
-        error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Self, CompoteError> {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for UpConfigHomebrew
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        error_tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
         // Extract install array
-        let install = if let CompoteConfigValue::Object(map, _) = value {
+        let install = if let compote::ContextValue::Object(map, _) = value {
             if let Some(install_value) = map.get("install") {
-                HomebrewInstall::compote_from_config_value(install_value, error_tracker)
+                HomebrewInstall::compote_from_context_value_generic(install_value, error_tracker)
                     .unwrap_or_default()
             } else {
                 // Try parsing the whole value as install array
-                HomebrewInstall::compote_from_config_value(value, error_tracker)
+                HomebrewInstall::compote_from_context_value_generic(value, error_tracker)
                     .unwrap_or_default()
             }
         } else {
             // If not an object, try parsing as install array
-            HomebrewInstall::compote_from_config_value(value, error_tracker)
+            HomebrewInstall::compote_from_context_value_generic(value, error_tracker)
                 .unwrap_or_default()
         };
 
         // Extract tap array
-        let tap = if let CompoteConfigValue::Object(map, _) = value {
+        let tap = if let compote::ContextValue::Object(map, _) = value {
             if let Some(tap_value) = map.get("tap") {
-                HomebrewTap::compote_from_config_value(tap_value, &install, error_tracker)
+                HomebrewTap::compote_from_context_value_generic(tap_value, &install, error_tracker)
                     .unwrap_or_default()
             } else {
                 Vec::new()
@@ -378,7 +374,7 @@ impl CompoteFromConfigValue for UpConfigHomebrew {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum HomebrewHandled {
     Handled,
     Noop,
@@ -386,7 +382,7 @@ pub enum HomebrewHandled {
     Unhandled,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Serialize, Clone, Eq, PartialEq)]
 pub struct HomebrewTap {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -672,23 +668,6 @@ impl HomebrewTap {
         }
     }
 
-    fn compote_from_config_value(
-        value: &CompoteConfigValue,
-        installs: &[HomebrewInstall],
-        error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteError> {
-        #[allow(clippy::mutable_key_type)]
-        let mut taps = BTreeSet::new();
-
-        // Parse taps from the value
-        taps.extend(Self::compote_parse_taps(value, error_tracker).unwrap_or_default());
-
-        // Add implicit taps from install names
-        taps = Self::add_implicit_taps_set(taps, installs);
-
-        Ok(taps.into_iter().collect())
-    }
-
     fn add_implicit_taps(mut taps: Vec<Self>, installs: &[HomebrewInstall]) -> Vec<Self> {
         #[allow(clippy::mutable_key_type)]
         let mut taps_set: BTreeSet<Self> = taps.drain(..).collect();
@@ -710,30 +689,47 @@ impl HomebrewTap {
         taps
     }
 
-    fn compote_parse_taps(
-        value: &CompoteConfigValue,
-        error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteError> {
+    fn compote_from_context_value_generic<S: compote::CustomSource, L: compote::CustomLevel>(
+        value: &compote::ContextValue<S, L>,
+        installs: &[HomebrewInstall],
+        error_tracker: &mut compote::ErrorTracker,
+    ) -> Result<Vec<Self>, compote::Error> {
+        #[allow(clippy::mutable_key_type)]
+        let mut taps = BTreeSet::new();
+
+        // Parse taps from the value
+        taps.extend(Self::compote_parse_taps_generic(value, error_tracker).unwrap_or_default());
+
+        // Add implicit taps from install names
+        taps = Self::add_implicit_taps_set(taps, installs);
+
+        Ok(taps.into_iter().collect())
+    }
+
+    fn compote_parse_taps_generic<S: compote::CustomSource, L: compote::CustomLevel>(
+        value: &compote::ContextValue<S, L>,
+        error_tracker: &mut compote::ErrorTracker,
+    ) -> Result<Vec<Self>, compote::Error> {
         let mut parsed_taps = Vec::new();
 
         match value {
-            CompoteConfigValue::Array(arr, _) => {
+            compote::ContextValue::Array(arr, _) => {
                 for item in arr.iter() {
-                    if let Some(tap) = Self::compote_parse_tap(None, item, error_tracker) {
+                    if let Some(tap) = Self::compote_parse_tap_generic(None, item, error_tracker) {
                         parsed_taps.push(tap);
                     }
                 }
             }
-            CompoteConfigValue::Object(map, _) => {
+            compote::ContextValue::Object(map, _) => {
                 for (tap_name, tap_value) in map {
-                    parsed_taps.push(Self::compote_parse_config(
+                    parsed_taps.push(Self::compote_parse_config_generic(
                         tap_name.clone(),
                         tap_value,
                         error_tracker,
                     ));
                 }
             }
-            CompoteConfigValue::String(s, _) => {
+            compote::ContextValue::String(s, _) => {
                 parsed_taps.push(Self {
                     name: s.clone(),
                     url: None,
@@ -747,26 +743,26 @@ impl HomebrewTap {
         Ok(parsed_taps)
     }
 
-    fn compote_parse_tap(
+    fn compote_parse_tap_generic<S: compote::CustomSource, L: compote::CustomLevel>(
         name: Option<String>,
-        value: &CompoteConfigValue,
-        error_tracker: &mut CompoteErrorTracker,
+        value: &compote::ContextValue<S, L>,
+        error_tracker: &mut compote::ErrorTracker,
     ) -> Option<Self> {
         if let Some(name) = name {
-            return Some(Self::compote_parse_config(name, value, error_tracker));
+            return Some(Self::compote_parse_config_generic(name, value, error_tracker));
         }
 
         match value {
-            CompoteConfigValue::String(s, _) => Some(Self {
+            compote::ContextValue::String(s, _) => Some(Self {
                 name: s.clone(),
                 url: None,
                 upgrade: false,
                 was_handled: OnceCell::new(),
             }),
-            CompoteConfigValue::Object(map, _) => {
+            compote::ContextValue::Object(map, _) => {
                 if let Some(repo_value) = map.get("repo") {
-                    if let CompoteConfigValue::String(repo_name, _) = repo_value {
-                        return Some(Self::compote_parse_config(
+                    if let compote::ContextValue::String(repo_name, _) = repo_value {
+                        return Some(Self::compote_parse_config_generic(
                             repo_name.clone(),
                             value,
                             error_tracker,
@@ -777,7 +773,7 @@ impl HomebrewTap {
 
                 if map.len() == 1 {
                     let (name, config_value) = map.iter().next().unwrap();
-                    return Some(Self::compote_parse_config(
+                    return Some(Self::compote_parse_config_generic(
                         name.clone(),
                         config_value,
                         error_tracker,
@@ -790,27 +786,27 @@ impl HomebrewTap {
         }
     }
 
-    fn compote_parse_config(
+    fn compote_parse_config_generic<S: compote::CustomSource, L: compote::CustomLevel>(
         name: String,
-        value: &CompoteConfigValue,
-        _error_tracker: &mut CompoteErrorTracker,
+        value: &compote::ContextValue<S, L>,
+        _error_tracker: &mut compote::ErrorTracker,
     ) -> Self {
         let mut url = None;
         let mut upgrade = false;
 
         match value {
-            CompoteConfigValue::String(s, _) => {
+            compote::ContextValue::String(s, _) => {
                 url = Some(s.clone());
             }
-            CompoteConfigValue::Object(map, _) => {
+            compote::ContextValue::Object(map, _) => {
                 if let Some(url_value) = map.get("url") {
-                    if let CompoteConfigValue::String(s, _) = url_value {
+                    if let compote::ContextValue::String(s, _) = url_value {
                         url = Some(s.clone());
                     }
                 }
 
                 if let Some(upgrade_value) = map.get("upgrade") {
-                    if let CompoteConfigValue::Bool(b, _) = upgrade_value {
+                    if let compote::ContextValue::Bool(b, _) = upgrade_value {
                         upgrade = *b;
                     }
                 }
@@ -827,20 +823,19 @@ impl HomebrewTap {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 pub enum HomebrewInstallType {
     Formula,
     Cask,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct HomebrewInstall {
     install_type: HomebrewInstallType,
     name: String,
     version: Option<String>,
     upgrade: bool,
 
-    #[serde(skip)]
     was_handled: OnceCell<HomebrewHandled>,
 }
 
@@ -1594,14 +1589,14 @@ impl HomebrewInstall {
         }
     }
 
-    fn compote_from_config_value(
-        value: &CompoteConfigValue,
-        error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteError> {
+    fn compote_from_context_value_generic<S: compote::CustomSource, L: compote::CustomLevel>(
+        value: &compote::ContextValue<S, L>,
+        error_tracker: &mut compote::ErrorTracker,
+    ) -> Result<Vec<Self>, compote::Error> {
         let mut installs = Vec::new();
 
         // Try to extract from "install" key if value is an object
-        let formulae_value = if let CompoteConfigValue::Object(map, _) = value {
+        let formulae_value = if let compote::ContextValue::Object(map, _) = value {
             if let Some(install_value) = map.get("install") {
                 install_value
             } else {
@@ -1612,19 +1607,19 @@ impl HomebrewInstall {
         };
 
         // Parse the formulae
-        installs.extend(Self::compote_parse_formulae(formulae_value, error_tracker).unwrap_or_default());
+        installs.extend(Self::compote_parse_formulae_generic(formulae_value, error_tracker).unwrap_or_default());
 
         Ok(installs)
     }
 
-    fn compote_parse_formulae(
-        value: &CompoteConfigValue,
-        _error_tracker: &mut CompoteErrorTracker,
-    ) -> Result<Vec<Self>, CompoteError> {
+    fn compote_parse_formulae_generic<S: compote::CustomSource, L: compote::CustomLevel>(
+        value: &compote::ContextValue<S, L>,
+        _error_tracker: &mut compote::ErrorTracker,
+    ) -> Result<Vec<Self>, compote::Error> {
         let mut installs = Vec::new();
 
         match value {
-            CompoteConfigValue::Array(arr, _) => {
+            compote::ContextValue::Array(arr, _) => {
                 for item in arr {
                     let mut install_type = HomebrewInstallType::Formula;
                     let mut version = None;
@@ -1632,14 +1627,14 @@ impl HomebrewInstall {
                     let mut upgrade = false;
 
                     match item {
-                        CompoteConfigValue::Object(map, _) => {
+                        compote::ContextValue::Object(map, _) => {
                             // Check for formula/cask key
                             if let Some(formula_value) = map.get("formula") {
-                                if let CompoteConfigValue::String(s, _) = formula_value {
+                                if let compote::ContextValue::String(s, _) = formula_value {
                                     name = Some(s.clone());
                                 }
                             } else if let Some(cask_value) = map.get("cask") {
-                                if let CompoteConfigValue::String(s, _) = cask_value {
+                                if let compote::ContextValue::String(s, _) = cask_value {
                                     install_type = HomebrewInstallType::Cask;
                                     name = Some(s.clone());
                                 }
@@ -1650,20 +1645,20 @@ impl HomebrewInstall {
 
                                 // Parse the rest of config
                                 match rest_value {
-                                    CompoteConfigValue::Object(rest_map, _) => {
+                                    compote::ContextValue::Object(rest_map, _) => {
                                         if let Some(upgrade_value) = rest_map.get("upgrade") {
-                                            if let CompoteConfigValue::Bool(b, _) = upgrade_value {
+                                            if let compote::ContextValue::Bool(b, _) = upgrade_value {
                                                 upgrade = *b;
                                             }
                                         }
 
                                         if let Some(version_value) = rest_map.get("version") {
-                                            if let CompoteConfigValue::String(s, _) = version_value {
+                                            if let compote::ContextValue::String(s, _) = version_value {
                                                 version = Some(s.clone());
                                             }
                                         }
                                     }
-                                    CompoteConfigValue::String(s, _) => {
+                                    compote::ContextValue::String(s, _) => {
                                         version = Some(s.clone());
                                     }
                                     _ => {}
@@ -1672,18 +1667,18 @@ impl HomebrewInstall {
 
                             // Extract upgrade and version from top-level if present
                             if let Some(upgrade_value) = map.get("upgrade") {
-                                if let CompoteConfigValue::Bool(b, _) = upgrade_value {
+                                if let compote::ContextValue::Bool(b, _) = upgrade_value {
                                     upgrade = *b;
                                 }
                             }
 
                             if let Some(version_value) = map.get("version") {
-                                if let CompoteConfigValue::String(s, _) = version_value {
+                                if let compote::ContextValue::String(s, _) = version_value {
                                     version = Some(s.clone());
                                 }
                             }
                         }
-                        CompoteConfigValue::String(s, _) => {
+                        compote::ContextValue::String(s, _) => {
                             name = Some(s.clone());
                         }
                         _ => {}
@@ -1700,7 +1695,7 @@ impl HomebrewInstall {
                     }
                 }
             }
-            CompoteConfigValue::String(s, _) => {
+            compote::ContextValue::String(s, _) => {
                 installs.push(Self::new_formula(s));
             }
             _ => {}

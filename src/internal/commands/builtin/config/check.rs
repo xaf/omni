@@ -21,7 +21,6 @@ use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::utils::check_allowed;
 use crate::internal::config::CommandSyntax;
 use crate::internal::config::ConfigLoader;
-use crate::internal::config::ConfigScope;
 use crate::internal::config::OmniConfig;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
@@ -318,7 +317,7 @@ impl ConfigCheckCommand {
         args: &ConfigCheckCommandArgs,
     ) {
         // Get all the available configuration files
-        let config_files: Vec<(String, ConfigScope)> = if args.use_files_from_cli() {
+        let config_files: Vec<(String, Level)> = if args.use_files_from_cli() {
             args.config_files
                 .iter()
                 .filter(|file| {
@@ -328,28 +327,20 @@ impl ConfigCheckCommand {
                     }
                     true
                 })
-                .map(|file| (file.clone(), ConfigScope::Null))
+                .map(|file| (file.clone(), Level::Local))
                 .collect()
         } else {
             ConfigLoader::all_config_files()
                 .into_iter()
-                .filter(|(_file, scope)| match scope {
-                    ConfigScope::System => args.global_scope || args.default_scope,
-                    ConfigScope::User => args.global_scope || args.default_scope,
-                    ConfigScope::Workdir => args.local_scope || args.default_scope,
-                    ConfigScope::Null => args.local_scope || args.default_scope,
-                    ConfigScope::Default => true,
+                .filter(|(_file, level)| match level {
+                    Level::System => args.global_scope || args.default_scope,
+                    Level::User => args.global_scope || args.default_scope,
+                    Level::Local => args.local_scope || args.default_scope,
                 })
                 .collect()
         };
 
-        for (file, scope) in config_files {
-            // Convert ConfigScope to ConfigLevel
-            let level = match scope {
-                ConfigScope::System => Level::System,
-                ConfigScope::User => Level::User,
-                ConfigScope::Workdir | ConfigScope::Null | ConfigScope::Default => Level::Local,
-            };
+        for (file, level) in config_files {
             // Load the file using compote loader
             let mut loader = OmniConfigLoader::new_from_file(&file, level);
             let compote_config = match loader.build() {
@@ -357,7 +348,7 @@ impl ConfigCheckCommand {
                 Err(_) => continue,
             };
             let mut tracker = ErrorTracker::new();
-            let file_config: OmniConfig = match OmniConfig::from_config_value(compote_config.root(), &mut tracker) {
+            let file_config: OmniConfig = match OmniConfig::from_context_value(compote_config.root(), &mut tracker) {
                 Ok(config) => config,
                 Err(_) => {
                     // Log error and skip this file
@@ -430,30 +421,14 @@ impl ConfigCheckCommand {
             // Use the configuration files to get the paths
             let config_files: Vec<_> = ConfigLoader::all_config_files()
                 .into_iter()
-                .filter(|(_file, scope)| match scope {
-                    ConfigScope::System => args.global_scope || args.default_scope,
-                    ConfigScope::User => args.global_scope || args.default_scope,
-                    ConfigScope::Workdir => args.local_scope || args.default_scope,
-                    ConfigScope::Null => args.local_scope || args.default_scope,
-                    ConfigScope::Default => true,
+                .filter(|(_file, level)| match level {
+                    Level::System => args.global_scope || args.default_scope,
+                    Level::User => args.global_scope || args.default_scope,
+                    Level::Local => args.local_scope || args.default_scope,
                 })
                 .collect();
 
-            // Convert scopes to levels and load files using compote loader
-            let files_with_levels: Vec<_> = config_files
-                .into_iter()
-                .map(|(file, scope)| {
-                    let level = match scope {
-                        ConfigScope::System => Level::System,
-                        ConfigScope::User => Level::User,
-                        ConfigScope::Workdir | ConfigScope::Null | ConfigScope::Default => {
-                            Level::Local
-                        }
-                    };
-                    (file, level)
-                })
-                .collect();
-            let mut loader = OmniConfigLoader::new_from_files(files_with_levels);
+            let mut loader = OmniConfigLoader::new_from_files(config_files);
             let compote_config = match loader.build() {
                 Ok(config) => config,
                 Err(_) => {
@@ -463,7 +438,7 @@ impl ConfigCheckCommand {
             };
             let mut tracker = ErrorTracker::new();
             let config: OmniConfig =
-                OmniConfig::from_config_value(compote_config.root(), &mut tracker)
+                OmniConfig::from_context_value(compote_config.root(), &mut tracker)
                     .unwrap_or_default();
 
             // Prepare the path list

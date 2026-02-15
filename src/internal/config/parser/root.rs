@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use lazy_static::lazy_static;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::config::OmniConfig;
@@ -13,7 +12,7 @@ use crate::internal::workdir;
 use crate::omni_error;
 
 lazy_static! {
-    #[derive(Debug, Serialize, Deserialize, Clone)]
+    #[derive(Debug, Serialize, Clone)]
     static ref CONFIG_PER_PATH: Mutex<OmniConfigPerPath> = Mutex::new(OmniConfigPerPath::new());
 }
 
@@ -54,7 +53,7 @@ pub fn global_config() -> OmniConfig {
     config("/")
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct OmniConfigPerPath {
     config: HashMap<String, OmniConfig>,
 }
