@@ -24,12 +24,15 @@ use crate::internal::ORG_LOADER;
 type CompoteConfigValue = crate::internal::config::ContextValue;
 type CompoteErrorTracker = compote::ErrorTracker;
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, compote::Config)]
+#[compote(skip_serialize)]
 pub struct CommandDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desc: Option<String>,
+    #[compote(default = "true")]
     pub run: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[compote(default, allow_single)]
     pub aliases: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub syntax: Option<CommandSyntax>,
@@ -40,14 +43,19 @@ pub struct CommandDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subcommands: Option<HashMap<String, CommandDefinition>>,
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default = "false")]
     pub argparser: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[compote(default)]
     pub tags: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default = "false")]
     pub export: bool,
     #[serde(skip)]
+    #[compote(from_context_fn = "command_def_source_from_context")]
     pub source: OmniSource,
     #[serde(skip)]
+    #[compote(from_context_fn = "command_def_scope_from_context")]
     pub scope: Level,
 }
 
@@ -2048,172 +2056,45 @@ fn sanitize_str(s: &str) -> String {
 }
 
 // ============================================================================
-// CANNOT CONVERT TO DERIVE MACRO - TECHNICAL LIMITATIONS
-// ============================================================================
-//
-// CommandDefinition requires manual FromContextValue because:
-//
-// 1. **Context metadata injection**: The `source` and `scope` fields are
-//    populated from `value.context().source.file_path()` and
-//    `value.context().level.name()`. These fields don't come from the
-//    config value itself - they're metadata about WHERE the value came from.
-//    Compote's derive macro only extracts data from the value, not context.
-//
-// 2. **Complex nested parsing**: The `syntax` field uses custom parsing
-//    through `CommandSyntax::from_compote_config_value()` with special
-//    logic for multiple input formats (array, object with various keys,
-//    or string). This is not a simple field extraction.
-//
-// 3. **HashMap<String, CommandDefinition> recursive parsing**: The
-//    `subcommands` field needs recursive parsing where each subcommand
-//    inherits context information.
-//
-// To convert this, compote would need:
-// - A `#[compote(from_context_source)]` and `#[compote(from_context_level)]`
-//   attribute to inject context metadata into struct fields
-// - These fields are marked `#[serde(skip)]` precisely because they're
-//   not part of the serialized config - they're runtime metadata
+// Helper functions for compote derive macro (from_context_fn)
 // ============================================================================
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for CommandDefinition {
+fn command_def_source_from_context<S: compote::CustomSource, L: compote::CustomLevel>(
+    ctx: &compote::Context<S, L>,
+) -> OmniSource {
+    match ctx.source.file_path() {
+        Some(p) => OmniSource::File(p.to_path_buf()),
+        None => OmniSource::Default,
+    }
+}
+
+fn command_def_scope_from_context<S: compote::CustomSource, L: compote::CustomLevel>(
+    ctx: &compote::Context<S, L>,
+) -> Level {
+    match ctx.level.name() {
+        "system" => Level::System,
+        "user" => Level::User,
+        _ => Level::Local,
+    }
+}
+
+/// Bridge: allow compote derive to deserialize CommandSyntax via existing
+/// `from_compote_config_value` method.
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for CommandSyntax
+{
     fn from_context_value(
         value: &compote::ContextValue<S, L>,
         tracker: &mut compote::ErrorTracker,
     ) -> Result<Self, compote::Error> {
-        let table = match value {
-            compote::ContextValue::Object(map, _) => map,
-            compote::ContextValue::Null(_) => {
-                return Err(compote::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "object".to_string(),
-                    actual: "null".to_string(),
-                });
-            }
-            _ => {
-                return Err(compote::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "object".to_string(),
-                    actual: value.type_name().to_string(),
-                });
-            }
-        };
-
-        // Parse desc
-        let desc = compote_get_str_or_none(table, "desc", tracker);
-
-        // Parse run (required)
-        let run = compote_get_str_or_none(table, "run", tracker).unwrap_or_else(|| {
-            tracker.push_field("run");
-            tracker.record(compote::Error::MissingField {
+        match CommandSyntax::from_compote_config_value(value, tracker) {
+            Some(syntax) => Ok(syntax),
+            None => Err(compote::Error::TypeMismatch {
                 path: tracker.current_path(),
-            });
-            tracker.pop();
-            "true".to_string()
-        });
-
-        // Parse aliases
-        let aliases = compote_get_str_array(table, "aliases", tracker);
-
-        // Parse syntax
-        let syntax = if let Some(syntax_value) = table.get("syntax") {
-            tracker.push_field("syntax");
-            let result = CommandSyntax::from_compote_config_value(syntax_value, tracker);
-            tracker.pop();
-            result
-        } else {
-            None
-        };
-
-        // Parse tags
-        let tags = if let Some(tags_value) = table.get("tags") {
-            tracker.push_field("tags");
-            let result = compote_parse_string_map(tags_value, tracker);
-            tracker.pop();
-            result
-        } else {
-            BTreeMap::new()
-        };
-
-        // Parse category
-        let category = {
-            let cat = compote_get_str_array(table, "category", tracker);
-            if cat.is_empty() {
-                None
-            } else {
-                Some(cat)
-            }
-        };
-
-        // Parse dir
-        let dir = compote_get_str_or_none(table, "dir", tracker);
-
-        // Parse subcommands (recursive)
-        let subcommands = if let Some(sub_value) = table.get("subcommands") {
-            tracker.push_field("subcommands");
-            let result = match sub_value {
-                compote::ContextValue::Object(sub_table, _) => {
-                    let mut subs = HashMap::new();
-                    for (key, sub_def) in sub_table {
-                        tracker.push_field(key);
-                        match <CommandDefinition as compote::FromContextValue<S, L>>::from_context_value(sub_def, tracker) {
-                            Ok(cmd_def) => {
-                                subs.insert(key.clone(), cmd_def);
-                            }
-                            Err(e) => tracker.record(e),
-                        }
-                        tracker.pop();
-                    }
-                    Some(subs)
-                }
-                compote::ContextValue::Null(_) => None,
-                _ => {
-                    tracker.record(compote::Error::TypeMismatch {
-                        path: tracker.current_path(),
-                        expected: "object".to_string(),
-                        actual: sub_value.type_name().to_string(),
-                    });
-                    None
-                }
-            };
-            tracker.pop();
-            result
-        } else {
-            None
-        };
-
-        // Parse argparser
-        let argparser = compote_get_bool_or_default(table, "argparser", false, tracker);
-
-        // Parse export
-        let export = compote_get_bool_or_default(table, "export", false, tracker);
-
-        // Convert source using CustomSource trait method
-        let source = match value.context().source.file_path() {
-            Some(path) => OmniSource::File(path.to_path_buf()),
-            None => OmniSource::Default,
-        };
-
-        // Convert scope/level from generic CustomLevel to concrete Level
-        let scope = match value.context().level.name() {
-            "system" => Level::System,
-            "user" => Level::User,
-            _ => Level::Local, // Default to local for unknown levels
-        };
-
-        Ok(Self {
-            desc,
-            run,
-            aliases,
-            syntax,
-            category,
-            dir,
-            subcommands,
-            argparser,
-            tags,
-            export,
-            source,
-            scope,
-        })
+                expected: "command syntax (array or object)".to_string(),
+                actual: value.type_name().to_string(),
+            }),
+        }
     }
 }
 
@@ -2364,52 +2245,6 @@ fn compote_value_to_str_array<S: compote::CustomSource, L: compote::CustomLevel>
             Vec::new()
         }
     }
-}
-
-/// Parse a string map from a compote value
-fn compote_parse_string_map<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &compote::ContextValue<S, L>,
-    tracker: &mut compote::ErrorTracker,
-) -> BTreeMap<String, String> {
-    let mut result = BTreeMap::new();
-    match value {
-        compote::ContextValue::Object(map, _) => {
-            for (key, val) in map {
-                match val {
-                    compote::ContextValue::String(s, _) => {
-                        result.insert(key.clone(), s.clone());
-                    }
-                    compote::ContextValue::Int(i, _) => {
-                        result.insert(key.clone(), i.to_string());
-                    }
-                    compote::ContextValue::Float(f, _) => {
-                        result.insert(key.clone(), f.to_string());
-                    }
-                    compote::ContextValue::Bool(b, _) => {
-                        result.insert(key.clone(), b.to_string());
-                    }
-                    _ => {
-                        tracker.push_field(key);
-                        tracker.record(compote::Error::TypeMismatch {
-                            path: tracker.current_path(),
-                            expected: "string".to_string(),
-                            actual: val.type_name().to_string(),
-                        });
-                        tracker.pop();
-                    }
-                }
-            }
-        }
-        compote::ContextValue::Null(_) => {}
-        _ => {
-            tracker.record(compote::Error::TypeMismatch {
-                path: tracker.current_path(),
-                expected: "object".to_string(),
-                actual: value.type_name().to_string(),
-            });
-        }
-    }
-    result
 }
 
 // ============================================================================
