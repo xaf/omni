@@ -54,7 +54,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Check if pull request already exists
         env:
@@ -82,7 +82,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Get rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -101,7 +101,7 @@ jobs:
 
       - name: upload Cargo.lock artifact for use in PR
         if: ${{ env.UPDATES == 'true' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: Cargo-lock
           path: Cargo.lock
@@ -109,7 +109,7 @@ jobs:
 
       - name: upload cargo-update log artifact for use in PR
         if: ${{ env.UPDATES == 'true' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: cargo-updates
           path: cargo_update.log
@@ -139,17 +139,17 @@ jobs:
           private-key: ${{ secrets.OMNICLI_PRIVATE_KEY }}
 
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Download Cargo.lock from update job
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: Cargo-lock
 
       - name: Download cargo-update log from update job
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: cargo-updates
 

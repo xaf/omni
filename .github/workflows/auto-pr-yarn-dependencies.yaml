@@ -53,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Check if pull request already exists
         env:
@@ -83,7 +83,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -128,7 +128,7 @@ jobs:
 
       - name: upload package.json artifact for use in PR
         if: ${{ env.PACKAGE_UPDATES == 'true' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: package-json
           path: website/package.json
@@ -136,7 +136,7 @@ jobs:
 
       - name: upload yarn.lock artifact for use in PR
         if: ${{ env.YARN_UPDATES == 'true' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: yarn-lock
           path: website/yarn.lock
@@ -166,20 +166,20 @@ jobs:
           private-key: ${{ secrets.OMNICLI_PRIVATE_KEY }}
 
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Download package.json from update job
         if: needs.run-yarn-update.outputs.package_updates == 'true'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: package-json
           path: website/
 
       - name: Download yarn.lock from update job
         if: needs.run-yarn-update.outputs.yarn_updates == 'true'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: yarn-lock
           path: website/

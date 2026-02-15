@@ -55,7 +55,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Check if pull request already exists
         env:
@@ -83,7 +83,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Get rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -128,7 +128,7 @@ jobs:
 
       - name: upload cargo-fix.zip artifact for use in PR
         if: ${{ env.UPDATES == 'true' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: cargo-fix
           path: cargo-fix.zip
@@ -158,12 +158,12 @@ jobs:
           private-key: ${{ secrets.OMNICLI_PRIVATE_KEY }}
 
       - name: Checkout commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Download cargo-fix.zip from update job
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: cargo-fix
 
