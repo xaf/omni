@@ -12,7 +12,6 @@ use std::process::Command as ProcessCommand;
 
 use itertools::Itertools;
 use md5::Md5;
-use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
@@ -421,26 +420,6 @@ impl UpConfigGithubReleases {
 
 // Helper functions for compote parsing
 
-fn compote_get_bool<S: compote::CustomSource, L: compote::CustomLevel>(
-    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
-    key: &str,
-    default: bool,
-    tracker: &mut compote::ErrorTracker,
-) -> bool {
-    map.get(key)
-        .map(|v| {
-            if let compote::ContextValue::Bool(b, _) = v {
-                *b
-            } else {
-                tracker.push_field(key);
-                tracker.record_type_mismatch("boolean", v.type_name());
-                tracker.pop();
-                default
-            }
-        })
-        .unwrap_or(default)
-}
-
 fn compote_get_optional_string<S: compote::CustomSource, L: compote::CustomLevel>(
     map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
     key: &str,
@@ -458,6 +437,38 @@ fn compote_get_optional_string<S: compote::CustomSource, L: compote::CustomLevel
     })
 }
 
+/// Pre-deserialization transform for repository field.
+/// Converts `{owner: "x", name: "y"}` objects into `"x/y"` strings.
+/// Passes through string values unchanged.
+fn transform_repository<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &mut compote::ContextValue<S, L>,
+    _context: &compote::Context<S, L>,
+) -> Result<(), compote::Error> {
+    if let compote::ContextValue::Object(ref map, _) = value {
+        let owner = map.get("owner").and_then(|v| {
+            if let compote::ContextValue::String(s, _) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        });
+        let name = map.get("name").and_then(|v| {
+            if let compote::ContextValue::String(s, _) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        });
+        if let (Some(owner), Some(name)) = (owner, name) {
+            *value = compote::ContextValue::string(
+                format!("{}/{}", owner, name),
+                value.context().clone(),
+            );
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum GithubReleaseHandled {
     Handled,
@@ -465,10 +476,16 @@ pub enum GithubReleaseHandled {
     Unhandled,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, compote::Config)]
+#[compote(
+    scalar_as = "repository",
+    skip_serialize,
+    allow_map(key = "repository", scalar_as = "version"),
+)]
 pub struct UpConfigGithubRelease {
     /// The repository to install the tool from, should
     /// be in the format `owner/repo`
+    #[compote(alias = "repo", transform = "crate::internal::config::up::github_release::transform_repository")]
     pub repository: String,
 
     /// The version of the tool to install
@@ -478,16 +495,19 @@ pub struct UpConfigGithubRelease {
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default)]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default)]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default)]
     pub build: bool,
 
     /// Whether to only install immutable releases. When set to true,
@@ -495,6 +515,7 @@ pub struct UpConfigGithubRelease {
     /// When set to false (default), both immutable and non-immutable
     /// releases are accepted.
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[compote(default)]
     pub immutable: bool,
 
     /// Whether to install a file that is not currently in an
@@ -504,6 +525,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_true",
         skip_serializing_if = "cache_utils::is_true"
     )]
+    #[compote(default = "true")]
     pub binary: bool,
 
     /// The name of the asset to download from the release. All
@@ -512,6 +534,7 @@ pub struct UpConfigGithubRelease {
     /// patterns, e.g. `*.tar.gz` or `special-asset-*`. If not
     /// set, will be similar as being set to `*`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[compote(allow_single)]
     pub asset_name: Vec<AssetNameMatcher>,
 
     /// Whether to skip the OS matching when downloading the
@@ -521,6 +544,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
+    #[compote(default)]
     pub skip_os_matching: bool,
 
     /// Whether to skip the architecture matching when downloading
@@ -530,6 +554,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
+    #[compote(default)]
     pub skip_arch_matching: bool,
 
     /// Whether to prefer the 'dist' assets over the 'bin' assets.
@@ -538,6 +563,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
+    #[compote(default)]
     pub prefer_dist: bool,
 
     /// The URL of the GitHub API; this is only required if downloading
@@ -555,6 +581,7 @@ pub struct UpConfigGithubRelease {
         default,
         skip_serializing_if = "GithubReleaseChecksumConfig::is_default"
     )]
+    #[compote(default)]
     pub checksum: GithubReleaseChecksumConfig,
 
     /// The authentication configuration for this specific
@@ -565,23 +592,29 @@ pub struct UpConfigGithubRelease {
         with = "serde_yaml::with::singleton_map",
         skip_serializing_if = "GithubAuthConfig::is_default"
     )]
+    #[compote(default)]
     pub auth: GithubAuthConfig,
 
     /// Environment variables to set when using this release
     #[serde(default, skip_serializing_if = "EnvConfig::is_empty")]
+    #[compote(default)]
     pub env: EnvConfig,
 
     /// A list of directories to make the release available for
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    #[compote(rename = "dir", allow_single, transform_each = "normalize_path")]
     pub dirs: BTreeSet<String>,
 
     #[serde(default, skip)]
+    #[compote(skip)]
     actual_version: OnceCell<String>,
 
     #[serde(default, skip)]
+    #[compote(skip)]
     actual_metadata: RefCell<Option<ReleaseMetadata>>,
 
     #[serde(default, skip)]
+    #[compote(skip)]
     was_handled: OnceCell<GithubReleaseHandled>,
 }
 
@@ -2157,235 +2190,6 @@ impl UpConfigGithubRelease {
         }
 
         env_vars
-    }
-}
-
-impl compote::AllowMapKeys for UpConfigGithubRelease {
-    fn map_key_fields() -> &'static [&'static str] {
-        &["repository", "repo"]
-    }
-}
-
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigGithubRelease {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        // Handle string case - just a repository name
-        if let compote::ContextValue::String(repository, _) = value {
-            return Ok(Self {
-                repository: repository.clone(),
-                ..Self::default()
-            });
-        }
-
-        // Handle object case
-        if let compote::ContextValue::Object(map, _) = value {
-            // Extract repository
-            let repository = if let Some(repo_value) = ["repository", "repo"]
-                .iter()
-                .find_map(|key| map.get(*key))
-            {
-                // Check if repository is a table with owner and name
-                if let compote::ContextValue::Object(repo_map, _) = repo_value {
-                    tracker.push_field("repository");
-                    let owner = if let Some(owner_val) = repo_map.get("owner") {
-                        if let compote::ContextValue::String(s, _) = owner_val {
-                            s.clone()
-                        } else {
-                            tracker.push_field("owner");
-                            tracker.record_type_mismatch("string", owner_val.type_name());
-                            tracker.pop();
-                            String::new()
-                        }
-                    } else {
-                        tracker.push_field("owner");
-                        tracker.record_invalid_value("missing key");
-                        tracker.pop();
-                        String::new()
-                    };
-
-                    let name = if let Some(name_val) = repo_map.get("name") {
-                        if let compote::ContextValue::String(s, _) = name_val {
-                            s.clone()
-                        } else {
-                            tracker.push_field("name");
-                            tracker.record_type_mismatch("string", name_val.type_name());
-                            tracker.pop();
-                            String::new()
-                        }
-                    } else {
-                        tracker.push_field("name");
-                        tracker.record_invalid_value("missing key");
-                        tracker.pop();
-                        String::new()
-                    };
-                    tracker.pop();
-
-                    format!("{}/{}", owner, name)
-                } else if let compote::ContextValue::String(s, _) = repo_value {
-                    s.clone()
-                } else {
-                    tracker.push_field("repository");
-                    tracker.record_type_mismatch("string or object", repo_value.type_name());
-                    tracker.pop();
-                    String::new()
-                }
-            } else if map.len() == 1 {
-                // Single key-value pair where key is repository and value is version
-                let (key, val) = map.iter().next().unwrap();
-                if let compote::ContextValue::String(_, _) = val {
-                    key.clone()
-                } else if let compote::ContextValue::Object(_, _) = val {
-                    key.clone()
-                } else if matches!(val, compote::ContextValue::Null(_)) {
-                    key.clone()
-                } else {
-                    tracker.push_field("repository");
-                    tracker.record_invalid_value("missing key");
-                    tracker.pop();
-                    String::new()
-                }
-            } else {
-                tracker.push_field("repository");
-                tracker.record_invalid_value("missing key");
-                tracker.pop();
-                String::new()
-            };
-
-            if repository.is_empty() {
-                tracker.push_field("repository");
-                tracker.record_invalid_value("empty value");
-                tracker.pop();
-            }
-
-            // Determine which map to extract fields from:
-            // - If map.len() == 1 and the single key is NOT "repository"/"repo", and the value is an Object,
-            //   extract fields from that nested object
-            // - Otherwise, extract fields from the outer map
-            let has_repository_key = ["repository", "repo"].iter().any(|key| map.contains_key(*key));
-            let nested_map: Option<&indexmap::IndexMap<String, compote::ContextValue<S, L>>> = if !has_repository_key && map.len() == 1 {
-                let (_, val) = map.iter().next().unwrap();
-                if let compote::ContextValue::Object(nested, _) = val {
-                    Some(nested)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            // Use nested map if available, otherwise use outer map
-            let field_map = nested_map.unwrap_or(map);
-
-            // Extract version
-            let version = compote_get_optional_string(field_map, "version", tracker);
-
-            // Special case for single key-value where value is version string (only when key is not "repository"/"repo")
-            let version = if version.is_none() && map.len() == 1 && !has_repository_key && nested_map.is_none() {
-                let (_, val) = map.iter().next().unwrap();
-                if let compote::ContextValue::String(s, _) = val {
-                    Some(s.clone())
-                } else {
-                    version
-                }
-            } else {
-                version
-            };
-
-            // Extract boolean fields with defaults using helper function
-            let upgrade = compote_get_bool(field_map, "upgrade", false, tracker);
-            let prerelease = compote_get_bool(field_map, "prerelease", false, tracker);
-            let build = compote_get_bool(field_map, "build", false, tracker);
-            let binary = compote_get_bool(field_map, "binary", true, tracker);
-            let immutable = compote_get_bool(field_map, "immutable", false, tracker);
-            let skip_os_matching = compote_get_bool(field_map, "skip_os_matching", false, tracker);
-            let skip_arch_matching = compote_get_bool(field_map, "skip_arch_matching", false, tracker);
-            let prefer_dist = compote_get_bool(field_map, "prefer_dist", false, tracker);
-
-            // Extract api_url
-            let api_url = compote_get_optional_string(field_map, "api_url", tracker);
-
-            // Extract asset_name
-            let asset_name = if let Some(asset_name_val) = field_map.get("asset_name") {
-                tracker.push_field("asset_name");
-                let result = AssetNameMatcher::from_context_value_multi(asset_name_val, tracker);
-                tracker.pop();
-                result
-            } else {
-                vec![]
-            };
-
-            // Extract checksum
-            let checksum = if let Some(checksum_val) = field_map.get("checksum") {
-                tracker.push_field("checksum");
-                let result = <GithubReleaseChecksumConfig as compote::FromContextValue<S, L>>::from_context_value(checksum_val, tracker)
-                    .unwrap_or_default();
-                tracker.pop();
-                result
-            } else {
-                GithubReleaseChecksumConfig::default()
-            };
-
-            // Extract auth - use old from_context_value for now
-            let auth = GithubAuthConfig::default();
-
-            // Extract env - already uses compote
-            let env = if let Some(env_val) = field_map.get("env") {
-                tracker.push_field("env");
-                let result = <EnvConfig as compote::FromContextValue<S, L>>::from_context_value(env_val, tracker).unwrap_or_default();
-                tracker.pop();
-                result
-            } else {
-                EnvConfig::default()
-            };
-
-            // Extract dirs
-            let dirs = if let Some(dirs_val) = field_map.get("dir") {
-                if let compote::ContextValue::Array(arr, _) = dirs_val {
-                    arr.iter()
-                        .filter_map(|v| {
-                            if let compote::ContextValue::String(s, _) = v {
-                                Some(PathBuf::from(s).normalize().to_string_lossy().to_string())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                } else if let compote::ContextValue::String(s, _) = dirs_val {
-                    vec![PathBuf::from(s).normalize().to_string_lossy().to_string()]
-                        .into_iter()
-                        .collect()
-                } else {
-                    BTreeSet::new()
-                }
-            } else {
-                BTreeSet::new()
-            };
-
-            return Ok(UpConfigGithubRelease {
-                repository,
-                version,
-                upgrade,
-                prerelease,
-                build,
-                binary,
-                immutable,
-                asset_name,
-                skip_os_matching,
-                skip_arch_matching,
-                prefer_dist,
-                api_url,
-                env,
-                dirs,
-                checksum,
-                auth,
-                ..UpConfigGithubRelease::default()
-            });
-        }
-
-        tracker.record_type_mismatch("string or object", value.type_name());
-        Ok(Self::default())
     }
 }
 
