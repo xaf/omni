@@ -37,10 +37,6 @@ use crate::internal::cache::GithubReleases;
 use crate::internal::config;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::EnvConfig;
-use crate::internal::config::CompoteConfigContext;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteConfigLevel;
-use crate::internal::config::CompoteConfigSource;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::parser::GithubAuthConfig;
 use crate::internal::config::template::config_template_context;
@@ -122,9 +118,26 @@ struct ReleaseMetadata {
     immutable: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, compote::Config)]
+#[compote(transparent, skip_serialize, post_process = "reorder_gh_releases")]
 pub struct UpConfigGithubReleases {
+    #[compote(default, allow_single, allow_map(key = "repository", scalar_as = "version"))]
     releases: Vec<UpConfigGithubRelease>,
+}
+
+/// Post-process: bump the "gh" tool to the front so it's installed first (needed for auth).
+fn reorder_gh_releases<S: compote::CustomSource, L: compote::CustomLevel>(
+    config: &mut UpConfigGithubReleases,
+    _source: &compote::ContextValue<S, L>,
+    _error_tracker: &mut compote::ErrorTracker,
+) -> Result<(), compote::Error> {
+    if let Some(pos) = config.releases.iter().position(|r| r.is_gh()) {
+        if pos > 0 {
+            let gh_release = config.releases.remove(pos);
+            config.releases.insert(0, gh_release);
+        }
+    }
+    Ok(())
 }
 
 impl Serialize for UpConfigGithubReleases {
@@ -408,36 +421,6 @@ impl UpConfigGithubReleases {
 
 // Helper functions for compote parsing
 
-/// Converts a generic ContextValue to the concrete CompoteConfigValue type.
-/// This is needed when we need to create new values programmatically while
-/// working with generic type parameters.
-fn convert_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &compote::ContextValue<S, L>,
-) -> CompoteConfigValue {
-    let ctx = CompoteConfigContext::new(
-        CompoteConfigSource::Programmatic,
-        CompoteConfigLevel::Local,
-    );
-    match value {
-        compote::ContextValue::Null(_) => CompoteConfigValue::null(ctx),
-        compote::ContextValue::Bool(b, _) => CompoteConfigValue::bool(*b, ctx),
-        compote::ContextValue::Int(i, _) => CompoteConfigValue::int(*i, ctx),
-        compote::ContextValue::Float(f, _) => CompoteConfigValue::float(*f, ctx),
-        compote::ContextValue::String(s, _) => CompoteConfigValue::string(s.clone(), ctx),
-        compote::ContextValue::Array(arr, _) => {
-            let converted: Vec<CompoteConfigValue> = arr.iter().map(convert_context_value).collect();
-            CompoteConfigValue::array(converted, ctx)
-        }
-        compote::ContextValue::Object(map, _) => {
-            let converted: indexmap::IndexMap<String, CompoteConfigValue> = map
-                .iter()
-                .map(|(k, v)| (k.clone(), convert_context_value(v)))
-                .collect();
-            CompoteConfigValue::object(converted, ctx)
-        }
-    }
-}
-
 fn compote_get_bool<S: compote::CustomSource, L: compote::CustomLevel>(
     map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
     key: &str,
@@ -490,111 +473,6 @@ fn compote_get_optional_bool<S: compote::CustomSource, L: compote::CustomLevel>(
             None
         }
     })
-}
-
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigGithubReleases {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        // Handle string case - single release specified as string
-        if let compote::ContextValue::String(_, _) = value {
-            tracker.push_index(0);
-            let release = <UpConfigGithubRelease as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?;
-            tracker.pop();
-            return Ok(Self {
-                releases: vec![release],
-            });
-        }
-
-        // Handle array case - multiple releases in an array
-        if let compote::ContextValue::Array(arr, _) = value {
-            let mut releases = Vec::new();
-            for (idx, elem) in arr.iter().enumerate() {
-                tracker.push_index(idx);
-                if let Ok(release) = <UpConfigGithubRelease as compote::FromContextValue<S, L>>::from_context_value(elem, tracker) {
-                    releases.push(release);
-                }
-                tracker.pop();
-            }
-            return Ok(Self { releases });
-        }
-
-        // Handle object case
-        if let compote::ContextValue::Object(map, _) = value {
-            // Check if there is a 'repository' or 'repo' key, in which case it's a single repository
-            if ["repository", "repo"]
-                .iter()
-                .any(|key| map.contains_key(*key))
-            {
-                tracker.push_field("release");
-                let release = <UpConfigGithubRelease as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?;
-                tracker.pop();
-                return Ok(Self {
-                    releases: vec![release],
-                });
-            }
-
-            // Otherwise, we have a table of repositories, where repositories are
-            // the keys and the values are the configuration for the repository
-            let mut releases = Vec::new();
-            for repo in map.keys().sorted() {
-                let repo_value = map.get(repo).expect("repo config not found");
-
-                // Create a new object with the repository key added
-                let programmatic_ctx = CompoteConfigContext::new(
-                    CompoteConfigSource::Programmatic,
-                    CompoteConfigLevel::Local,
-                );
-                let mut repo_map = if let compote::ContextValue::Object(obj, _) = repo_value {
-                    obj.iter().map(|(k, v)| (k.clone(), convert_context_value(v))).collect()
-                } else if let compote::ContextValue::String(version, _) = repo_value {
-                    let mut new_map = indexmap::IndexMap::new();
-                    new_map.insert(
-                        "version".to_string(),
-                        CompoteConfigValue::string(version.clone(), programmatic_ctx.clone()),
-                    );
-                    new_map
-                } else {
-                    indexmap::IndexMap::new()
-                };
-
-                repo_map.insert(
-                    "repository".to_string(),
-                    CompoteConfigValue::string(repo.clone(), programmatic_ctx.clone()),
-                );
-
-                let repo_config_value = CompoteConfigValue::object(repo_map, programmatic_ctx.clone());
-
-                tracker.push_field(repo);
-                if let Ok(release) = <UpConfigGithubRelease as compote::FromContextValue<CompoteConfigSource, CompoteConfigLevel>>::from_context_value(&repo_config_value, tracker) {
-                    if release.is_gh() {
-                        // Special case for the `gh` tool, bump to top
-                        releases.insert(0, release);
-                    } else {
-                        releases.push(release);
-                    }
-                }
-                tracker.pop();
-            }
-
-            if releases.is_empty() {
-                tracker.record(compote::Error::InvalidValue {
-                    message: "at least one release required".to_string(),
-                    path: tracker.current_path(),
-                });
-            }
-
-            return Ok(Self { releases });
-        }
-
-        tracker.record(compote::Error::TypeMismatch {
-            expected: "string, array, or object".to_string(),
-            actual: value.type_name().to_string(),
-            path: tracker.current_path(),
-        });
-        Ok(Self::default())
-    }
 }
 
 #[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
@@ -2296,6 +2174,12 @@ impl UpConfigGithubRelease {
         }
 
         env_vars
+    }
+}
+
+impl compote::AllowMapKeys for UpConfigGithubRelease {
+    fn map_key_fields() -> &'static [&'static str] {
+        &["repository", "repo"]
     }
 }
 

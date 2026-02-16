@@ -4,6 +4,7 @@ mod multi_from_context_value {
     use super::*;
     use compote::Config as CompoteConfig;
     use crate::internal::config::CompoteConfigContext;
+    use crate::internal::config::CompoteConfigValue;
     use crate::internal::config::CompoteErrorTracker;
     use crate::internal::config::CompoteFromConfigValue;
     use crate::internal::config::CompoteConfigLevel;
@@ -153,6 +154,7 @@ mod single_from_context_value {
     use super::*;
     use compote::Config as CompoteConfig;
     use crate::internal::config::CompoteConfigContext;
+    use crate::internal::config::CompoteConfigValue;
     use crate::internal::config::CompoteErrorTracker;
     use crate::internal::config::CompoteFromConfigValue;
     use crate::internal::config::CompoteConfigLevel;
@@ -885,6 +887,7 @@ mod immutable_filtering {
     use crate::internal::testutils::run_with_env;
     use compote::Config as CompoteConfig;
     use crate::internal::config::CompoteConfigContext;
+    use crate::internal::config::CompoteConfigValue;
     use crate::internal::config::CompoteErrorTracker;
     use crate::internal::config::CompoteFromConfigValue;
     use crate::internal::config::CompoteConfigLevel;
