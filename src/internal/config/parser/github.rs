@@ -48,27 +48,38 @@ impl GithubAuthConfigWithFilters {
     }
 }
 
-#[derive(Debug, Serialize, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, compote::Config)]
+#[compote(scalar_as = "hostname", skip_serialize)]
+pub struct GhCliConfig {
+    #[compote(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    #[compote(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, compote::Config)]
+#[compote(external_tag, skip_serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GithubAuthConfig {
-    Token(String),
-    TokenEnvVar(String),
-    #[serde(rename = "gh")]
-    GhCli {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        hostname: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        user: Option<String>,
-    },
+    #[compote(rename = "skip", variant = "skip", variant_value = true)]
     Skip(bool),
+
+    #[compote(rename = "token_env_var", variant = predicate("is_all_caps_string"))]
+    TokenEnvVar(String),
+
+    #[compote(rename = "token", variant = any_string)]
+    Token(String),
+
+    #[compote(rename = "gh", variant = "gh", variant_default)]
+    #[serde(rename = "gh")]
+    GhCli(GhCliConfig),
 }
 
 impl Default for GithubAuthConfig {
     fn default() -> Self {
-        GithubAuthConfig::GhCli {
-            hostname: None,
-            user: None,
-        }
+        GithubAuthConfig::GhCli(GhCliConfig::default())
     }
 }
 
@@ -143,118 +154,24 @@ impl StringFilter {
 // Compote FromContextValue implementations
 // ============================================================================
 //
-// StringFilter now uses #[derive(compote::Config)] with external_tag, which generates
-// FromContextValue, Serialize, AND Deserialize (via the `deserialize` flag).
+// Both StringFilter and GithubAuthConfig now use #[derive(compote::Config)] with
+// external_tag, which generates FromContextValue automatically.
 //
-// GithubAuthConfig requires manual FromContextValue due to heuristic-based string parsing
-// that can't be expressed with derive macro attributes:
-//    - Uses custom logic: all-caps strings -> TokenEnvVar, others -> Token
-//    - "skip" and "gh" are special string values
-//    - Object can have multiple keys (skip, token, token_env_var, gh)
-//    - The gh variant accepts string (hostname only) or object {hostname, user}
+// GithubAuthConfig uses:
+//   - variant = "skip" + variant_value = true: string "skip" -> Skip(true)
+//   - variant = predicate("is_all_caps_string"): ALL_CAPS strings -> TokenEnvVar
+//   - variant = any_string: other strings -> Token (wildcard, last priority)
+//   - variant = "gh" + variant_default: string "gh" -> GhCli(default)
+//   - scalar_as = "hostname" on GhCliConfig: {gh: "host"} -> GhCli { hostname: Some("host") }
+//   - external_tag map dispatch: {token: x}, {token_env_var: x}, {gh: {...}}, {skip: b}
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for GithubAuthConfig {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        match value {
-            compote::ContextValue::Null(_) => Ok(Self::default()),
-            compote::ContextValue::String(s, _) => {
-                match s.as_str() {
-                    "skip" => Ok(Self::Skip(true)),
-                    "gh" => Ok(Self::default()),
-                    _ => {
-                        // If all caps and underscores, consider it's an environment variable
-                        if s.chars().all(|c| c.is_uppercase() || c == '_') {
-                            Ok(Self::TokenEnvVar(s.clone()))
-                        } else {
-                            Ok(Self::Token(s.clone()))
-                        }
-                    }
-                }
-            }
-            compote::ContextValue::Object(table, _) => {
-                // Check for skip
-                if let Some(skip_value) = table.get("skip") {
-                    tracker.push_field("skip");
-                    match skip_value {
-                        compote::ContextValue::Bool(true, _) => {
-                            tracker.pop();
-                            return Ok(Self::Skip(true));
-                        }
-                        compote::ContextValue::Bool(false, _) => {
-                            // Continue checking other fields
-                        }
-                        _ => {
-                            tracker.record_type_mismatch("bool", skip_value.type_name());
-                        }
-                    }
-                    tracker.pop();
-                }
-
-                // Check for token_env_var
-                if let Some(token_env_var_value) = table.get("token_env_var") {
-                    tracker.push_field("token_env_var");
-                    if let compote::ContextValue::String(s, _) = token_env_var_value {
-                        tracker.pop();
-                        return Ok(Self::TokenEnvVar(s.clone()));
-                    } else {
-                        tracker.record_type_mismatch("string", token_env_var_value.type_name());
-                    }
-                    tracker.pop();
-                }
-
-                // Check for token
-                if let Some(token_value) = table.get("token") {
-                    tracker.push_field("token");
-                    if let compote::ContextValue::String(s, _) = token_value {
-                        tracker.pop();
-                        return Ok(Self::Token(s.clone()));
-                    } else {
-                        tracker.record_type_mismatch("string", token_value.type_name());
-                    }
-                    tracker.pop();
-                }
-
-                // Check for gh
-                if let Some(gh_value) = table.get("gh") {
-                    tracker.push_field("gh");
-                    let mut hostname = None;
-                    let mut user = None;
-
-                    match gh_value {
-                        compote::ContextValue::Object(gh_table, _) => {
-                            if let Some(hostname_value) = gh_table.get("hostname") {
-                                if let compote::ContextValue::String(s, _) = hostname_value {
-                                    hostname = Some(s.clone());
-                                }
-                            }
-                            if let Some(user_value) = gh_table.get("user") {
-                                if let compote::ContextValue::String(s, _) = user_value {
-                                    user = Some(s.clone());
-                                }
-                            }
-                        }
-                        compote::ContextValue::String(s, _) => {
-                            hostname = Some(s.clone());
-                        }
-                        _ => {
-                            tracker.record_type_mismatch("string or object", gh_value.type_name());
-                        }
-                    }
-                    tracker.pop();
-                    return Ok(Self::GhCli { hostname, user });
-                }
-
-                // Default
-                Ok(Self::default())
-            }
-            _ => {
-                tracker.record_type_mismatch("string or object", value.type_name());
-                Ok(Self::default())
-            }
-        }
+fn is_all_caps_string<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &compote::ContextValue<S, L>,
+) -> bool {
+    if let compote::ContextValue::String(s, _) = value {
+        !s.is_empty() && s.chars().all(|c| c.is_uppercase() || c == '_')
+    } else {
+        false
     }
 }
 

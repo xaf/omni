@@ -1045,7 +1045,7 @@ impl UpConfigGithubRelease {
                 let token = std::env::var(env_var).ok()?;
                 return Some(token);
             }
-            GithubAuthConfig::GhCli { hostname, user } => (hostname, user),
+            GithubAuthConfig::GhCli(config) => (config.hostname, config.user),
         };
 
         // If we get here, we need to use the `gh` command to get the token
