@@ -458,23 +458,6 @@ fn compote_get_optional_string<S: compote::CustomSource, L: compote::CustomLevel
     })
 }
 
-fn compote_get_optional_bool<S: compote::CustomSource, L: compote::CustomLevel>(
-    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
-    key: &str,
-    tracker: &mut compote::ErrorTracker,
-) -> Option<bool> {
-    map.get(key).and_then(|v| {
-        if let compote::ContextValue::Bool(b, _) = v {
-            Some(*b)
-        } else {
-            tracker.push_field(key);
-            tracker.record_type_mismatch("boolean", v.type_name());
-            tracker.pop();
-            None
-        }
-    })
-}
-
 #[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum GithubReleaseHandled {
     Handled,
@@ -2406,7 +2389,8 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default, compote::Config)]
+#[compote(scalar_as = "value", skip_serialize)]
 pub struct GithubReleaseChecksumConfig {
     /// Whether checksum verification is enabled; if set to
     /// `false`, checksum verification will be skipped.
@@ -2435,6 +2419,7 @@ pub struct GithubReleaseChecksumConfig {
     /// The name of the asset containing the checksum value to
     /// compare against the downloaded release assets.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[compote(allow_single)]
     asset_name: Vec<AssetNameMatcher>,
 }
 
@@ -2460,52 +2445,6 @@ impl GithubReleaseChecksumConfig {
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for GithubReleaseChecksumConfig {
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        // Handle string case - just a checksum value
-        if let compote::ContextValue::String(s, _) = value {
-            return Ok(Self {
-                value: Some(s.clone()),
-                ..Self::default()
-            });
-        }
-
-        // Handle object case
-        if let compote::ContextValue::Object(map, _) = value {
-            let enabled = compote_get_optional_bool(map, "enabled", tracker);
-            let required = compote_get_optional_bool(map, "required", tracker);
-
-            let algorithm = compote_get_optional_string(map, "algorithm", tracker)
-                .and_then(|s| GithubReleaseChecksumAlgorithm::from_str(&s));
-
-            let value = compote_get_optional_string(map, "value", tracker);
-
-            let asset_name = if let Some(asset_name_val) = map.get("asset_name") {
-                tracker.push_field("asset_name");
-                let result = AssetNameMatcher::from_context_value_multi(asset_name_val, tracker);
-                tracker.pop();
-                result
-            } else {
-                vec![]
-            };
-
-            return Ok(GithubReleaseChecksumConfig {
-                enabled,
-                required,
-                algorithm,
-                value,
-                asset_name,
-            });
-        }
-
-        tracker.record_type_mismatch("string or object", value.type_name());
-        Ok(Self::default())
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 enum GithubReleaseChecksumAlgorithm {
     #[serde(rename = "md5")]
@@ -2526,6 +2465,44 @@ impl std::fmt::Display for GithubReleaseChecksumAlgorithm {
     }
 }
 
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for GithubReleaseChecksumAlgorithm
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        if let compote::ContextValue::String(s, _) = value {
+            match s.to_lowercase().as_str() {
+                "md5" => Ok(Self::Md5),
+                "sha1" => Ok(Self::Sha1),
+                "sha256" => Ok(Self::Sha256),
+                "sha384" => Ok(Self::Sha384),
+                "sha512" => Ok(Self::Sha512),
+                _ => {
+                    let err = compote::Error::InvalidValue {
+                        path: tracker.current_path(),
+                        message: format!(
+                            "unknown checksum algorithm '{}', expected one of: md5, sha1, sha256, sha384, sha512",
+                            s
+                        ),
+                    };
+                    tracker.record(err.clone());
+                    Err(err)
+                }
+            }
+        } else {
+            let err = compote::Error::TypeMismatch {
+                path: tracker.current_path(),
+                expected: "string".to_string(),
+                actual: value.type_name().to_string(),
+            };
+            tracker.record(err.clone());
+            Err(err)
+        }
+    }
+}
+
 impl GithubReleaseChecksumAlgorithm {
     pub fn from_hash(hash: &str) -> Option<Self> {
         match hash.len() {
@@ -2534,17 +2511,6 @@ impl GithubReleaseChecksumAlgorithm {
             64 => Some(GithubReleaseChecksumAlgorithm::Sha256),
             96 => Some(GithubReleaseChecksumAlgorithm::Sha384),
             128 => Some(GithubReleaseChecksumAlgorithm::Sha512),
-            _ => None,
-        }
-    }
-
-    pub fn from_str(algorithm: &str) -> Option<Self> {
-        match algorithm.to_lowercase().as_str() {
-            "md5" => Some(GithubReleaseChecksumAlgorithm::Md5),
-            "sha1" => Some(GithubReleaseChecksumAlgorithm::Sha1),
-            "sha256" => Some(GithubReleaseChecksumAlgorithm::Sha256),
-            "sha384" => Some(GithubReleaseChecksumAlgorithm::Sha384),
-            "sha512" => Some(GithubReleaseChecksumAlgorithm::Sha512),
             _ => None,
         }
     }
@@ -2608,6 +2574,21 @@ pub struct AssetNameMatcher {
     /// This is set programmatically to indicate this matcher did not match the os or architecture
     #[serde(skip)]
     disabled: bool,
+}
+
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for AssetNameMatcher
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        Self::from_context_value_unit(value, tracker).ok_or_else(|| compote::Error::TypeMismatch {
+            path: tracker.current_path(),
+            expected: "string, array, or object".to_string(),
+            actual: value.type_name().to_string(),
+        })
+    }
 }
 
 impl AssetNameMatcher {
