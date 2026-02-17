@@ -150,7 +150,11 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         value: &compote::ContextValue<S, L>,
         errors: &mut compote::ErrorTracker,
     ) -> Result<Self, compote::Error> {
-        let mut backend = UpConfigMise::compote_from_context_value("python", Some(value), errors);
+        // Create backend using FromContextValue, then set the tool name and process it
+        let mut backend: UpConfigMise =
+            compote::FromContextValue::from_context_value(value, errors)?;
+        backend.requested_tool = "python".to_string();
+        backend.process_from_tag();
         backend.add_detect_version_func(detect_version_from_pyproject_toml);
         backend.add_post_install_func(setup_python_venv);
         backend.add_post_install_func(setup_python_requirements);

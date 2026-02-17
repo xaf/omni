@@ -61,8 +61,8 @@ impl UpConfigNodejsParams {
 /// - Node.js specific params (install_engines, install_packages)
 ///
 /// Note: This struct requires a manual FromContextValue implementation because
-/// the backend is created using UpConfigMise::compote_from_context_value() with
-/// a specific tool name, which cannot be expressed with derive macro attributes.
+/// the backend is created using UpConfigMise's FromContextValue with a specific
+/// tool name, which cannot be expressed with derive macro attributes.
 #[derive(Debug, Clone)]
 pub struct UpConfigNodejs {
     pub backend: UpConfigMise,
@@ -114,9 +114,11 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         // Parse params using the derived FromContextValue implementation
         let params = <UpConfigNodejsParams as compote::FromContextValue<S, L>>::from_context_value(value, errors)?;
 
-        // Create backend using the compote version - this requires manual implementation
-        // because it needs to pass the tool name "node" to the mise backend
-        let mut backend = UpConfigMise::compote_from_context_value("node", Some(value), errors);
+        // Create backend using FromContextValue, then set the tool name and process it
+        let mut backend: UpConfigMise =
+            compote::FromContextValue::from_context_value(value, errors)?;
+        backend.requested_tool = "node".to_string();
+        backend.process_from_tag();
 
         backend.add_detect_version_func(detect_version_from_package_json);
         backend.add_detect_version_func(detect_version_from_nvmrc);

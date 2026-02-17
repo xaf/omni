@@ -318,8 +318,9 @@ impl UpConfig {
 // Compote FromContextValue implementation for UpConfig
 // ============================================================================
 //
-// This implementation uses native compote parsing via UpConfigTool's
-// compote_from_context_value method.
+// This implementation delegates to UpConfigTool's derived FromContextValue
+// for most cases, with special handling for int/float array elements
+// (e.g., YAML `3.2` parsed as a float) which are treated as mise tool names.
 // ============================================================================
 
 impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfig {
@@ -346,92 +347,44 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             tracker.push_index(index);
 
             match step_value {
-                // Handle object with single key: { tool_name: config }
-                compote::ContextValue::Object(map, _) => {
-                    if map.len() != 1 {
-                        tracker.record_invalid_value("expected exactly one key in tool configuration");
-                        up_errors.push(UpError::Config(format!(
-                            "invalid config for step {}: expected exactly one key",
-                            index + 1
-                        )));
-                        tracker.pop();
-                        continue;
-                    }
-
-                    let (up_name, config_value) = map.iter().next().unwrap();
-                    tracker.push_field(up_name);
-
-                    if let Some(up_config) = UpConfigTool::compote_from_context_value::<S, L>(
-                        up_name,
-                        Some(config_value),
-                        tracker,
-                    ) {
-                        steps.push(up_config);
-                    } else {
-                        up_errors.push(UpError::Config(format!(
-                            "invalid config for step {} ({})",
-                            index + 1,
-                            up_name
-                        )));
-                    }
-
-                    tracker.pop(); // pop field
-                }
-                // Handle string: just the tool name
-                compote::ContextValue::String(up_name, _) => {
-                    if let Some(up_config) = UpConfigTool::compote_from_context_value::<S, L>(
-                        up_name,
-                        None,
-                        tracker,
-                    ) {
-                        steps.push(up_config);
-                    } else {
-                        up_errors.push(UpError::Config(format!(
-                            "invalid config for step {} ({})",
-                            index + 1,
-                            up_name
-                        )));
-                    }
-                }
-                // Handle int/float as string (e.g., for version numbers used as tool names)
+                // Int/float values in the array are treated as mise tool names
+                // (e.g., YAML `3.2` parsed as a float key).
+                // These won't match any scalar variant in UpConfigTool's derived
+                // FromContextValue, so we handle them directly as Mise fallback.
                 compote::ContextValue::Int(i, _) => {
-                    let up_name = i.to_string();
-                    if let Some(up_config) = UpConfigTool::compote_from_context_value::<S, L>(
-                        &up_name,
-                        None,
-                        tracker,
-                    ) {
-                        steps.push(up_config);
-                    } else {
-                        up_errors.push(UpError::Config(format!(
-                            "invalid config for step {} ({})",
-                            index + 1,
-                            up_name
-                        )));
-                    }
+                    let mut mise = UpConfigMise::default();
+                    mise.requested_tool = i.to_string();
+                    mise.process_from_tag();
+                    steps.push(UpConfigTool::Mise(mise));
                 }
                 compote::ContextValue::Float(f, _) => {
-                    let up_name = f.to_string();
-                    if let Some(up_config) = UpConfigTool::compote_from_context_value::<S, L>(
-                        &up_name,
-                        None,
+                    let mut mise = UpConfigMise::default();
+                    mise.requested_tool = f.to_string();
+                    mise.process_from_tag();
+                    steps.push(UpConfigTool::Mise(mise));
+                }
+                // All other types (string, object) delegate to UpConfigTool's
+                // derived FromContextValue which handles external_tag dispatch
+                _ => {
+                    match <UpConfigTool as compote::FromContextValue<S, L>>::from_context_value(
+                        step_value,
                         tracker,
                     ) {
-                        steps.push(up_config);
-                    } else {
-                        up_errors.push(UpError::Config(format!(
-                            "invalid config for step {} ({})",
-                            index + 1,
-                            up_name
-                        )));
+                        Ok(mut up_config) => {
+                            // Post-process Mise fallback variants to parse
+                            // "backend:tool@version" from the injected tag
+                            if let UpConfigTool::Mise(ref mut mise) = up_config {
+                                mise.process_from_tag();
+                            }
+                            steps.push(up_config);
+                        }
+                        Err(_) => {
+                            up_errors.push(UpError::Config(format!(
+                                "invalid config for step {}",
+                                index + 1
+                            )));
+                        }
                     }
-                }
-                _ => {
-                    tracker.record_type_mismatch("string or object", step_value.type_name());
-                    up_errors.push(UpError::Config(format!(
-                        "invalid config for step {}: expected string or object",
-                        index + 1
-                    )));
                 }
             }
 

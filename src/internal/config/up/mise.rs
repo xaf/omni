@@ -823,11 +823,6 @@ struct MiseRegistryEntry {
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
-pub struct UpConfigMiseParams {
-    pub tool_url: Option<String>,
-}
-
-#[derive(Debug, Serialize, Clone, Default)]
 pub struct FullyQualifiedToolName {
     /// The name of the tool to install. e.g. python, rust, etc.
     tool: String,
@@ -1080,7 +1075,7 @@ impl FullyQualifiedToolName {
 pub struct UpConfigMise {
     /// The name of the tool to install.
     #[serde(skip)]
-    requested_tool: String,
+    pub(crate) requested_tool: String,
 
     /// The fully qualified name of the tool to install
     #[serde(skip)]
@@ -1210,155 +1205,20 @@ impl UpConfigMise {
         }
     }
 
-    /// Compote-based config parsing method
-    #[allow(dead_code)]
-    pub fn compote_from_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
-        tool: &str,
-        config_value: Option<&compote::ContextValue<S, L>>,
-        error_tracker: &mut compote::ErrorTracker,
-    ) -> Self {
-        Self::compote_from_context_value_with_params(
-            tool,
-            config_value,
-            UpConfigMiseParams::default(),
-            error_tracker,
-        )
-    }
-
-    /// New compote-based config parsing method with params
-    #[allow(dead_code)]
-    pub fn compote_from_context_value_with_params<S: compote::CustomSource, L: compote::CustomLevel>(
-        tool: &str,
-        config_value: Option<&compote::ContextValue<S, L>>,
-        params: UpConfigMiseParams,
-        error_tracker: &mut compote::ErrorTracker,
-    ) -> Self {
-        let mut version = "latest".to_string();
-        let mut backend = None;
-        let mut upgrade = false;
-        let mut dirs = BTreeSet::new();
-        let mut override_tool_url = None;
-
-        let (tool, backend_in_name, version_in_name) = parse_mise_name(tool);
-        if let Some(backend_in_name) = backend_in_name {
-            backend = Some(backend_in_name);
-        }
-        if let Some(version_in_name) = version_in_name {
-            version = version_in_name;
-        }
-
-        if let Some(config_value) = config_value {
-            match config_value {
-                // Handle simple string/number values for version
-                compote::ContextValue::String(s, _) => {
-                    version = s.clone();
-                }
-                compote::ContextValue::Float(f, _) => {
-                    version = f.to_string();
-                }
-                compote::ContextValue::Int(i, _) => {
-                    version = i.to_string();
-                }
-                // Handle object with fields
-                compote::ContextValue::Object(map, _) => {
-                    // Extract version
-                    if let Some(val) = map.get("version") {
-                        error_tracker.push_field("version");
-                        match val {
-                            compote::ContextValue::String(s, _) => version = s.clone(),
-                            compote::ContextValue::Float(f, _) => version = f.to_string(),
-                            compote::ContextValue::Int(i, _) => version = i.to_string(),
-                            _ => {
-                                error_tracker.record_invalid_value("version must be a string or number");
-                            }
-                        }
-                        error_tracker.pop();
-                    }
-
-                    // Extract backend
-                    if let Some(val) = map.get("backend") {
-                        error_tracker.push_field("backend");
-                        match val {
-                            compote::ContextValue::String(s, _) => backend = Some(s.clone()),
-                            _ => {
-                                error_tracker.record_invalid_value("backend must be a string");
-                            }
-                        }
-                        error_tracker.pop();
-                    }
-
-                    // Extract dir array
-                    if let Some(val) = map.get("dir") {
-                        error_tracker.push_field("dir");
-                        match val {
-                            compote::ContextValue::Array(arr, _) => {
-                                for (idx, item) in arr.iter().enumerate() {
-                                    error_tracker.push_index(idx);
-                                    match item {
-                                        compote::ContextValue::String(s, _) => {
-                                            dirs.insert(
-                                                PathBuf::from(s)
-                                                    .normalize()
-                                                    .to_string_lossy()
-                                                    .to_string(),
-                                            );
-                                        }
-                                        _ => {
-                                            error_tracker.record_invalid_value("dir array must contain only strings");
-                                        }
-                                    }
-                                    error_tracker.pop();
-                                }
-                            }
-                            _ => {
-                                error_tracker.record_invalid_value("dir must be an array");
-                            }
-                        }
-                        error_tracker.pop();
-                    }
-
-                    // Extract url
-                    if let Some(val) = map.get("url") {
-                        error_tracker.push_field("url");
-                        match val {
-                            compote::ContextValue::String(s, _) => override_tool_url = Some(s.clone()),
-                            _ => {
-                                error_tracker.record_invalid_value("url must be a string");
-                            }
-                        }
-                        error_tracker.pop();
-                    }
-
-                    // Extract upgrade
-                    if let Some(val) = map.get("upgrade") {
-                        error_tracker.push_field("upgrade");
-                        match val {
-                            compote::ContextValue::Bool(b, _) => upgrade = *b,
-                            _ => {
-                                error_tracker.record_invalid_value("upgrade must be a boolean");
-                            }
-                        }
-                        error_tracker.pop();
-                    }
-                }
-                _ => {
-                    error_tracker.record_invalid_value("config value must be a string, number, or object");
-                }
+    /// Process the requested_tool field that was injected via from_tag.
+    /// Parses "backend:tool@version" format and updates fields accordingly.
+    pub fn process_from_tag(&mut self) {
+        let (tool, backend_in_name, version_in_name) = parse_mise_name(&self.requested_tool);
+        self.requested_tool = tool;
+        if let Some(b) = backend_in_name {
+            if self.backend.is_none() {
+                self.backend = Some(b);
             }
         }
-
-        UpConfigMise {
-            requested_tool: tool.to_string(),
-            tool_url: params.tool_url.clone(),
-            override_tool_url,
-            version,
-            backend,
-            upgrade,
-            dirs,
-            // Note: config_value is not stored as it would require the struct to be generic
-            // The config_value was only used for post-install functions which can work without it
-            config_value: None,
-            ..UpConfigMise::default()
+        if let Some(v) = version_in_name {
+            if self.version == "latest" {
+                self.version = v;
+            }
         }
     }
 
@@ -2462,6 +2322,144 @@ fn detect_version_from_mise(tool_name: String, path: PathBuf) -> Option<String> 
             Some(version)
         }
         Err(_err) => None,
+    }
+}
+
+// ============================================================================
+// Compote FromContextValue implementation for UpConfigMise
+// ============================================================================
+
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for UpConfigMise
+{
+    fn from_context_value(
+        value: &compote::ContextValue<S, L>,
+        tracker: &mut compote::ErrorTracker,
+    ) -> Result<Self, compote::Error> {
+        let mut version = "latest".to_string();
+        let mut backend = None;
+        let mut upgrade = false;
+        let mut dirs = BTreeSet::new();
+        let mut override_tool_url = None;
+
+        match value {
+            // Handle simple string/number values for version
+            compote::ContextValue::String(s, _) => {
+                version = s.clone();
+            }
+            compote::ContextValue::Float(f, _) => {
+                version = f.to_string();
+            }
+            compote::ContextValue::Int(i, _) => {
+                version = i.to_string();
+            }
+            compote::ContextValue::Null(_) => {
+                // Keep defaults
+            }
+            // Handle object with fields
+            compote::ContextValue::Object(map, _) => {
+                // Extract version
+                if let Some(val) = map.get("version") {
+                    tracker.push_field("version");
+                    match val {
+                        compote::ContextValue::String(s, _) => version = s.clone(),
+                        compote::ContextValue::Float(f, _) => version = f.to_string(),
+                        compote::ContextValue::Int(i, _) => version = i.to_string(),
+                        _ => {
+                            tracker.record_invalid_value(
+                                "version must be a string or number",
+                            );
+                        }
+                    }
+                    tracker.pop();
+                }
+
+                // Extract backend
+                if let Some(val) = map.get("backend") {
+                    tracker.push_field("backend");
+                    match val {
+                        compote::ContextValue::String(s, _) => backend = Some(s.clone()),
+                        _ => {
+                            tracker.record_invalid_value("backend must be a string");
+                        }
+                    }
+                    tracker.pop();
+                }
+
+                // Extract dir array
+                if let Some(val) = map.get("dir") {
+                    tracker.push_field("dir");
+                    match val {
+                        compote::ContextValue::Array(arr, _) => {
+                            for (idx, item) in arr.iter().enumerate() {
+                                tracker.push_index(idx);
+                                match item {
+                                    compote::ContextValue::String(s, _) => {
+                                        dirs.insert(
+                                            PathBuf::from(s)
+                                                .normalize()
+                                                .to_string_lossy()
+                                                .to_string(),
+                                        );
+                                    }
+                                    _ => {
+                                        tracker.record_invalid_value(
+                                            "dir array must contain only strings",
+                                        );
+                                    }
+                                }
+                                tracker.pop();
+                            }
+                        }
+                        _ => {
+                            tracker.record_invalid_value("dir must be an array");
+                        }
+                    }
+                    tracker.pop();
+                }
+
+                // Extract url
+                if let Some(val) = map.get("url") {
+                    tracker.push_field("url");
+                    match val {
+                        compote::ContextValue::String(s, _) => {
+                            override_tool_url = Some(s.clone())
+                        }
+                        _ => {
+                            tracker.record_invalid_value("url must be a string");
+                        }
+                    }
+                    tracker.pop();
+                }
+
+                // Extract upgrade
+                if let Some(val) = map.get("upgrade") {
+                    tracker.push_field("upgrade");
+                    match val {
+                        compote::ContextValue::Bool(b, _) => upgrade = *b,
+                        _ => {
+                            tracker.record_invalid_value("upgrade must be a boolean");
+                        }
+                    }
+                    tracker.pop();
+                }
+            }
+            _ => {
+                tracker.record_type_mismatch("string, number, or object", value.type_name());
+            }
+        }
+
+        Ok(UpConfigMise {
+            // requested_tool will be set by from_tag at the enum level, or
+            // manually by callers like UpConfigNodejs/UpConfigPython
+            requested_tool: String::new(),
+            override_tool_url,
+            version,
+            backend,
+            upgrade,
+            dirs,
+            ..UpConfigMise::default()
+        })
     }
 }
 
