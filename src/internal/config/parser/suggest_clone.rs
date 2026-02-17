@@ -205,6 +205,12 @@ pub enum SuggestCloneTypeEnum {
     Worktree,
 }
 
+impl Default for SuggestCloneTypeEnum {
+    fn default() -> Self {
+        Self::Package
+    }
+}
+
 impl FromStr for SuggestCloneTypeEnum {
     type Err = String;
 
@@ -217,11 +223,31 @@ impl FromStr for SuggestCloneTypeEnum {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+/// Transform function that converts a String ContextValue into an Array ContextValue
+/// using shell_words::split(), enabling Vec<String> deserialization from a shell command string.
+fn shell_words_transform<S: compote::CustomSource, L: compote::CustomLevel>(
+    value: &mut compote::ContextValue<S, L>,
+    _context: &compote::Context<S, L>,
+) -> Result<(), compote::Error> {
+    if let compote::ContextValue::String(s, ctx) = value {
+        let words = shell_words::split(s).unwrap_or_default();
+        let arr = words
+            .into_iter()
+            .map(|w| compote::ContextValue::string(w, ctx.clone()))
+            .collect();
+        *value = compote::ContextValue::array(arr, ctx.clone());
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Clone, compote::Config)]
+#[compote(scalar_as = "handle", skip_serialize)]
 pub struct SuggestCloneRepositoryConfig {
     pub handle: String,
+    #[compote(default, transform = "crate::internal::config::parser::suggest_clone::shell_words_transform")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    #[compote(default)]
     pub clone_type: SuggestCloneTypeEnum,
 }
 
@@ -289,90 +315,6 @@ fn select_local_scope<S: compote::CustomSource, L: compote::CustomLevel>(
 //         })
 //     }
 // }
-
-// ==========================================================================
-// CANNOT CONVERT TO DERIVE MACRO - TECHNICAL LIMITATION
-// ==========================================================================
-//
-// SuggestCloneRepositoryConfig requires manual FromContextValue because:
-//
-// 1. **Custom shell word parsing**: The `args` field uses `shell_words::split()`
-//    to parse a string into a Vec<String>. Compote's derive macro doesn't
-//    support custom transform functions that change types (String -> Vec<String>).
-//
-// 2. **Scalar-as-object pattern**: The struct accepts both a simple string
-//    (interpreted as handle only) and an object. While `#[compote(scalar_as)]`
-//    exists, combining it with the shell_words transform isn't possible.
-//
-// To convert this, compote would need either:
-// - A `transform_parse = "shell_words"` attribute for shell word splitting
-// - Or a way to specify type-changing transforms (String input -> Vec output)
-// ==========================================================================
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
-    for SuggestCloneRepositoryConfig
-{
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        // Can be a simple string (handle only) or a table
-        match value {
-            compote::ContextValue::String(s, _) => Ok(Self {
-                handle: s.clone(),
-                args: vec![],
-                clone_type: SuggestCloneTypeEnum::Package,
-            }),
-            compote::ContextValue::Object(table, _) => {
-                // handle is required
-                let handle = if let Some(v) = table.get("handle") {
-                    tracker.push_field("handle");
-                    let result = String::from_context_value(v, tracker)?;
-                    tracker.pop();
-                    result
-                } else {
-                    tracker.push_field("handle");
-                    let path = tracker.current_path();
-                    tracker.pop();
-                    return Err(compote::Error::MissingField { path });
-                };
-
-                // args is optional, parse shell words from string
-                let args = if let Some(v) = table.get("args") {
-                    tracker.push_field("args");
-                    let args_str = String::from_context_value(v, tracker)?;
-                    tracker.pop();
-                    shell_words::split(&args_str).unwrap_or_default()
-                } else {
-                    vec![]
-                };
-
-                // clone_type is optional, defaults to Package
-                let clone_type = if let Some(v) = table.get("clone_type") {
-                    tracker.push_field("clone_type");
-                    let result =
-                        <SuggestCloneTypeEnum as compote::FromContextValue<S, L>>::from_context_value(
-                            v, tracker,
-                        )?;
-                    tracker.pop();
-                    result
-                } else {
-                    SuggestCloneTypeEnum::Package
-                };
-
-                Ok(Self {
-                    handle,
-                    args,
-                    clone_type,
-                })
-            }
-            _ => Err(compote::Error::TypeMismatch {
-                expected: "string or table".to_string(),
-                actual: value.type_name().to_string(),
-                path: tracker.current_path(),
-            }),
-        }
-    }
-}
 
 // ==========================================================================
 // CANNOT CONVERT TO DERIVE MACRO - TECHNICAL LIMITATION
