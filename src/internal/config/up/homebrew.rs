@@ -342,23 +342,23 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         // Extract install array
         let install = if let compote::ContextValue::Object(map, _) = value {
             if let Some(install_value) = map.get("install") {
-                HomebrewInstall::compote_from_context_value_generic(install_value, error_tracker)
+                HomebrewInstall::parse_from_context_value(install_value, error_tracker)
                     .unwrap_or_default()
             } else {
                 // Try parsing the whole value as install array
-                HomebrewInstall::compote_from_context_value_generic(value, error_tracker)
+                HomebrewInstall::parse_from_context_value(value, error_tracker)
                     .unwrap_or_default()
             }
         } else {
             // If not an object, try parsing as install array
-            HomebrewInstall::compote_from_context_value_generic(value, error_tracker)
+            HomebrewInstall::parse_from_context_value(value, error_tracker)
                 .unwrap_or_default()
         };
 
         // Extract tap array
         let tap = if let compote::ContextValue::Object(map, _) = value {
             if let Some(tap_value) = map.get("tap") {
-                HomebrewTap::compote_from_context_value_generic(tap_value, &install, error_tracker)
+                HomebrewTap::parse_from_context_value(tap_value, &install, error_tracker)
                     .unwrap_or_default()
             } else {
                 Vec::new()
@@ -689,7 +689,7 @@ impl HomebrewTap {
         taps
     }
 
-    fn compote_from_context_value_generic<S: compote::CustomSource, L: compote::CustomLevel>(
+    fn parse_from_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
         value: &compote::ContextValue<S, L>,
         installs: &[HomebrewInstall],
         error_tracker: &mut compote::ErrorTracker,
@@ -1589,7 +1589,7 @@ impl HomebrewInstall {
         }
     }
 
-    fn compote_from_context_value_generic<S: compote::CustomSource, L: compote::CustomLevel>(
+    fn parse_from_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
         value: &compote::ContextValue<S, L>,
         error_tracker: &mut compote::ErrorTracker,
     ) -> Result<Vec<Self>, compote::Error> {
