@@ -2249,16 +2249,22 @@ impl GithubReleaseChecksumConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone, compote::Config)]
+#[compote(value_matched, skip_serialize)]
 enum GithubReleaseChecksumAlgorithm {
+    #[compote(variant = "md5")]
     #[serde(rename = "md5")]
     Md5,
+    #[compote(variant = "sha1")]
     #[serde(rename = "sha1")]
     Sha1,
+    #[compote(variant = "sha256")]
     #[serde(rename = "sha256")]
     Sha256,
+    #[compote(variant = "sha384")]
     #[serde(rename = "sha384")]
     Sha384,
+    #[compote(variant = "sha512")]
     #[serde(rename = "sha512")]
     Sha512,
 }
@@ -2266,44 +2272,6 @@ enum GithubReleaseChecksumAlgorithm {
 impl std::fmt::Display for GithubReleaseChecksumAlgorithm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_str())
-    }
-}
-
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
-    for GithubReleaseChecksumAlgorithm
-{
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        if let compote::ContextValue::String(s, _) = value {
-            match s.to_lowercase().as_str() {
-                "md5" => Ok(Self::Md5),
-                "sha1" => Ok(Self::Sha1),
-                "sha256" => Ok(Self::Sha256),
-                "sha384" => Ok(Self::Sha384),
-                "sha512" => Ok(Self::Sha512),
-                _ => {
-                    let err = compote::Error::InvalidValue {
-                        path: tracker.current_path(),
-                        message: format!(
-                            "unknown checksum algorithm '{}', expected one of: md5, sha1, sha256, sha384, sha512",
-                            s
-                        ),
-                    };
-                    tracker.record(err.clone());
-                    Err(err)
-                }
-            }
-        } else {
-            let err = compote::Error::TypeMismatch {
-                path: tracker.current_path(),
-                expected: "string".to_string(),
-                actual: value.type_name().to_string(),
-            };
-            tracker.record(err.clone());
-            Err(err)
-        }
     }
 }
 
