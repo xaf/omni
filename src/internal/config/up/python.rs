@@ -8,9 +8,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteFromConfigValue;
-
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::commands::utils::abs_path;
 use crate::internal::config::global_config;
@@ -37,77 +34,48 @@ use crate::internal::user_interface::StringColor;
 const MIN_VERSION_VENV: Version = Version::new(3, 3, 0);
 // const MIN_VERSION_VIRTUALENV: Version = Version::new(2, 6, 0);
 
-#[derive(Debug, Serialize, Clone, Default)]
-pub struct UpConfigPythonParams {
-    #[serde(default, rename = "pip", skip_serializing_if = "Vec::is_empty")]
-    pip_files: Vec<String>,
-    #[serde(default, skip)]
-    pip_auto: bool,
-    #[serde(default, skip)]
-    pip_disabled: bool,
+#[derive(Debug, Clone, compote::Config)]
+#[compote(untagged, skip_serialize)]
+pub enum PipConfig {
+    #[compote(variant = false)]
+    Disabled,
+    #[compote(variant = true, variant = "auto")]
+    Auto,
+    #[compote(allow_single)]
+    Files(Vec<String>),
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
-    for UpConfigPythonParams
-{
-    fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        errors: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        let mut pip_files = Vec::new();
-        let mut pip_auto = false;
-        let mut pip_disabled = false;
-
-        // Extract the "pip" field from the object
-        if let compote::ContextValue::Object(map, _) = value {
-            if let Some(pip_value) = map.get("pip") {
-                errors.push_field("pip");
-                match pip_value {
-                    // Handle array of strings
-                    compote::ContextValue::Array(arr, _) => {
-                        for (idx, item) in arr.iter().enumerate() {
-                            match item {
-                                compote::ContextValue::String(s, _) => {
-                                    pip_files.push(s.clone());
-                                }
-                                _ => {
-                                    errors.push_index(idx);
-                                    errors.record_type_mismatch("string", item.type_name());
-                                    errors.pop();
-                                }
-                            }
-                        }
-                    }
-                    // Handle boolean
-                    compote::ContextValue::Bool(b, _) => {
-                        if *b {
-                            pip_auto = true;
-                        } else {
-                            pip_disabled = true;
-                        }
-                    }
-                    // Handle string (either "auto" or a file path)
-                    compote::ContextValue::String(s, _) => match s.as_str() {
-                        "auto" => pip_auto = true,
-                        _ => pip_files.push(s.clone()),
-                    },
-                    _ => {
-                        errors.record_type_mismatch(
-                            "string, array, or boolean",
-                            pip_value.type_name(),
-                        );
-                    }
-                }
-                errors.pop();
-            }
-        }
-
-        Ok(Self {
-            pip_files,
-            pip_auto,
-            pip_disabled,
-        })
+impl Default for PipConfig {
+    fn default() -> Self {
+        Self::Auto
     }
+}
+
+impl PipConfig {
+    fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
+    }
+}
+
+impl Serialize for PipConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        match self {
+            Self::Disabled => serializer.serialize_bool(false),
+            Self::Auto => serializer.serialize_str("auto"),
+            Self::Files(files) => files.serialize(serializer),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Clone, Default, compote::Config)]
+#[compote(skip_serialize)]
+pub struct UpConfigPythonParams {
+    #[compote(default)]
+    #[serde(default, skip_serializing_if = "PipConfig::is_auto")]
+    pub pip: PipConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -124,15 +92,8 @@ impl Serialize for UpConfigPython {
         // Serialize object into serde_json::Value
         let mut backend = serde_json::to_value(&self.backend).unwrap();
 
-        // Serialize the params object
-        let mut params = serde_json::to_value(&self.params).unwrap();
-
-        // If params.pip_auto is true, set the pip field to "auto"
-        if self.params.pip_auto {
-            params["pip"] = serde_json::Value::String("auto".to_string());
-        }
-
-        // Merge the params object into the base object
+        // Serialize the params object and merge into the base object
+        let params = serde_json::to_value(&self.params).unwrap();
         backend
             .as_object_mut()
             .unwrap()
@@ -495,21 +456,28 @@ fn setup_python_requirements(
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError> {
     let params = if let Some(config_value) = args.config_value.as_ref() {
-        let mut tracker = CompoteErrorTracker::new();
-        <UpConfigPythonParams as CompoteFromConfigValue>::from_context_value(config_value, &mut tracker)
-            .unwrap_or_default()
+        let mut tracker = compote::ErrorTracker::new();
+        <UpConfigPythonParams as compote::FromContextValue<_, _>>::from_context_value(
+            config_value,
+            &mut tracker,
+        )
+        .unwrap_or_default()
     } else {
         UpConfigPythonParams::default()
     };
 
     // If pip is disabled, skip dependency installation
-    if params.pip_disabled {
+    if matches!(params.pip, PipConfig::Disabled) {
         return Ok(());
     }
 
     // Try and detect dependencies automatically if either requested or if there
     // are no dependencies specified
-    let pip_auto = params.pip_auto || params.pip_files.is_empty();
+    let pip_files = match &params.pip {
+        PipConfig::Files(files) => files.as_slice(),
+        _ => &[],
+    };
+    let pip_auto = !matches!(params.pip, PipConfig::Files(ref f) if !f.is_empty());
 
     let tool_dirs = args
         .versions
@@ -553,7 +521,7 @@ fn setup_python_requirements(
             }
         } else {
             // Use the specified files directly
-            params.pip_files.iter().map(|f| full_path.join(f)).collect()
+            pip_files.iter().map(|f| full_path.join(f)).collect()
         };
 
         // Install dependencies from all the found files
