@@ -215,9 +215,9 @@ struct EnvVarConfig {
     value: Option<String>,
     #[compote(default = "text", rename = "type")]
     value_type: String,
-    // Source path for path resolution, injected by the transform from context metadata
-    #[compote(default, rename = "__source_path")]
-    source_path: Option<String>,
+    // Source path for path resolution, extracted from context metadata
+    #[compote(from_context = "source.file_path")]
+    source_path: Option<std::path::PathBuf>,
 }
 
 impl EnvVarConfig {
@@ -275,8 +275,7 @@ impl EnvVarConfig {
         value.map(|v| {
             if value_type == "path" {
                 if let Some(ref source_path) = self.source_path {
-                    let path = std::path::Path::new(source_path);
-                    let parent = path.parent().map(|p| p.to_string_lossy().to_string());
+                    let parent = source_path.parent().map(|p| p.to_string_lossy().to_string());
                     abs_path_from_path(v, parent.as_deref())
                         .to_string_lossy()
                         .to_string()
@@ -358,14 +357,6 @@ fn normalize_env_entry<S: compote::CustomSource, L: compote::CustomLevel>(
         "name".to_string(),
         compote::ContextValue::string(name, ctx.clone()),
     );
-
-    // Inject source path from context metadata for path resolution
-    if let Some(path) = ctx.source.file_path() {
-        obj.insert(
-            "__source_path".to_string(),
-            compote::ContextValue::string(path.to_string_lossy(), ctx.clone()),
-        );
-    }
 
     match var_value {
         compote::ContextValue::Null(_) => {

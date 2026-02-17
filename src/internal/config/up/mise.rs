@@ -1073,7 +1073,8 @@ impl FullyQualifiedToolName {
 #[derive(Debug, Serialize, Clone, Default, compote::Config)]
 #[compote(scalar_as = "version", skip_serialize)]
 pub struct UpConfigMise {
-    /// The name of the tool to install.
+    /// The name of the tool to install; injected via from_tag at
+    /// the UpConfigTool enum level for the Mise fallback variant.
     #[serde(skip)]
     #[compote(skip)]
     pub(crate) requested_tool: String,
