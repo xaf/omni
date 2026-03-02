@@ -116,7 +116,7 @@ jobs:
           writeToFile: false
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: '/tmp/binaries/**/*'
 
