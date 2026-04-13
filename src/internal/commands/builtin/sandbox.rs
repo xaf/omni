@@ -7,7 +7,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::exit;
 
-use petname::Generator;
 use petname::Petnames;
 use shell_escape::escape;
 
@@ -143,8 +142,12 @@ impl SandboxCommand {
             }
         }
 
+        let petnames = Petnames::default();
+        let namer = petnames.namer(3, "-");
+        let mut rng = rand::rng();
+        let mut names = namer.iter(&mut rng);
         for _ in 0..1000 {
-            if let Some(name) = Petnames::default().generate_one(3, "-") {
+            if let Some(name) = names.next() {
                 if !root.join(&name).exists() {
                     return Ok(name);
                 }
@@ -192,8 +195,11 @@ impl SandboxCommand {
             .to_mut()
             .retain(|word| word.starts_with(&prefix));
 
+        let namer = generator.namer(3, "-");
+        let mut rng = rand::rng();
+        let mut names = namer.iter(&mut rng);
         for _ in 0..10 {
-            let name = generator.generate_one(3, "-")?;
+            let name = names.next()?;
             let parts: Vec<_> = name.split('-').collect();
             if parts.len() != 3 {
                 break;
