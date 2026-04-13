@@ -31,7 +31,7 @@ mockito = "1.7.1"
 temp-env = "0.3.6"
 
 [dependencies]
-blake3 = "1.8.3"
+blake3 = "1.8.4"
 cfg-if = "1.0.4"
 clap = { version = "4.6.0", features = ["string"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }
@@ -49,7 +49,7 @@ imara-diff = "0.1.6"
 indicatif = "0.18.3"
 itertools = "0.14.0"
 lazy_static = "1.4.0"
-libz-sys = { version = "1.1.25", features = ["static"] }  # So we can force static linking
+libz-sys = { version = "1.1.28", features = ["static"] }  # So we can force static linking
 machine-uid = "0.5.4"
 md-5 = "0.10.6"
 nix = { version = "0.31.1", features = ["fs", "process", "signal"] }
@@ -75,7 +75,7 @@ semver = "1.0.27"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.149"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10.0" }
-toml = "1.1.0"
+toml = "1.1.2"
 sha1 = "0.10.6"
 sha2 = "0.10.9"
 shell-escape = "0.1.5"
@@ -88,7 +88,7 @@ term_cursor = "0.2.1"
 term_size = "0.3.2"
 thiserror = "2.0.18"
 time = { version = "0.3.47", features = ["macros", "serde-well-known"] }
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.51.1", features = ["full"] }
 url = "2.5.8"
 uuid = { version = "1.23.0", features = ["v4", "fast-rng"] }
 walkdir = "2.4.0"
