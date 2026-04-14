@@ -1717,7 +1717,7 @@ impl UpConfigGithubRelease {
             hasher.update(b"prefer_dist");
         }
 
-        let hash = format!("{:x}", hasher.finalize());
+        let hash = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
         let short_hash = &hash[0..8];
         Some(short_hash.to_string())
     }
@@ -2575,38 +2575,35 @@ impl GithubReleaseChecksumAlgorithm {
     }
 
     pub fn compute_file_hash(&self, path: &PathBuf) -> io::Result<String> {
-        match self {
+        let data = std::fs::read(path)?;
+        let hash_bytes: Vec<u8> = match self {
             GithubReleaseChecksumAlgorithm::Md5 => {
                 let mut hasher = Md5::new();
-                let mut file = std::fs::File::open(path)?;
-                std::io::copy(&mut file, &mut hasher)?;
-                Ok(format!("{:x}", hasher.finalize()))
+                hasher.update(&data);
+                hasher.finalize().to_vec()
             }
             GithubReleaseChecksumAlgorithm::Sha1 => {
                 let mut hasher = Sha1::new();
-                let mut file = std::fs::File::open(path)?;
-                std::io::copy(&mut file, &mut hasher)?;
-                Ok(format!("{:x}", hasher.finalize()))
+                hasher.update(&data);
+                hasher.finalize().to_vec()
             }
             GithubReleaseChecksumAlgorithm::Sha256 => {
                 let mut hasher = Sha256::new();
-                let mut file = std::fs::File::open(path)?;
-                std::io::copy(&mut file, &mut hasher)?;
-                Ok(format!("{:x}", hasher.finalize()))
+                hasher.update(&data);
+                hasher.finalize().to_vec()
             }
             GithubReleaseChecksumAlgorithm::Sha384 => {
                 let mut hasher = Sha384::new();
-                let mut file = std::fs::File::open(path)?;
-                std::io::copy(&mut file, &mut hasher)?;
-                Ok(format!("{:x}", hasher.finalize()))
+                hasher.update(&data);
+                hasher.finalize().to_vec()
             }
             GithubReleaseChecksumAlgorithm::Sha512 => {
                 let mut hasher = Sha512::new();
-                let mut file = std::fs::File::open(path)?;
-                std::io::copy(&mut file, &mut hasher)?;
-                Ok(format!("{:x}", hasher.finalize()))
+                hasher.update(&data);
+                hasher.finalize().to_vec()
             }
-        }
+        };
+        Ok(hash_bytes.iter().map(|b| format!("{:02x}", b)).collect())
     }
 }
 
