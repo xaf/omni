@@ -873,7 +873,7 @@ impl UpCommand {
         // Convert from HashSet to Vec but keep content as objects, and sort by clone_url
         let to_clone = {
             let mut to_clone = to_clone.into_iter().collect::<Vec<_>>();
-            to_clone.sort_by(|a, b| a.clone_url.to_string().cmp(&b.clone_url.to_string()));
+            to_clone.sort_by_key(|a| a.clone_url.to_string());
             to_clone
         };
 
