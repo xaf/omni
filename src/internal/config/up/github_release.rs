@@ -1717,7 +1717,11 @@ impl UpConfigGithubRelease {
             hasher.update(b"prefer_dist");
         }
 
-        let hash = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let hash = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
         let short_hash = &hash[0..8];
         Some(short_hash.to_string())
     }
