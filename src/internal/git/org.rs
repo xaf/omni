@@ -783,11 +783,9 @@ impl OrgLoader {
                             // return Some(with_score[listitem.index].abspath.to_path_buf());
                             return Some(listitem.text.into());
                         }
-                        requestty::Answer::Bool(confirmed) => {
-                            if confirmed {
-                                // println!("{}", format!("[✔] {}", with_score[0].abspath.to_str().unwrap()).green());
-                                return Some(with_score[0].abspath.to_path_buf());
-                            }
+                        requestty::Answer::Bool(confirmed) if confirmed => {
+                            // println!("{}", format!("[✔] {}", with_score[0].abspath.to_str().unwrap()).green());
+                            return Some(with_score[0].abspath.to_path_buf());
                         }
                         _ => {}
                     }

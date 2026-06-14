@@ -928,7 +928,11 @@ impl FullyQualifiedToolName {
             let plugin_name = if suffix {
                 let mut hasher = Sha256::new();
                 hasher.update(url.as_bytes());
-                let hash = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+                let hash = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>();
                 let short_hash = &hash[0..8];
 
                 // The plugin name will be the tool name with the hash appended
@@ -977,7 +981,11 @@ impl FullyQualifiedToolName {
                 // to be able to list the versions and install the tool
                 let mut hasher = Sha256::new();
                 hasher.update(url.as_bytes());
-                let hash = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+                let hash = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>();
                 let short_hash = &hash[0..8];
 
                 // The plugin name will be the tool name with the hash appended

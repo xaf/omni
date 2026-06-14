@@ -494,7 +494,7 @@ impl Command {
                 // If the configuration command is not provided by a workdir,
                 // we can trust it right away
             }
-            Command::FromPath(_) | Command::FromConfig(_) | Command::FromMakefile(_) => {
+            Command::FromPath(_) | Command::FromConfig(_) | Command::FromMakefile(_)
                 // Check if the workdir where the command is located is trusted
                 if !is_trusted_or_ask(
                     &self.source_dir(),
@@ -502,13 +502,12 @@ impl Command {
                         "Do you want to run {} provided by this directory?",
                         format!("omni {name}").light_yellow(),
                     ),
-                ) {
+                ) => {
                     omni_error!(format!(
                         "skipping running command as directory is not trusted."
                     ));
                     exit(1);
                 }
-            }
             _ => {}
         }
 

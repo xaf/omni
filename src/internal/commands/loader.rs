@@ -401,14 +401,8 @@ impl CommandLoader {
                                 vec![],
                             ));
                         }
-                        requestty::Answer::Bool(confirmed) => {
-                            if confirmed {
-                                return Some((
-                                    sub_commands[0].clone(),
-                                    sub_names[0].clone(),
-                                    vec![],
-                                ));
-                            }
+                        requestty::Answer::Bool(confirmed) if confirmed => {
+                            return Some((sub_commands[0].clone(), sub_names[0].clone(), vec![]));
                         }
                         _ => {}
                     },
@@ -512,11 +506,9 @@ impl CommandLoader {
                         requestty::Answer::ListItem(listitem) => {
                             return with_score[listitem.index].to_return(argv);
                         }
-                        requestty::Answer::Bool(confirmed) => {
-                            if confirmed {
-                                // println!("{}", format!("[✔] {}", with_score[0].abspath.to_str().unwrap()).green());
-                                return with_score[0].to_return(argv);
-                            }
+                        requestty::Answer::Bool(confirmed) if confirmed => {
+                            // println!("{}", format!("[✔] {}", with_score[0].abspath.to_str().unwrap()).green());
+                            return with_score[0].to_return(argv);
                         }
                         _ => {}
                     }
