@@ -200,13 +200,13 @@ impl PromptConfig {
             Err(err) => {
                 return Err(format!(
                     "failed to dump prompt {} as yaml: {}",
-                    &self.id, err
+                    self.id, err
                 ))
             }
         };
 
         let mut template = Tera::default();
-        let prompt_key = format!("prompt.{}", &self.id);
+        let prompt_key = format!("prompt.{}", self.id);
         if let Err(err) = template.add_raw_template(&prompt_key, yaml.as_str()) {
             return Err(tera_render_error_message(err));
         }
@@ -219,7 +219,7 @@ impl PromptConfig {
                     Err(err) => {
                         return Err(format!(
                             "failed to parse prompt {} as yaml: {}",
-                            &self.id, err
+                            self.id, err
                         ))
                     }
                 };
@@ -229,7 +229,7 @@ impl PromptConfig {
                     Some(prompt) => Ok(prompt),
                     None => Err(format!(
                         "failed to parse prompt {} from rendered template: {}",
-                        &self.id,
+                        self.id,
                         error_handler
                             .last_error()
                             .map(|err| err.message().to_string())
