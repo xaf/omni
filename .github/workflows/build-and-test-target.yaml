@@ -98,7 +98,7 @@ jobs:
           shared-key: omni-build
 
       - name: Install cross
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.5
         with:
           tool: cross
 
