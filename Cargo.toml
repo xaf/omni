@@ -37,7 +37,7 @@ clap = { version = "4.6.0", features = ["string"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }
 duct = "1.1.1"
 flate2 = "1.1.8"
-fs4 = "0.13.0"
+fs4 = "1.0.1"
 futures = "0.3.32"
 gethostname = "1.1.0"
 git-url-parse = "0.6.0"
