@@ -2008,7 +2008,7 @@ impl UpConfigMise {
 
         progress_handler.progress(format!(
             "installing {} plugin",
-            &fqtn.fully_qualified_plugin_name()
+            fqtn.fully_qualified_plugin_name()
         ));
 
         let mut mise_plugin_add = mise_async_command();
@@ -2037,7 +2037,7 @@ impl UpConfigMise {
             return Ok(());
         }
 
-        progress_handler.progress(format!("updating {} plugin", &plugin_name));
+        progress_handler.progress(format!("updating {} plugin", plugin_name));
 
         let mut mise_plugin_update = mise_async_command();
         mise_plugin_update.arg("plugins");
