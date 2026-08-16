@@ -472,10 +472,10 @@ impl ConfigValue {
                 },
                 serde_yaml::Value::Number(value) => match value.as_i64() {
                     Some(value) => return Some(value != 0),
-                    None => match value.as_f64() {
-                        Some(value) => return Some(value != 0.0),
-                        None => return None,
-                    },
+                    None => {
+                        let value = value.as_f64()?;
+                        return Some(value != 0.0);
+                    }
                 },
                 serde_yaml::Value::Sequence(_) => return None,
                 serde_yaml::Value::Mapping(_) => return None,
