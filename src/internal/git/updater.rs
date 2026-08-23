@@ -554,7 +554,7 @@ pub fn update(options: &UpdateOptions) -> (HashSet<PathBuf>, HashSet<PathBuf>) {
             }
             let current_exe = current_exe.unwrap();
 
-            for (repo_path, _updated) in results.iter() {
+            for repo_path in results.keys() {
                 let path_entry = path_entry_config(repo_path);
                 if !path_entry.is_valid() {
                     continue;

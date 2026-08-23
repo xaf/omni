@@ -129,7 +129,7 @@ impl BuiltinCommand for ConfigBootstrapCommand {
             }
             Ok(false) => {}
             Err(err) => {
-                omni_error!(format!("{}", err));
+                omni_error!(err.to_string());
                 exit(1);
             }
         }
