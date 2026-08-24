@@ -15,6 +15,7 @@ fn assert_parsed(
     assert_eq!(p.name.as_str(), exp_name);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn assert_parsed_full(
     input: &str,
     exp_scheme: Option<&str>,
@@ -261,9 +262,6 @@ fn inspect_git_url_with_paths_and_query() {
             }
         }
     }
-
-    // This test always passes - it's just for inspection
-    assert!(true);
 }
 
 mod web_url_extraction {

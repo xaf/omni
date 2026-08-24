@@ -151,7 +151,7 @@ async fn async_get_output(
             }
             Some((handler, _interactive)) = listener_manager.next() => {
                 if let Err(err) = handler().await {
-                    omni_warning!(format!("{}", err));
+                    omni_warning!(err.to_string());
                 }
             }
             Some(_) = async_timeout(&run_config) => {

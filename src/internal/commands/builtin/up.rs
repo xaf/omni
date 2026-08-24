@@ -1466,7 +1466,7 @@ impl BuiltinCommand for UpCommand {
         }
 
         if self.is_down() && (!wd.in_workdir() || !wd.has_id()) {
-            omni_info!(format!("Outside of a work directory, nothing to do."));
+            omni_info!("Outside of a work directory, nothing to do.".to_string());
             exit(0);
         }
 
@@ -1497,7 +1497,7 @@ impl BuiltinCommand for UpCommand {
         // If we get here, we're about to run the command, so make sure we
         // have a workdir id
         if let Err(err) = workdir_or_init(".") {
-            omni_error!(format!("{}", err));
+            omni_error!(err.to_string());
             exit(1);
         }
 

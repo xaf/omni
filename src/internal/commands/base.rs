@@ -503,9 +503,7 @@ impl Command {
                         format!("omni {name}").light_yellow(),
                     ),
                 ) => {
-                    omni_error!(format!(
-                        "skipping running command as directory is not trusted."
-                    ));
+                    omni_error!("skipping running command as directory is not trusted.".to_string());
                     exit(1);
                 }
             _ => {}
