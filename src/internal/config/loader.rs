@@ -33,7 +33,7 @@ lazy_static! {
     static ref CONFIG_LOADER_PER_PATH: Mutex<ConfigLoaderPerPath> = Mutex::new(ConfigLoaderPerPath::new());
 
     #[derive(Debug)]
-    static ref CONFIG_LOADER_GLOBAL: ConfigLoader = ConfigLoader::new();
+    static ref CONFIG_LOADER_GLOBAL: ConfigLoader = ConfigLoader::new_global();
 }
 
 pub const WORKDIR_CONFIG_FILES: [&str; 2] = [".omni.yaml", ".omni/config.yaml"];
@@ -108,10 +108,6 @@ pub struct ConfigLoader {
 }
 
 impl ConfigLoader {
-    fn new() -> Self {
-        Self::new_global()
-    }
-
     pub fn all_config_files() -> Vec<(String, ConfigScope)> {
         let mut config_files = vec![];
 

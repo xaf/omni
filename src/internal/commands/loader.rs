@@ -467,7 +467,7 @@ impl CommandLoader {
             && (with_score.len() < 2
                 || with_score[1].score <= config(".").command_match_skip_prompt_if.second_max)
         {
-            omni_info!(format!("{}", with_score[0].command.flat_name()), "found");
+            omni_info!(with_score[0].command.flat_name().to_string(), "found");
             return with_score[0].to_return(argv);
         }
 

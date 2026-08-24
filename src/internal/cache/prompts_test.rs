@@ -238,7 +238,7 @@ mod prompts_cache {
             let repo = "testrepo";
 
             // Test different YAML value types
-            let values = vec![
+            let values = [
                 // Array
                 serde_yaml::Value::Sequence(vec![
                     serde_yaml::Value::String("item1".to_string()),

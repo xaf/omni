@@ -166,8 +166,8 @@ mod full_git_url_parse_tests {
         let url = "https://github.com/owner/";
         let result = full_git_url_parse(url);
 
-        if result.is_err() {
-            match result.unwrap_err() {
+        if let Err(error) = result {
+            match error {
                 GitUrlError::MissingRepositoryName => (),
                 _ => panic!("Expected MissingRepositoryName error"),
             }
