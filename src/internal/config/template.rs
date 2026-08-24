@@ -89,10 +89,10 @@ pub fn render_askpass_template(context: &tera::Context) -> Result<String, tera::
     let template_str = include_str!("../../../templates/askpass.sh.tmpl");
 
     let mut template = Tera::default();
-    template.add_raw_template("askpass", template_str)?;
     template.register_filter("escape_multiline_command", filter_escape_multiline_command);
+    template.add_raw_template("askpass", template_str)?;
 
-    if let Some(template_name) = template.templates.keys().next() {
+    if let Some(template_name) = template.get_template_names().next() {
         let rendered = template.render(template_name, context)?;
         return Ok(rendered);
     }
@@ -112,7 +112,7 @@ pub fn render_config_template(
         make_partial_resolve_fn(Arc::clone(&arc_context)),
     );
 
-    if let Some(template_name) = template.templates.keys().next() {
+    if let Some(template_name) = template.get_template_names().next() {
         let rendered = template.render(template_name, context)?;
         return Ok(rendered);
     }
@@ -120,68 +120,65 @@ pub fn render_config_template(
     Ok("".to_string())
 }
 
+pub fn register_partial_resolve_placeholder(template: &mut Tera) {
+    template.register_function(
+        "partial_resolve",
+        |_args: tera::Kwargs, _state: &tera::State| tera::Value::none(),
+    );
+}
+
 pub fn make_partial_resolve_fn(
     arc_context: Arc<RwLock<tera::Context>>,
-) -> impl tera::Function + 'static {
-    Box::new(
-        move |args: &HashMap<String, serde_json::Value>| -> Result<tera::Value, tera::Error> {
-            let handle = match args.get("handle") {
-                Some(val) => match tera::from_value::<String>(val.clone()) {
-                    Ok(v) => v,
-                    Err(_) => return Err("partial_resolve: could not parse handle".into()),
-                },
-                None => return Err("partial_resolve: no handle provided".into()),
-            };
+) -> impl tera::Function<Result<tera::Value, tera::Error>> + 'static {
+    move |args: tera::Kwargs, _state: &tera::State| -> Result<tera::Value, tera::Error> {
+        let handle = args.must_get::<&str>("handle")?;
 
-            // Get the context from the arc pointer
-            let context = arc_context.read().unwrap();
+        // Get the context from the arc pointer
+        let context = arc_context.read().unwrap();
 
-            let repo_object = match context.get("repo") {
-                Some(value) => match value.as_object() {
-                    Some(value) => value,
-                    None => return Err("partial_resolve: no repo in context".into()),
-                },
-                None => return Err("partial_resolve: no repo in context".into()),
-            };
+        let repo_object = match context.get("repo") {
+            Some(value) => match value.as_map() {
+                Some(value) => value,
+                None => return Err(tera::Error::message("partial_resolve: no repo in context")),
+            },
+            None => return Err(tera::Error::message("partial_resolve: no repo in context")),
+        };
 
-            let repo_handle = match repo_object.get("handle") {
-                Some(value) => match value.as_str() {
-                    Some(value) => value,
-                    None => return Err("partial_resolve: no handle in repo".into()),
-                },
-                None => return Err("partial_resolve: no handle in repo".into()),
-            };
+        let repo_handle = repo_object
+            .iter()
+            .find(|(key, _)| key.as_str() == Some("handle"))
+            .and_then(|(_, value)| value.as_str())
+            .ok_or_else(|| tera::Error::message("partial_resolve: no handle in repo"))?;
 
-            let repo = match Repo::parse(repo_handle) {
-                Ok(repo) => repo,
-                Err(_) => return Err("partial_resolve: could not parse repo_handle".into()),
-            };
+        let repo = match Repo::parse(repo_handle) {
+            Ok(repo) => repo,
+            Err(_) => return Err(tera::Error::message("partial_resolve: could not parse repo_handle")),
+        };
 
-            match repo.partial_resolve(&handle) {
-                Ok(value) => Ok(tera::to_value(value.to_string()).unwrap()),
-                Err(_) => Ok(tera::Value::Null),
-            }
-        },
-    )
+        match repo.partial_resolve(&handle) {
+            Ok(value) => Ok(tera::Value::normal_string(&value.to_string())),
+            Err(_) => Ok(tera::Value::none()),
+        }
+    }
 }
 
 pub fn filter_escape_multiline_command(
-    value: &tera::Value,
-    options: &HashMap<String, tera::Value>,
+    value: tera::Value,
+    options: tera::Kwargs,
+    _state: &tera::State,
 ) -> Result<tera::Value, tera::Error> {
-    let value = match value {
-        tera::Value::String(value) => value,
-        tera::Value::Number(_) | tera::Value::Bool(_) => return Ok(value.clone()),
-        _ => return Err("escape_multiline_command: value is not a string".into()),
+    let value = match value.kind() {
+        tera::value::ValueKind::String => value.as_str().unwrap(),
+        tera::value::ValueKind::U64
+        | tera::value::ValueKind::I64
+        | tera::value::ValueKind::U128
+        | tera::value::ValueKind::I128
+        | tera::value::ValueKind::F64
+        | tera::value::ValueKind::Bool => return Ok(value),
+        _ => return Err(tera::Error::message("escape_multiline_command: value is not a string")),
     };
 
-    let times = match options.get("times") {
-        Some(value) => match value {
-            tera::Value::Number(value) => value.as_u64().unwrap_or(1),
-            _ => return Err("escape_multiline_command: times is not a number".into()),
-        },
-        None => 1,
-    };
+    let times = options.get::<u64>("times")?.unwrap_or(1);
 
     let mut escaped: String = value.to_string();
     for _ in 0..times {
@@ -190,5 +187,65 @@ pub fn filter_escape_multiline_command(
             .replace('\n', "\\n")
             .replace('"', "\\\"");
     }
-    Ok(tera::Value::String(escaped))
+    Ok(tera::Value::normal_string(&escaped))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn renders_documented_variables_and_conditionals() {
+        let mut template = Tera::default();
+        template
+            .add_raw_template(
+                "documented",
+                r#"{% if prompts.team == "team1" or prompts.team == "team2" %}{{ id }}|{{ root }}|{{ repo.host }}/{{ repo.org }}/{{ repo.name }}|{{ env.HOME }}{% endif %}"#,
+            )
+            .unwrap();
+
+        let mut context = tera::Context::new();
+        context.insert("id", "omni");
+        context.insert("root", "/work/omni");
+        context.insert(
+            "repo",
+            &json!({
+                "handle": "https://github.com/omnicli/omni.git",
+                "host": "github.com",
+                "org": "omnicli",
+                "name": "omni",
+            }),
+        );
+        context.insert("env", &json!({"HOME": "/home/test"}));
+        context.insert("prompts", &json!({"team": "team1"}));
+
+        assert_eq!(
+            render_config_template(&template, &context).unwrap(),
+            "omni|/work/omni|github.com/omnicli/omni|/home/test"
+        );
+    }
+
+    #[test]
+    fn partial_resolve_can_be_registered_before_template_parsing() {
+        let mut template = Tera::default();
+        register_partial_resolve_placeholder(&mut template);
+        template
+            .add_raw_template(
+                "partial_resolve",
+                r#"{{ partial_resolve(handle="other-repo") }}"#,
+            )
+            .unwrap();
+
+        let mut context = tera::Context::new();
+        context.insert(
+            "repo",
+            &json!({"handle": "https://github.com/omnicli/omni.git"}),
+        );
+
+        assert_eq!(
+            render_config_template(&template, &context).unwrap(),
+            "https://github.com/omnicli/other-repo"
+        );
+    }
 }

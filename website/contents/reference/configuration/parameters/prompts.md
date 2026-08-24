@@ -63,6 +63,6 @@ prompts:
   choices: |
     - subteam 1
     - subteam 2
-    {{% if prompts.team == "team1" %}}- subteam 3{{% endif %}}
+    {% if prompts.team == "team1" %}- subteam 3{% endif %}
   if: '{{ prompts.team == "team1" or prompts.team == "team 2" }}'
 ```

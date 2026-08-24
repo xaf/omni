@@ -103,7 +103,7 @@ impl HomebrewOperationCache {
         let should_update: bool = db
             .query_row(
                 include_str!("database/sql/homebrew_operation_should_update_homebrew.sql"),
-                params![global_config().cache.homebrew.update_expire],
+                params![global_config().cache.homebrew.update_expire as i64],
                 |row| row.get(0),
             )
             .unwrap_or(true);
@@ -167,7 +167,7 @@ impl HomebrewOperationCache {
         let should_update: bool = db
             .query_row(
                 include_str!("database/sql/homebrew_operation_should_update_tap.sql"),
-                params![tap_name, global_config().cache.homebrew.tap_update_expire],
+                params![tap_name, global_config().cache.homebrew.tap_update_expire as i64],
                 |row| row.get(0),
             )
             .unwrap_or(true);
@@ -202,7 +202,7 @@ impl HomebrewOperationCache {
                     install_name,
                     install_version,
                     is_cask,
-                    global_config().cache.homebrew.install_update_expire
+                    global_config().cache.homebrew.install_update_expire as i64
                 ],
                 |row| row.get(0),
             )
@@ -238,7 +238,7 @@ impl HomebrewOperationCache {
                     install_name,
                     install_version,
                     is_cask,
-                    global_config().cache.homebrew.install_check_expire,
+                    global_config().cache.homebrew.install_check_expire as i64,
                 ],
                 |row| row.get(0),
             )
@@ -264,7 +264,7 @@ impl HomebrewOperationCache {
             // Get the list of formulas and casks that can be deleted
             let removable_installs: Vec<DeletableHomebrewInstall> = tx.query_as(
                 include_str!("database/sql/homebrew_operation_list_removable_install.sql"),
-                params![&grace_period],
+                params![grace_period as i64],
             )?;
 
             let (install_installed, install_not_installed): (Vec<_>, Vec<_>) = removable_installs
@@ -299,7 +299,7 @@ impl HomebrewOperationCache {
             // Get the list of taps that can be deleted
             let removable_taps: Vec<DeletableHomebrewTap> = tx.query_as(
                 include_str!("database/sql/homebrew_operation_list_removable_tap.sql"),
-                params![&grace_period],
+                params![grace_period as i64],
             )?;
 
             // Partition the tapped and non-tapped ones

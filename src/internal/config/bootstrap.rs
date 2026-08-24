@@ -36,7 +36,7 @@ pub fn ensure_bootstrap() {
             ));
         }
         Err(err) => {
-            omni_error!(format!("{}", err), "config bootstrap");
+            omni_error!(err.to_string(), "config bootstrap");
             exit(1);
         }
     }

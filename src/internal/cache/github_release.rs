@@ -137,12 +137,12 @@ impl GithubReleaseOperationCache {
 
         db.execute(
             include_str!("database/sql/github_release_operation_cleanup_installed.sql"),
-            params![&config.cache.github_release.cleanup_after],
+            params![config.cache.github_release.cleanup_after as i64],
         )?;
 
         db.execute(
             include_str!("database/sql/github_release_operation_cleanup_versions.sql"),
-            params![&config.cache.github_release.versions_retention],
+            params![config.cache.github_release.versions_retention as i64],
         )?;
 
         Ok(())

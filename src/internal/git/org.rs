@@ -783,11 +783,9 @@ impl OrgLoader {
                             // return Some(with_score[listitem.index].abspath.to_path_buf());
                             return Some(listitem.text.into());
                         }
-                        requestty::Answer::Bool(confirmed) => {
-                            if confirmed {
-                                // println!("{}", format!("[✔] {}", with_score[0].abspath.to_str().unwrap()).green());
-                                return Some(with_score[0].abspath.to_path_buf());
-                            }
+                        requestty::Answer::Bool(confirmed) if confirmed => {
+                            // println!("{}", format!("[✔] {}", with_score[0].abspath.to_str().unwrap()).green());
+                            return Some(with_score[0].abspath.to_path_buf());
                         }
                         _ => {}
                     }
@@ -1110,24 +1108,21 @@ impl Org {
                 // If the repo has a password, we need to make sure it matches the org's password (if any)
                 if repo.password.is_some() && self.enforce_password {
                     let token = repo.password.clone().unwrap();
-                    if let Some(org_token) = self_url.password() {
+                    {
+                        let org_token = self_url.password()?;
                         if token != org_token {
                             return None;
                         }
-                    } else {
-                        return None;
                     }
                 }
 
                 // If the repo has a port, we need to make sure it matches the org's port (if any)
-                if repo.port.is_some() {
-                    let port = repo.port.unwrap();
-                    if let Some(org_port) = self_url.port() {
+                if let Some(port) = repo.port {
+                    {
+                        let org_port = self_url.port()?;
                         if port != org_port {
                             return None;
                         }
-                    } else {
-                        return None;
                     }
                 }
 

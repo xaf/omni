@@ -923,7 +923,11 @@ impl FullyQualifiedToolName {
             let plugin_name = if suffix {
                 let mut hasher = Sha256::new();
                 hasher.update(url.as_bytes());
-                let hash = format!("{:x}", hasher.finalize());
+                let hash = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>();
                 let short_hash = &hash[0..8];
 
                 // The plugin name will be the tool name with the hash appended
@@ -972,7 +976,11 @@ impl FullyQualifiedToolName {
                 // to be able to list the versions and install the tool
                 let mut hasher = Sha256::new();
                 hasher.update(url.as_bytes());
-                let hash = format!("{:x}", hasher.finalize());
+                let hash = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>();
                 let short_hash = &hash[0..8];
 
                 // The plugin name will be the tool name with the hash appended
@@ -1919,7 +1927,7 @@ impl UpConfigMise {
 
         progress_handler.progress(format!(
             "installing {} plugin",
-            &fqtn.fully_qualified_plugin_name()
+            fqtn.fully_qualified_plugin_name()
         ));
 
         let mut mise_plugin_add = mise_async_command();
@@ -1948,7 +1956,7 @@ impl UpConfigMise {
             return Ok(());
         }
 
-        progress_handler.progress(format!("updating {} plugin", &plugin_name));
+        progress_handler.progress(format!("updating {} plugin", plugin_name));
 
         let mut mise_plugin_update = mise_async_command();
         mise_plugin_update.arg("plugins");

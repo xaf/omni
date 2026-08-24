@@ -6,6 +6,7 @@ use tera::Tera;
 use crate::internal::cache::utils::Empty;
 use crate::internal::cache::PromptsCache;
 use crate::internal::config::template::config_template_context;
+use crate::internal::config::template::register_partial_resolve_placeholder;
 use crate::internal::config::template::render_config_template;
 use crate::internal::config::template::tera_render_error_message;
 use crate::internal::git_env;
@@ -90,6 +91,7 @@ impl PromptConfig {
         };
 
         let mut template = Tera::default();
+        register_partial_resolve_placeholder(&mut template);
         let prompt_key = format!("prompt.{}", &self.id);
         if let Err(err) = template.add_raw_template(&prompt_key, yaml.as_str()) {
             return Err(tera_render_error_message(err));

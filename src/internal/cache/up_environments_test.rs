@@ -632,7 +632,7 @@ mod up_environment {
         assert!(env.paths.is_empty());
         assert!(env.env_vars.is_empty());
         assert!(!env.config_hash.is_empty());
-        assert!(!env.config_modtimes.is_empty());
+        assert_eq!(env.config_modtimes, get_config_mod_times("."));
     }
 
     #[test]

@@ -7,6 +7,7 @@ use tera::Tera;
 
 use crate::internal::cache::utils::Empty;
 use crate::internal::config::template::config_template_context;
+use crate::internal::config::template::register_partial_resolve_placeholder;
 use crate::internal::config::template::render_config_template;
 use crate::internal::config::template::tera_render_error_message;
 use crate::internal::user_interface::colors::StringColor;
@@ -128,6 +129,7 @@ impl SuggestCloneConfig {
         }
 
         let mut template = Tera::default();
+        register_partial_resolve_placeholder(&mut template);
         if !self.template.is_empty() {
             if let Err(err) = template.add_raw_template("suggest_clone", &self.template) {
                 if !quiet {
@@ -146,7 +148,7 @@ impl SuggestCloneConfig {
             }
         }
 
-        if !template.templates.is_empty() {
+        if template.get_template_names().next().is_some() {
             match render_config_template(&template, template_context) {
                 Ok(yaml_str) => {
                     // Parse YAML string using compote
@@ -422,5 +424,43 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 path: tracker.current_path(),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn template_supports_documented_conditionals_and_partial_resolve() {
+        let config = SuggestCloneConfig {
+            template: r#"
+- {{ partial_resolve(handle="omni-example") }}
+{% if prompts.team == "team1" %}
+- {{ partial_resolve(handle="team1-tools") }}
+{% endif %}
+"#
+            .to_string(),
+            ..Default::default()
+        };
+        let mut context = Context::new();
+        context.insert(
+            "repo",
+            &json!({"handle": "https://github.com/omnicli/omni.git"}),
+        );
+        context.insert("prompts", &json!({"team": "team1"}));
+
+        let repositories = config.repositories_with_context(&context, true);
+
+        assert_eq!(repositories.len(), 2);
+        assert_eq!(
+            repositories[0].handle,
+            "https://github.com/omnicli/omni-example"
+        );
+        assert_eq!(
+            repositories[1].handle,
+            "https://github.com/omnicli/team1-tools"
+        );
     }
 }

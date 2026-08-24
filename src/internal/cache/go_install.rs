@@ -82,12 +82,12 @@ impl GoInstallOperationCache {
 
         db.execute(
             include_str!("database/sql/go_install_operation_cleanup_installed.sql"),
-            params![&config.cache.go_install.cleanup_after],
+            params![config.cache.go_install.cleanup_after as i64],
         )?;
 
         db.execute(
             include_str!("database/sql/go_install_operation_cleanup_versions.sql"),
-            params![&config.cache.go_install.versions_retention],
+            params![config.cache.go_install.versions_retention as i64],
         )?;
 
         Ok(())

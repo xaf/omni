@@ -53,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Check if pull request already exists
         env:
@@ -83,12 +83,12 @@ jobs:
 
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: '>=16.14 <20.6.0 || >=20.6.1'
+          node-version: '22'
           cache: yarn
           cache-dependency-path: 'website/yarn.lock'
 
@@ -128,7 +128,7 @@ jobs:
 
       - name: upload package.json artifact for use in PR
         if: ${{ env.PACKAGE_UPDATES == 'true' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: package-json
           path: website/package.json
@@ -136,7 +136,7 @@ jobs:
 
       - name: upload yarn.lock artifact for use in PR
         if: ${{ env.YARN_UPDATES == 'true' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: yarn-lock
           path: website/yarn.lock
@@ -159,27 +159,27 @@ jobs:
 
     steps:
       - name: Create application token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ secrets.OMNICLI_APP_ID }}
           private-key: ${{ secrets.OMNICLI_PRIVATE_KEY }}
 
       - name: Checkout commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Download package.json from update job
         if: needs.run-yarn-update.outputs.package_updates == 'true'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: package-json
           path: website/
 
       - name: Download yarn.lock from update job
         if: needs.run-yarn-update.outputs.yarn_updates == 'true'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: yarn-lock
           path: website/
@@ -343,7 +343,7 @@ jobs:
 
     steps:
       - name: Create application token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         id: app-token
         env:
           APP_ID: ${{ secrets.OMNICLI_APP_ID }}
@@ -356,7 +356,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr close \
-            --title "${{ env.PR_TITLE }}" \
+          gh pr close "${{ env.PR_BRANCH }}" \
             --comment "${{ env.PR_CLOSING_COMMENT }}" \
             --delete-branch

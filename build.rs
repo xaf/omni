@@ -15,7 +15,9 @@ fn main() {
         version
     } else {
         let now = OffsetDateTime::now_utc();
-        let format = format_description::parse("[year][month][day][hour][minute][second]").unwrap();
+        let format =
+            format_description::parse_borrowed::<1>("[year][month][day][hour][minute][second]")
+                .unwrap();
         format!("0.0.0-nogit-{}", now.format(&format).unwrap())
     };
 

@@ -401,14 +401,8 @@ impl CommandLoader {
                                 vec![],
                             ));
                         }
-                        requestty::Answer::Bool(confirmed) => {
-                            if confirmed {
-                                return Some((
-                                    sub_commands[0].clone(),
-                                    sub_names[0].clone(),
-                                    vec![],
-                                ));
-                            }
+                        requestty::Answer::Bool(confirmed) if confirmed => {
+                            return Some((sub_commands[0].clone(), sub_names[0].clone(), vec![]));
                         }
                         _ => {}
                     },
@@ -473,7 +467,7 @@ impl CommandLoader {
             && (with_score.len() < 2
                 || with_score[1].score <= config(".").command_match_skip_prompt_if.second_max)
         {
-            omni_info!(format!("{}", with_score[0].command.flat_name()), "found");
+            omni_info!(with_score[0].command.flat_name().to_string(), "found");
             return with_score[0].to_return(argv);
         }
 
@@ -512,11 +506,9 @@ impl CommandLoader {
                         requestty::Answer::ListItem(listitem) => {
                             return with_score[listitem.index].to_return(argv);
                         }
-                        requestty::Answer::Bool(confirmed) => {
-                            if confirmed {
-                                // println!("{}", format!("[✔] {}", with_score[0].abspath.to_str().unwrap()).green());
-                                return with_score[0].to_return(argv);
-                            }
+                        requestty::Answer::Bool(confirmed) if confirmed => {
+                            // println!("{}", format!("[✔] {}", with_score[0].abspath.to_str().unwrap()).green());
+                            return with_score[0].to_return(argv);
                         }
                         _ => {}
                     }

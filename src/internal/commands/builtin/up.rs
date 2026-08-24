@@ -7,10 +7,11 @@ use std::process::exit;
 use std::str::FromStr;
 
 use blake3::Hasher as Blake3Hasher;
-use imara_diff::diff;
-use imara_diff::intern::InternedInput;
 use imara_diff::Algorithm;
-use imara_diff::UnifiedDiffBuilder;
+use imara_diff::BasicLineDiffPrinter;
+use imara_diff::Diff;
+use imara_diff::InternedInput;
+use imara_diff::UnifiedDiffConfig;
 use once_cell::sync::OnceCell;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
@@ -388,12 +389,7 @@ impl UpCommand {
             let after_yaml = after_config.to_yaml().unwrap_or_default();
 
             // Prepare the unified diff
-            let input = InternedInput::new(before_yaml.as_str(), after_yaml.as_str());
-            let diff_result = diff(
-                Algorithm::Histogram,
-                &input,
-                UnifiedDiffBuilder::new(&input),
-            );
+            let diff_result = unified_diff(&before_yaml, &after_yaml);
 
             if diff_result.is_empty() {
                 // No diff, nothing to do!
@@ -514,12 +510,7 @@ impl UpCommand {
                 let after_yaml = after_config.to_yaml().unwrap_or_default();
 
                 // Prepare the unified diff
-                let input = InternedInput::new(before_yaml.as_str(), after_yaml.as_str());
-                let diff_result = diff(
-                    Algorithm::Histogram,
-                    &input,
-                    UnifiedDiffBuilder::new(&input),
-                );
+                let diff_result = unified_diff(&before_yaml, &after_yaml);
 
                 if diff_result.is_empty() {
                     // No diff, nothing to do!
@@ -874,7 +865,7 @@ impl UpCommand {
         // Convert from HashSet to Vec but keep content as objects, and sort by clone_url
         let to_clone = {
             let mut to_clone = to_clone.into_iter().collect::<Vec<_>>();
-            to_clone.sort_by(|a, b| a.clone_url.to_string().cmp(&b.clone_url.to_string()));
+            to_clone.sort_by_key(|a| a.clone_url.to_string());
             to_clone
         };
 
@@ -1467,7 +1458,7 @@ impl BuiltinCommand for UpCommand {
         }
 
         if self.is_down() && (!wd.in_workdir() || !wd.has_id()) {
-            omni_info!(format!("Outside of a work directory, nothing to do."));
+            omni_info!("Outside of a work directory, nothing to do.".to_string());
             exit(0);
         }
 
@@ -1498,7 +1489,7 @@ impl BuiltinCommand for UpCommand {
         // If we get here, we're about to run the command, so make sure we
         // have a workdir id
         if let Err(err) = workdir_or_init(".") {
-            omni_error!(format!("{}", err));
+            omni_error!(err.to_string());
             exit(1);
         }
 
@@ -1694,6 +1685,18 @@ fn color_diff(diff: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn unified_diff(before: &str, after: &str) -> String {
+    let input = InternedInput::new(before, after);
+    let mut diff = Diff::compute(Algorithm::Histogram, &input);
+    diff.postprocess_lines(&input);
+    diff.unified_diff(
+        &BasicLineDiffPrinter(&input.interner),
+        UnifiedDiffConfig::default(),
+        &input,
+    )
+    .to_string()
 }
 
 fn fingerprint<T: Serialize>(value: &T) -> u64 {

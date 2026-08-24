@@ -11,13 +11,10 @@ use std::time::Duration as StdDuration;
 use std::time::Instant as StdInstant;
 
 use blake3::Hasher;
-use fs4::fs_std::FileExt;
 use gethostname::gethostname;
 use git2::Repository;
 use lazy_static::lazy_static;
 use once_cell::sync::OnceCell;
-use petname::Generator;
-use petname::Petnames;
 use time::OffsetDateTime;
 
 use crate::internal::config::global_config;
@@ -797,7 +794,7 @@ impl GitRepoEnv {
         }
 
         if let Ok(remote) = repository.find_remote("origin") {
-            if let Some(url) = remote.url() {
+            if let Ok(url) = remote.url() {
                 git_repo_env.origin = Some(url.to_string());
                 return git_repo_env;
             }
@@ -808,7 +805,7 @@ impl GitRepoEnv {
             let mut string_branch_name = branch_name.to_string();
             if string_branch_name == "__current" {
                 if let Ok(head) = repository.head() {
-                    if let Some(shorthand) = head.shorthand() {
+                    if let Ok(shorthand) = head.shorthand() {
                         if shorthand != "HEAD" {
                             string_branch_name = shorthand.to_string();
                         }
@@ -826,7 +823,7 @@ impl GitRepoEnv {
                     if let Ok(Some(upstream_name)) = upstream.name() {
                         let upstream_name = upstream_name.split('/').next().unwrap();
                         if let Ok(remote) = repository.find_remote(upstream_name) {
-                            if let Some(url) = remote.url() {
+                            if let Ok(url) = remote.url() {
                                 git_repo_env.origin = Some(url.to_string());
                                 return git_repo_env;
                             }
@@ -837,11 +834,13 @@ impl GitRepoEnv {
         }
 
         if let Ok(remotes) = repository.remotes() {
-            for remote in remotes.iter() {
-                if let Ok(remote) = repository.find_remote(remote.unwrap()) {
-                    if let Some(url) = remote.url() {
-                        git_repo_env.origin = Some(url.to_string());
-                        return git_repo_env;
+            for remote_name in remotes.iter() {
+                if let Ok(Some(remote_name)) = remote_name {
+                    if let Ok(remote) = repository.find_remote(remote_name) {
+                        if let Ok(url) = remote.url() {
+                            git_repo_env.origin = Some(url.to_string());
+                            return git_repo_env;
+                        }
                     }
                 }
             }
@@ -1080,7 +1079,7 @@ impl WorkDirEnv {
     }
 
     fn generate_id() -> String {
-        let petname_id = Petnames::default().generate_one(3, "-").expect("no names");
+        let petname_id = petname::petname(3, "-").expect("no names");
         Self::generate_id_with_prefix(&petname_id)
     }
 
@@ -1213,7 +1212,7 @@ impl WorkDirEnv {
             .open(sync_path)?;
 
         // Try to acquire an exclusive lock on the file
-        if let Ok(_file_lock) = file.try_lock_exclusive() {
+        if let Ok(_file_lock) = fs4::FileExt::try_lock(&file) {
             // Now that we have the lock, truncate the file contents
             file.set_len(0)?;
             file.flush()?;
@@ -1234,7 +1233,7 @@ impl WorkDirEnv {
                 let start_time = StdInstant::now();
 
                 loop {
-                    match file.try_lock_exclusive() {
+                    match fs4::FileExt::try_lock(&file) {
                         Ok(_file_lock) => {
                             // Now that we have the lock, truncate the file contents
                             file.set_len(0)?;
@@ -1260,7 +1259,7 @@ impl WorkDirEnv {
                 ));
 
                 // Grab the lock in a blocking way
-                file.lock_exclusive()?;
+                fs4::FileExt::lock(&file)?;
 
                 // Now that we have the lock, truncate the file contents
                 file.set_len(0)?;
