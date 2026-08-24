@@ -356,7 +356,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr close \
-            --title "${{ env.PR_TITLE }}" \
+          gh pr close "${{ env.PR_BRANCH }}" \
             --comment "${{ env.PR_CLOSING_COMMENT }}" \
             --delete-branch
