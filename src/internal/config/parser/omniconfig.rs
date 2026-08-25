@@ -26,7 +26,6 @@ use crate::internal::config::OrgConfig;
 use crate::internal::env::omni_git_env;
 use crate::internal::env::user_home;
 
-
 lazy_static! {
     #[derive(Debug, Serialize, Clone)]
     static ref DEFAULT_WORKTREE: String = {
@@ -129,7 +128,7 @@ pub struct OmniConfig {
     #[compote(skip_if_empty)]
     pub up: Option<UpConfig>,
 
-    #[compote(default)]
+    #[compote(default, nested)]
     pub up_command: UpCommandConfig,
 
     #[compote(default_fn = "get_default_sandbox", skip_if_empty)]

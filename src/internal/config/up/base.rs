@@ -21,6 +21,24 @@ use crate::internal::user_interface::colors::StringColor;
 use crate::internal::workdir;
 use crate::omni_warning;
 
+fn empty_operation_name(tag: &str) -> Option<&'static str> {
+    match tag {
+        "cargo-install"
+        | "cargo_install"
+        | "cargoinstall"
+        | "cargo-install-crates"
+        | "cargo-install-crate"
+        | "cargo-crates"
+        | "cargo-crate" => Some("cargo-install"),
+        "github-release" | "github_release" | "githubrelease" | "ghrelease" | "github-releases"
+        | "github_releases" | "githubreleases" | "ghreleases" | "github" | "gh-release"
+        | "gh-releases" => Some("github-release"),
+        "go-install" | "go_install" | "goinstall" | "go-install-tools" | "go-install-tool"
+        | "go-tools" | "go-tool" => Some("go-install"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UpConfig {
     pub steps: Vec<UpConfigTool>,
@@ -323,7 +341,9 @@ impl UpConfig {
 // (e.g., YAML `3.2` parsed as a float) which are treated as mise tool names.
 // ============================================================================
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfig {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for UpConfig
+{
     fn from_context_value(
         value: &compote::ContextValue<S, L>,
         tracker: &mut compote::ErrorTracker,
@@ -346,7 +366,59 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         for (index, step_value) in config_array.iter().enumerate() {
             tracker.push_index(index);
 
+            let empty_operation = match step_value {
+                compote::ContextValue::String(tag, _) => empty_operation_name(tag),
+                compote::ContextValue::Object(values, _) if values.len() == 1 => values
+                    .iter()
+                    .next()
+                    .filter(|(_, value)| value.is_null())
+                    .and_then(|(tag, _)| empty_operation_name(tag)),
+                _ => None,
+            };
+
+            if let Some(operation) = empty_operation {
+                tracker.record(compote::Error::Custom {
+                    code: "C002".to_string(),
+                    path: format!("{}.{}", tracker.current_path(), operation),
+                    message: "operation details are empty".to_string(),
+                });
+                up_errors.push(UpError::Config(format!(
+                    "{operation} operation details are empty"
+                )));
+                tracker.pop();
+                continue;
+            }
+
             match step_value {
+                // A bare string names a tool without supplying configuration.
+                // Parse it like the equivalent `{ tool: {} }` external tag so
+                // the tool name is not mistaken for its version.
+                compote::ContextValue::String(tag, context) => {
+                    let empty_config =
+                        compote::ContextValue::object(Default::default(), context.clone());
+                    let tagged_value = compote::ContextValue::object(
+                        [(tag.clone(), empty_config)].into_iter().collect(),
+                        context.clone(),
+                    );
+
+                    match <UpConfigTool as compote::FromContextValue<S, L>>::from_context_value(
+                        &tagged_value,
+                        tracker,
+                    ) {
+                        Ok(mut up_config) => {
+                            if let UpConfigTool::Mise(ref mut mise) = up_config {
+                                mise.process_from_tag();
+                            }
+                            steps.push(up_config);
+                        }
+                        Err(_) => {
+                            up_errors.push(UpError::Config(format!(
+                                "invalid config for step {}",
+                                index + 1
+                            )));
+                        }
+                    }
+                }
                 // Int/float values in the array are treated as mise tool names
                 // (e.g., YAML `3.2` parsed as a float key).
                 // These won't match any scalar variant in UpConfigTool's derived
@@ -354,12 +426,14 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 compote::ContextValue::Int(i, _) => {
                     let mut mise = UpConfigMise::default();
                     mise.requested_tool = i.to_string();
+                    mise.version = "latest".to_string();
                     mise.process_from_tag();
                     steps.push(UpConfigTool::Mise(mise));
                 }
                 compote::ContextValue::Float(f, _) => {
                     let mut mise = UpConfigMise::default();
                     mise.requested_tool = f.to_string();
+                    mise.version = "latest".to_string();
                     mise.process_from_tag();
                     steps.push(UpConfigTool::Mise(mise));
                 }
@@ -367,8 +441,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 // derived FromContextValue which handles external_tag dispatch
                 _ => {
                     match <UpConfigTool as compote::FromContextValue<S, L>>::from_context_value(
-                        step_value,
-                        tracker,
+                        step_value, tracker,
                     ) {
                         Ok(mut up_config) => {
                             // Post-process Mise fallback variants to parse
@@ -395,5 +468,155 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             steps,
             errors: up_errors,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use compote::FromContextValue;
+
+    use super::*;
+
+    fn parse_up(yaml: &str) -> (UpConfig, compote::ErrorTracker) {
+        let context = compote::Context::new(compote::Source::Programmatic, compote::Level::User);
+        let mut config = compote::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = compote::ErrorTracker::new();
+        let up = UpConfig::from_context_value(config.root(), &mut tracker).unwrap();
+        (up, tracker)
+    }
+
+    #[test]
+    fn parses_nonempty_operation_aliases() {
+        let (up, tracker) = parse_up(
+            "- cargo-crate:\n    crate: ripgrep\n- gh-release:\n    repository: BurntSushi/ripgrep\n- go-tool:\n    path: golang.org/x/tools/gopls\n",
+        );
+
+        assert_eq!(up.steps.len(), 3);
+        assert!(matches!(up.steps[0], UpConfigTool::CargoInstall(_)));
+        assert!(matches!(up.steps[1], UpConfigTool::GithubRelease(_)));
+        assert!(matches!(up.steps[2], UpConfigTool::GoInstall(_)));
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn reports_empty_operations_without_dropping_runtime_validation() {
+        let (up, tracker) = parse_up("- cargo-crate\n- gh-release:\n- go-tools\n");
+
+        assert!(up.steps.is_empty());
+        assert_eq!(
+            up.errors,
+            vec![
+                UpError::Config("cargo-install operation details are empty".to_string()),
+                UpError::Config("github-release operation details are empty".to_string()),
+                UpError::Config("go-install operation details are empty".to_string()),
+            ]
+        );
+        assert_eq!(tracker.errors().len(), 3);
+        assert!(tracker.errors().iter().all(|error| error.code() == "C002"));
+    }
+
+    #[test]
+    fn continues_parsing_after_an_empty_operation() {
+        let (up, tracker) = parse_up("- go-install:\n- terraform\n");
+
+        assert_eq!(up.steps.len(), 1);
+        assert!(matches!(up.steps[0], UpConfigTool::Mise(_)));
+        assert_eq!(
+            up.errors,
+            vec![UpError::Config(
+                "go-install operation details are empty".to_string()
+            )]
+        );
+        assert_eq!(tracker.errors().len(), 1);
+        assert_eq!(tracker.errors()[0].code(), "C002");
+    }
+
+    #[test]
+    fn reports_empty_operations_for_every_accepted_alias() {
+        let aliases = [
+            ("cargo-install", "cargo-install"),
+            ("cargo_install", "cargo-install"),
+            ("cargoinstall", "cargo-install"),
+            ("cargo-install-crates", "cargo-install"),
+            ("cargo-install-crate", "cargo-install"),
+            ("cargo-crates", "cargo-install"),
+            ("cargo-crate", "cargo-install"),
+            ("github-release", "github-release"),
+            ("github_release", "github-release"),
+            ("githubrelease", "github-release"),
+            ("ghrelease", "github-release"),
+            ("github-releases", "github-release"),
+            ("github_releases", "github-release"),
+            ("githubreleases", "github-release"),
+            ("ghreleases", "github-release"),
+            ("github", "github-release"),
+            ("gh-release", "github-release"),
+            ("gh-releases", "github-release"),
+            ("go-install", "go-install"),
+            ("go_install", "go-install"),
+            ("goinstall", "go-install"),
+            ("go-install-tools", "go-install"),
+            ("go-install-tool", "go-install"),
+            ("go-tools", "go-install"),
+            ("go-tool", "go-install"),
+        ];
+
+        for (alias, operation) in aliases {
+            let (up, tracker) = parse_up(&format!("- {alias}\n- {alias}:\n"));
+
+            assert!(up.steps.is_empty(), "alias {alias}");
+            assert_eq!(
+                up.errors,
+                vec![
+                    UpError::Config(format!("{operation} operation details are empty")),
+                    UpError::Config(format!("{operation} operation details are empty")),
+                ],
+                "alias {alias}"
+            );
+            assert_eq!(tracker.errors().len(), 2, "alias {alias}");
+            assert!(
+                tracker.errors().iter().all(|error| error.code() == "C002"),
+                "alias {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn bare_scalars_name_tools_without_becoming_versions() {
+        let (up, tracker) = parse_up("- python\n- node\n- terraform\n- 3.2\n");
+
+        assert_eq!(up.steps.len(), 4);
+        match &up.steps[0] {
+            UpConfigTool::Python(config) => {
+                assert_eq!(config.backend.requested_tool, "python");
+                assert_eq!(config.backend.version, "latest");
+                assert!(config.backend.retained_config_value().is_some());
+            }
+            other => panic!("expected python, got {other:?}"),
+        }
+        match &up.steps[1] {
+            UpConfigTool::Nodejs(config) => {
+                assert_eq!(config.backend.requested_tool, "node");
+                assert_eq!(config.backend.version, "latest");
+                assert!(config.backend.retained_config_value().is_some());
+            }
+            other => panic!("expected node, got {other:?}"),
+        }
+        match &up.steps[2] {
+            UpConfigTool::Mise(config) => {
+                assert_eq!(config.requested_tool, "terraform");
+                assert_eq!(config.version, "latest");
+            }
+            other => panic!("expected mise, got {other:?}"),
+        }
+        match &up.steps[3] {
+            UpConfigTool::Mise(config) => {
+                assert_eq!(config.requested_tool, "3.2");
+                assert_eq!(config.version, "latest");
+            }
+            other => panic!("expected mise, got {other:?}"),
+        }
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
     }
 }

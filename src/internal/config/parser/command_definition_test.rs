@@ -2691,10 +2691,7 @@ mod syntax_opt_arg_type {
 
     /// Convert a serde_yaml::Value to compote ConfigValue (test version)
     fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
-        let context = compote::Context::new(
-            compote::Source::Default,
-            compote::Level::System,
-        );
+        let context = compote::Context::new(compote::Source::Default, compote::Level::System);
         match value {
             serde_yaml::Value::Null => CompoteConfigValue::null(context),
             serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, context),
@@ -2709,7 +2706,8 @@ mod syntax_opt_arg_type {
             }
             serde_yaml::Value::String(s) => CompoteConfigValue::string(s, context),
             serde_yaml::Value::Sequence(seq) => {
-                let arr: Vec<CompoteConfigValue> = seq.into_iter().map(yaml_value_to_compote_value).collect();
+                let arr: Vec<CompoteConfigValue> =
+                    seq.into_iter().map(yaml_value_to_compote_value).collect();
                 CompoteConfigValue::array(arr, context)
             }
             serde_yaml::Value::Mapping(map) => {

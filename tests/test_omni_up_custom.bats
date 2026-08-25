@@ -687,3 +687,21 @@ EOF
   [[ "${output}" == *"custom operation is not allowed"* ]]
 }
 
+# bats test_tags=omni:up,omni:up:custom
+@test "[omni_up_custom=24] omni up fails after running valid operations when another operation is invalid" {
+  cat > .omni.yaml <<EOF
+up:
+  - custom:
+      name: "Custom Operation"
+      meet: "customcmd run"
+  - go-install:
+EOF
+
+  add_fakebin "${HOME}/bin/customcmd"
+  add_command customcmd run
+
+  run omni up --trust 3>&-
+  echo "STATUS: $status"
+  echo "OUTPUT: $output"
+  [ "$status" -eq 1 ]
+}

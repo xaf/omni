@@ -29,7 +29,6 @@ type CompoteErrorTracker = compote::ErrorTracker;
 pub struct CommandDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desc: Option<String>,
-    #[compote(default = "true")]
     pub run: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[compote(default, allow_single)]
@@ -58,7 +57,6 @@ pub struct CommandDefinition {
     #[compote(from_context_fn = "command_def_scope_from_context")]
     pub scope: Level,
 }
-
 
 #[derive(Debug, Serialize, Clone, PartialEq, Default)]
 pub struct CommandSyntax {
@@ -2119,7 +2117,8 @@ fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
         }
         serde_yaml::Value::String(s) => CompoteConfigValue::string(s, context),
         serde_yaml::Value::Sequence(seq) => {
-            let arr: Vec<CompoteConfigValue> = seq.into_iter().map(yaml_value_to_compote_value).collect();
+            let arr: Vec<CompoteConfigValue> =
+                seq.into_iter().map(yaml_value_to_compote_value).collect();
             CompoteConfigValue::array(arr, context)
         }
         serde_yaml::Value::Mapping(map) => {
@@ -2457,8 +2456,11 @@ impl SyntaxOptArg {
                             }
 
                             default = compote_get_str_or_none(details_table, "default", tracker);
-                            default_missing_value =
-                                compote_get_str_or_none(details_table, "default_missing_value", tracker);
+                            default_missing_value = compote_get_str_or_none(
+                                details_table,
+                                "default_missing_value",
+                                tracker,
+                            );
 
                             num_values = SyntaxOptArgNumValues::from_compote_config_value(
                                 details_table.get("num_values"),
@@ -2481,8 +2483,12 @@ impl SyntaxOptArg {
 
                             last_arg_double_hyphen =
                                 compote_get_bool_or_default(details_table, "last", false, tracker);
-                            leftovers =
-                                compote_get_bool_or_default(details_table, "leftovers", false, tracker);
+                            leftovers = compote_get_bool_or_default(
+                                details_table,
+                                "leftovers",
+                                false,
+                                tracker,
+                            );
                             allow_hyphen_values = compote_get_bool_or_default(
                                 details_table,
                                 "allow_hyphen_values",
@@ -2515,8 +2521,11 @@ impl SyntaxOptArg {
                                 compote_get_str_array(details_table, "conflicts_with", tracker);
                             required_without =
                                 compote_get_str_array(details_table, "required_without", tracker);
-                            required_without_all =
-                                compote_get_str_array(details_table, "required_without_all", tracker);
+                            required_without_all = compote_get_str_array(
+                                details_table,
+                                "required_without_all",
+                                tracker,
+                            );
 
                             if let Some(req_if_eq_value) = details_table.get("required_if_eq") {
                                 tracker.push_field("required_if_eq");

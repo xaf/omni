@@ -77,7 +77,6 @@ pub struct UpConfigGoInstalls {
     tools: Vec<UpConfigGoInstall>,
 }
 
-
 impl UpConfigGoInstalls {
     pub fn up(
         &self,
@@ -354,7 +353,6 @@ pub enum GoInstallError {
 // The post_process function handles:
 // 1. Splitting path@version into separate path and version fields
 // 2. Validating the import path format
-// 3. Setting exact = true when version is set but exact wasn't explicitly provided
 // ============================================================================
 #[derive(Debug, Clone, compote::Config)]
 #[compote(
@@ -376,7 +374,7 @@ struct UpConfigGoInstall {
     /// if `true`, there will be no check for the available versions and the
     /// `go install` command will be called with the version specified;
     /// if `false`, the latest version that matches the version will be installed.
-    /// Defaults to `version.is_some()` (set in post_process).
+    /// Defaults to `false` so version prefixes resolve to the latest match.
     #[compote(default)]
     pub exact: bool,
 
@@ -414,7 +412,7 @@ struct UpConfigGoInstall {
 }
 
 /// Post-process function for UpConfigGoInstall.
-/// Handles path@version splitting, validation, and conditional default for `exact`.
+/// Handles path@version splitting and validation.
 fn finalize_go_install<S: compote::CustomSource, L: compote::CustomLevel>(
     config: &mut UpConfigGoInstall,
     source: &compote::ContextValue<S, L>,
@@ -447,6 +445,9 @@ fn finalize_go_install<S: compote::CustomSource, L: compote::CustomLevel>(
         }
 
         config.version = Some(ver.to_string());
+        if !matches!(source, compote::ContextValue::Object(map, _) if map.contains_key("exact")) {
+            config.exact = true;
+        }
         config.path = path.to_string();
     }
 
@@ -460,15 +461,6 @@ fn finalize_go_install<S: compote::CustomSource, L: compote::CustomLevel>(
             config.config_error = Some(e.to_string());
             return Ok(());
         }
-    }
-
-    // Conditional default: exact = version.is_some(), only if not explicitly set
-    let explicitly_set = match source {
-        compote::ContextValue::Object(map, _) => map.contains_key("exact"),
-        _ => false,
-    };
-    if !explicitly_set && config.version.is_some() {
-        config.exact = true;
     }
 
     Ok(())

@@ -6,8 +6,10 @@
 use std::path::PathBuf;
 
 use compote::de::MutabilityInfo;
-use compote::Error as ConfigError;
 use compote::ConfigLoaderBuilder;
+use compote::Error as ConfigError;
+use compote::ErrorTracker;
+use compote::Format;
 use compote::FromContextValue;
 use compote::Level;
 use itertools::Itertools;
@@ -190,6 +192,21 @@ impl OmniConfigLoader {
         loader
     }
 
+    /// Creates a new OmniConfigLoader from a single file using an explicit format.
+    pub fn new_from_file_with_format(file: &str, format: Format, level: Level) -> Self {
+        let mut loader = Self::new();
+        let mut builder = std::mem::take(&mut loader.builder);
+        let before_count = builder.loaded_files().len();
+
+        builder = builder.load_file_with_format(file, format, level);
+        if builder.loaded_files().len() > before_count {
+            loader.loaded_files.push(file.to_string());
+        }
+
+        loader.builder = builder;
+        loader
+    }
+
     /// Creates a new OmniConfigLoader from a list of files with their levels.
     ///
     /// # Arguments
@@ -218,9 +235,7 @@ impl OmniConfigLoader {
     /// # Errors
     ///
     /// Returns an error if deserialization fails.
-    pub fn deserialize<T: FromContextValue + MutabilityInfo>(
-        &mut self,
-    ) -> Result<T, ConfigError> {
+    pub fn deserialize<T: FromContextValue + MutabilityInfo>(&mut self) -> Result<T, ConfigError> {
         self.builder.deserialize()
     }
 
@@ -236,6 +251,11 @@ impl OmniConfigLoader {
         // We need to consume and rebuild the builder since build() consumes self
         let builder = std::mem::take(&mut self.builder);
         builder.build()
+    }
+
+    /// Returns diagnostics recorded while loading configuration sources.
+    pub fn errors(&self) -> &ErrorTracker {
+        self.builder.errors()
     }
 
     /// Returns the list of files that were successfully loaded.
@@ -288,6 +308,10 @@ impl Default for OmniConfigLoader {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use tempfile::Builder;
+
     use super::*;
 
     #[test]
@@ -302,5 +326,18 @@ mod tests {
         let files = user_config_files();
         // Should at least contain the home directory config
         assert!(files.iter().any(|f| f.contains(".omni.yaml")));
+    }
+
+    #[test]
+    fn explicit_format_loads_and_records_unknown_extension() {
+        let file = Builder::new().suffix(".txt").tempfile().unwrap();
+        fs::write(file.path(), "value: true\n").unwrap();
+        let file_path = file.path().to_string_lossy().to_string();
+
+        let loader =
+            OmniConfigLoader::new_from_file_with_format(&file_path, Format::Yaml, Level::Local);
+
+        assert_eq!(loader.loaded_files(), &[file_path]);
+        assert!(loader.errors().errors().is_empty());
     }
 }

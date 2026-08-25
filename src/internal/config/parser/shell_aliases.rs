@@ -44,7 +44,6 @@ impl Serialize for ShellAliasesConfig {
     }
 }
 
-
 // Manual Deserialize implementation for compatibility with existing code
 // (e.g., loading from cache files, etc.)
 impl<'de> Deserialize<'de> for ShellAliasesConfig {
@@ -60,28 +59,25 @@ impl<'de> Deserialize<'de> for ShellAliasesConfig {
 
 impl Default for ShellAliasesConfig {
     fn default() -> Self {
-        Self { aliases: Vec::new() }
+        Self {
+            aliases: Vec::new(),
+        }
     }
 }
 
 /// ShellAliasConfig using compote's derive macro.
 ///
 /// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
-/// - `serde::Serialize` implementation for serialization
-///
-/// We still need manual `serde::Deserialize` for compatibility with the existing
-/// codebase that uses serde for some operations.
+/// - `FromContextValue` implementation for deserialization from compote's Config
+/// - `serde::Serialize` and `serde::Deserialize` implementations
 #[derive(Debug, Clone, compote::Config)]
 pub struct ShellAliasConfig {
-    #[compote(default = "String::new()")]
-    #[compote(serde_skip_serializing_if = "String::is_empty")]
+    #[compote(default = "String::new()", skip_if_empty)]
     pub alias: String,
 
-    #[compote(serde_skip_serializing_if = "Option::is_none")]
+    #[compote(skip_if_empty)]
     pub target: Option<String>,
 }
-
 
 impl Default for ShellAliasConfig {
     fn default() -> Self {
@@ -91,4 +87,3 @@ impl Default for ShellAliasConfig {
         }
     }
 }
-

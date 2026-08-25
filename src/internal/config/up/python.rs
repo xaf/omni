@@ -116,12 +116,18 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             compote::FromContextValue::from_context_value(value, errors)?;
         backend.requested_tool = "python".to_string();
         backend.process_from_tag();
+        backend.retain_config_value(value);
         backend.add_detect_version_func(detect_version_from_pyproject_toml);
         backend.add_post_install_func(setup_python_venv);
         backend.add_post_install_func(setup_python_requirements);
 
-        let params =
-            <UpConfigPythonParams as compote::FromContextValue<S, L>>::from_context_value(value, errors)?;
+        let params = if matches!(value, compote::ContextValue::Object(_, _)) {
+            <UpConfigPythonParams as compote::FromContextValue<S, L>>::from_context_value(
+                value, errors,
+            )?
+        } else {
+            UpConfigPythonParams::default()
+        };
 
         Ok(Self { backend, params })
     }

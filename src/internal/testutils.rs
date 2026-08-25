@@ -21,7 +21,7 @@ cfg_if::cfg_if! {
             // The mutex is still usable after a panic, but is marked as poisoned.
             let _lock = RUN_WITH_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-            // We create a temporary directory which will host all file-system
+            // We create a temporary directory which will host Omni's file-system
             // related operations for the test environment
             let tempdir = tempfile::Builder::new()
                 .prefix("omni_tests.")
@@ -57,7 +57,7 @@ cfg_if::cfg_if! {
                     )),
                 ),
                 (
-                    "TMPDIR".into(),
+                    "OMNI_TMPDIR".into(),
                     Some(tmp_dir.to_string_lossy().to_string()),
                 ),
                 (

@@ -109,7 +109,11 @@ impl From<i32> for Value {
 
 impl From<Vec<&str>> for Value {
     fn from(v: Vec<&str>) -> Self {
-        Value::Sequence(v.into_iter().map(|s| Value::String(s.to_string())).collect())
+        Value::Sequence(
+            v.into_iter()
+                .map(|s| Value::String(s.to_string()))
+                .collect(),
+        )
     }
 }
 
@@ -227,6 +231,13 @@ pub enum ConfigErrorKind {
     //    U2xx for config command errors
     UserDefinedConfigCommandMissingTag,
     UserDefinedConfigCommandInvalidTagValue,
+
+    // Errors reported by configuration backends with their own stable codes.
+    Diagnostic {
+        code: String,
+        message: String,
+        default_ignored: bool,
+    },
 }
 
 impl fmt::Display for ConfigErrorKind {
@@ -262,6 +273,7 @@ impl fmt::Display for ConfigErrorKind {
             ConfigErrorKind::UserDefinedPathCommandInvalidTagValue => "U102",
             ConfigErrorKind::UserDefinedConfigCommandMissingTag => "U201",
             ConfigErrorKind::UserDefinedConfigCommandInvalidTagValue => "U202",
+            ConfigErrorKind::Diagnostic { code, .. } => code,
         };
         write!(f, "{}", code)
     }
@@ -269,13 +281,16 @@ impl fmt::Display for ConfigErrorKind {
 
 impl ConfigErrorKind {
     pub fn default_ignored(&self) -> bool {
-        matches!(self, ConfigErrorKind::MetadataHeaderMissingSyntax)
+        match self {
+            ConfigErrorKind::MetadataHeaderMissingSyntax => true,
+            ConfigErrorKind::Diagnostic {
+                default_ignored, ..
+            } => *default_ignored,
+            _ => false,
+        }
     }
 
-    pub fn message_from_context(
-        &self,
-        context: &HashMap<String, Value>,
-    ) -> Result<String, String> {
+    pub fn message_from_context(&self, context: &HashMap<String, Value>) -> Result<String, String> {
         let message = match self {
             ConfigErrorKind::InvalidValueType => {
                 let key = context
@@ -669,6 +684,7 @@ impl ConfigErrorKind {
                     "invalid value '{actual}' for tag '{tag}', expected value to {expected}{key}",
                 )
             }
+            ConfigErrorKind::Diagnostic { message, .. } => message.clone(),
         };
 
         Ok(message)
@@ -781,10 +797,7 @@ impl ConfigErrorHandler {
         match self {
             Self::Active { context, errors } => {
                 // Update the key
-                let current_key = context
-                    .get("key")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(".");
+                let current_key = context.get("key").and_then(|v| v.as_str()).unwrap_or(".");
                 let new_key = format!("{}[{}]", current_key, index);
 
                 // Create a new context
@@ -805,6 +818,31 @@ impl ConfigErrorHandler {
         if let Self::Active { context, errors } = self {
             match ConfigError::new_from_kind(kind, context.clone()) {
                 Ok(error) => errors.borrow_mut().push(error),
+                Err(e) => panic!("Unable to create error: {e}"),
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn diagnostic(
+        &self,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        default_ignored: bool,
+    ) {
+        if let Self::Active { context, errors } = self {
+            let kind = ConfigErrorKind::Diagnostic {
+                code: code.into(),
+                message: message.into(),
+                default_ignored,
+            };
+            match ConfigError::new_from_kind(kind, context.clone()) {
+                Ok(error) => {
+                    let mut errors = errors.borrow_mut();
+                    if !errors.contains(&error) {
+                        errors.push(error);
+                    }
+                }
                 Err(e) => panic!("Unable to create error: {e}"),
             }
         }
@@ -974,7 +1012,6 @@ impl std::fmt::Display for ConfigError {
         write!(f, "{}", self.printable())
     }
 }
-
 
 /// This is the error type for the `parse_args` function
 #[derive(Debug)]

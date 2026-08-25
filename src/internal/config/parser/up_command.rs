@@ -9,11 +9,8 @@ use crate::internal::config::utils::check_allowed;
 /// UpCommandConfig using compote's derive macro.
 ///
 /// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
-/// - `serde::Serialize` implementation for serialization
-///
-/// We still need manual `serde::Deserialize` for compatibility with the existing
-/// codebase that uses serde for some operations.
+/// - `FromContextValue` implementation for deserialization from compote's Config
+/// - `serde::Serialize` and `serde::Deserialize` implementations
 ///
 /// Field mutability notes:
 /// - Fields with `mutable_by = ["system", "user"]` cannot be overridden by workdir:
@@ -57,7 +54,7 @@ pub struct UpCommandConfig {
     #[compote(default = "false")]
     pub upgrade: bool,
 
-    #[compote(default, serde_skip_serializing_if = "UpCommandOperationConfig::is_empty")]
+    #[compote(default, skip_if_empty, nested)]
     pub operations: UpCommandOperationConfig,
 }
 
@@ -92,28 +89,16 @@ pub(crate) struct UpCommandOperationConfig {
     #[compote(default = "Vec::new()", skip_if_empty)]
     pub sources: Vec<String>,
 
-    #[compote(default, serde_skip_serializing_if = "UpCommandOperationMiseConfig::is_empty")]
+    #[compote(default, skip_if_empty)]
     pub mise: UpCommandOperationMiseConfig,
 
-    #[compote(
-        rename = "cargo-install",
-        default,
-        serde_skip_serializing_if = "UpCommandOperationCargoInstallConfig::is_empty"
-    )]
+    #[compote(rename = "cargo-install", default, skip_if_empty)]
     pub cargo_install: UpCommandOperationCargoInstallConfig,
 
-    #[compote(
-        rename = "go-install",
-        default,
-        serde_skip_serializing_if = "UpCommandOperationGoInstallConfig::is_empty"
-    )]
+    #[compote(rename = "go-install", default, skip_if_empty)]
     pub go_install: UpCommandOperationGoInstallConfig,
 
-    #[compote(
-        rename = "github-release",
-        default,
-        serde_skip_serializing_if = "UpCommandOperationGithubReleaseConfig::is_empty"
-    )]
+    #[compote(rename = "github-release", default, skip_if_empty)]
     pub github_release: UpCommandOperationGithubReleaseConfig,
 }
 
@@ -131,12 +116,6 @@ impl Default for UpCommandOperationConfig {
 }
 
 impl UpCommandOperationConfig {
-    /// Check if this config is empty (used by serde skip_serializing_if)
-    #[allow(dead_code)]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.allowed.is_empty() && self.sources.is_empty()
-    }
-
     pub fn is_operation_allowed(&self, operation: &str) -> bool {
         check_allowed(operation, &self.allowed)
     }
@@ -166,6 +145,11 @@ impl UpCommandOperationConfig {
     }
 }
 
+impl compote::IsEmpty for UpCommandOperationConfig {
+    fn is_empty(&self) -> bool {
+        self.allowed.is_empty() && self.sources.is_empty()
+    }
+}
 
 /// UpCommandOperationMiseConfig using compote's derive macro.
 ///
@@ -180,7 +164,7 @@ pub(crate) struct UpCommandOperationMiseConfig {
     #[compote(default = "Vec::new()", skip_if_empty)]
     pub sources: Vec<String>,
 
-    #[compote(default = "HashMap::new()", serde_skip_serializing_if = "HashMap::is_empty")]
+    #[compote(default = "HashMap::new()", skip_if_empty)]
     pub default_plugin_sources: HashMap<String, String>,
 }
 
@@ -194,16 +178,13 @@ impl Default for UpCommandOperationMiseConfig {
     }
 }
 
-impl UpCommandOperationMiseConfig {
-    /// Check if this config is empty (used by serde skip_serializing_if)
-    #[allow(dead_code)]
-    pub(crate) fn is_empty(&self) -> bool {
+impl compote::IsEmpty for UpCommandOperationMiseConfig {
+    fn is_empty(&self) -> bool {
         self.backends.is_empty()
             && self.sources.is_empty()
             && self.default_plugin_sources.is_empty()
     }
 }
-
 
 /// UpCommandOperationCargoInstallConfig using compote's derive macro.
 ///
@@ -221,14 +202,11 @@ impl Default for UpCommandOperationCargoInstallConfig {
     }
 }
 
-impl UpCommandOperationCargoInstallConfig {
-    /// Check if this config is empty (used by serde skip_serializing_if)
-    #[allow(dead_code)]
-    pub(crate) fn is_empty(&self) -> bool {
+impl compote::IsEmpty for UpCommandOperationCargoInstallConfig {
+    fn is_empty(&self) -> bool {
         self.crates.is_empty()
     }
 }
-
 
 /// UpCommandOperationGoInstallConfig using compote's derive macro.
 ///
@@ -248,14 +226,11 @@ impl Default for UpCommandOperationGoInstallConfig {
     }
 }
 
-impl UpCommandOperationGoInstallConfig {
-    /// Check if this config is empty (used by serde skip_serializing_if)
-    #[allow(dead_code)]
-    pub(crate) fn is_empty(&self) -> bool {
+impl compote::IsEmpty for UpCommandOperationGoInstallConfig {
+    fn is_empty(&self) -> bool {
         self.sources.is_empty()
     }
 }
-
 
 /// UpCommandOperationGithubReleaseConfig using compote's derive macro.
 ///
@@ -275,14 +250,11 @@ impl Default for UpCommandOperationGithubReleaseConfig {
     }
 }
 
-impl UpCommandOperationGithubReleaseConfig {
-    /// Check if this config is empty (used by serde skip_serializing_if)
-    #[allow(dead_code)]
-    pub(crate) fn is_empty(&self) -> bool {
+impl compote::IsEmpty for UpCommandOperationGithubReleaseConfig {
+    fn is_empty(&self) -> bool {
         self.repositories.is_empty()
     }
 }
-
 
 // ============================================================================
 // URL Pattern Matching (unchanged from original)

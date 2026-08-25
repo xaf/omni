@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::internal::testutils::run_with_env;
+
 mod dynamic_env {
     use super::*;
     use crate::internal::cache::up_environments::UpEnvVar;
@@ -742,60 +744,65 @@ mod dynamic_env {
 
         #[test]
         fn test_go_with_existing_goroot() {
-            std::env::set_var("GOROOT", "/existing/go/root");
-            std::env::set_var("PATH", "/existing/go/root/bin:/usr/bin");
+            run_with_env(
+                &[
+                    ("GOROOT".into(), Some("/existing/go/root".into())),
+                    ("PATH".into(), Some("/existing/go/root/bin:/usr/bin".into())),
+                ],
+                || {
+                    let versions = vec![create_test_up_version("go", "", "1.20.0", "bin", None)];
+                    let up_env = create_test_environment_with_versions(versions);
+                    let mut dynamic_env = create_test_dynamic_env();
+                    let mut envsetter = DynamicEnvSetter::new();
 
-            let versions = vec![create_test_up_version("go", "", "1.20.0", "bin", None)];
-            let up_env = create_test_environment_with_versions(versions);
-            let mut dynamic_env = create_test_dynamic_env();
-            let mut envsetter = DynamicEnvSetter::new();
+                    dynamic_env.apply_versions(&up_env, &mut envsetter, "");
 
-            dynamic_env.apply_versions(&up_env, &mut envsetter, "");
+                    let env_data = envsetter.get_env_data();
 
-            let env_data = envsetter.get_env_data();
-
-            let path_operations = env_data.lists.get("PATH").unwrap();
-            assert!(path_operations
-                .iter()
-                .any(|p| p.operation == DynamicEnvListOperation::Del
-                    && p.value == "/existing/go/root/bin"));
-
-            std::env::remove_var("GOROOT");
-            std::env::remove_var("PATH");
+                    let path_operations = env_data.lists.get("PATH").unwrap();
+                    assert!(path_operations
+                        .iter()
+                        .any(|p| p.operation == DynamicEnvListOperation::Del
+                            && p.value == "/existing/go/root/bin"));
+                },
+            );
         }
 
         #[test]
         fn test_ruby_with_existing_gem_vars() {
-            std::env::set_var("RUBY_ROOT", "/existing/ruby");
-            std::env::set_var("GEM_ROOT", "/existing/gem");
-            std::env::set_var("GEM_HOME", "/existing/gem/home");
-            std::env::set_var(
-                "PATH",
-                "/existing/ruby/bin:/existing/gem/bin:/existing/gem/home/bin:/usr/bin",
+            run_with_env(
+                &[
+                    ("RUBY_ROOT".into(), Some("/existing/ruby".into())),
+                    ("GEM_ROOT".into(), Some("/existing/gem".into())),
+                    ("GEM_HOME".into(), Some("/existing/gem/home".into())),
+                    (
+                        "PATH".into(),
+                        Some(
+                            "/existing/ruby/bin:/existing/gem/bin:/existing/gem/home/bin:/usr/bin"
+                                .into(),
+                        ),
+                    ),
+                ],
+                || {
+                    let versions = vec![create_test_up_version("ruby", "", "3.1.0", "bin", None)];
+                    let up_env = create_test_environment_with_versions(versions);
+                    let mut dynamic_env = create_test_dynamic_env();
+                    let mut envsetter = DynamicEnvSetter::new();
+
+                    dynamic_env.apply_versions(&up_env, &mut envsetter, "");
+
+                    let env_data = envsetter.get_env_data();
+
+                    let path_list = env_data.lists.get("PATH").unwrap();
+                    let removals: Vec<_> = path_list
+                        .iter()
+                        .filter(|p| p.operation == DynamicEnvListOperation::Del)
+                        .collect();
+                    assert!(removals.iter().any(|p| p.value == "/existing/ruby/bin"));
+                    assert!(removals.iter().any(|p| p.value == "/existing/gem/bin"));
+                    assert!(removals.iter().any(|p| p.value == "/existing/gem/home/bin"));
+                },
             );
-
-            let versions = vec![create_test_up_version("ruby", "", "3.1.0", "bin", None)];
-            let up_env = create_test_environment_with_versions(versions);
-            let mut dynamic_env = create_test_dynamic_env();
-            let mut envsetter = DynamicEnvSetter::new();
-
-            dynamic_env.apply_versions(&up_env, &mut envsetter, "");
-
-            let env_data = envsetter.get_env_data();
-
-            let path_list = env_data.lists.get("PATH").unwrap();
-            let removals: Vec<_> = path_list
-                .iter()
-                .filter(|p| p.operation == DynamicEnvListOperation::Del)
-                .collect();
-            assert!(removals.iter().any(|p| p.value == "/existing/ruby/bin"));
-            assert!(removals.iter().any(|p| p.value == "/existing/gem/bin"));
-            assert!(removals.iter().any(|p| p.value == "/existing/gem/home/bin"));
-
-            std::env::remove_var("RUBY_ROOT");
-            std::env::remove_var("GEM_ROOT");
-            std::env::remove_var("GEM_HOME");
-            std::env::remove_var("PATH");
         }
     }
 }

@@ -106,24 +106,32 @@ impl UpConfigNodejs {
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L> for UpConfigNodejs {
+impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+    for UpConfigNodejs
+{
     fn from_context_value(
         value: &compote::ContextValue<S, L>,
         errors: &mut compote::ErrorTracker,
     ) -> Result<Self, compote::Error> {
-        // Parse params using the derived FromContextValue implementation
-        let params = <UpConfigNodejsParams as compote::FromContextValue<S, L>>::from_context_value(value, errors)?;
-
         // Create backend using FromContextValue, then set the tool name and process it
         let mut backend: UpConfigMise =
             compote::FromContextValue::from_context_value(value, errors)?;
         backend.requested_tool = "node".to_string();
         backend.process_from_tag();
+        backend.retain_config_value(value);
 
         backend.add_detect_version_func(detect_version_from_package_json);
         backend.add_detect_version_func(detect_version_from_nvmrc);
         backend.add_post_install_func(remove_mise_reshim_from_bin);
         backend.add_post_install_func(setup_individual_npm_prefix);
+
+        let params = if matches!(value, compote::ContextValue::Object(_, _)) {
+            <UpConfigNodejsParams as compote::FromContextValue<S, L>>::from_context_value(
+                value, errors,
+            )?
+        } else {
+            UpConfigNodejsParams::default()
+        };
 
         Ok(Self { backend, params })
     }
@@ -293,8 +301,11 @@ fn setup_individual_npm_prefix(
 
     let params = if let Some(config_value) = args.config_value.as_ref() {
         let mut tracker = compote::ErrorTracker::new();
-        <UpConfigNodejsParams as compote::FromContextValue<_, _>>::from_context_value(config_value, &mut tracker)
-            .unwrap_or_default()
+        <UpConfigNodejsParams as compote::FromContextValue<_, _>>::from_context_value(
+            config_value,
+            &mut tracker,
+        )
+        .unwrap_or_default()
     } else {
         UpConfigNodejsParams::default()
     };
@@ -475,5 +486,58 @@ impl PackageInstallEngine {
         cmd.stderr(std::process::Stdio::piped());
 
         cmd
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use compote::FromContextValue;
+
+    use super::*;
+
+    fn parse_nodejs(yaml: &str) -> (UpConfigNodejs, compote::ErrorTracker) {
+        let context = compote::Context::new(compote::Source::Programmatic, compote::Level::User);
+        let mut config = compote::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = compote::ErrorTracker::new();
+        let nodejs = UpConfigNodejs::from_context_value(config.root(), &mut tracker).unwrap();
+        (nodejs, tracker)
+    }
+
+    #[test]
+    fn scalar_auto_uses_default_params_without_object_diagnostic() {
+        let (nodejs, tracker) = parse_nodejs("auto");
+
+        assert_eq!(nodejs.backend.requested_tool, "node");
+        assert_eq!(nodejs.backend.version, "auto");
+        assert!(nodejs.params.install_engines);
+        assert!(nodejs.params.install_packages);
+        assert!(nodejs.backend.retained_config_value().is_some());
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn object_form_parses_node_params() {
+        let (nodejs, tracker) =
+            parse_nodejs("version: 20\ninstall_engines: false\ninstall_packages: false\n");
+
+        assert_eq!(nodejs.backend.requested_tool, "node");
+        assert_eq!(nodejs.backend.version, "20");
+        assert!(!nodejs.params.install_engines);
+        assert!(!nodejs.params.install_packages);
+        let mut callback_tracker = compote::ErrorTracker::new();
+        let callback_params = UpConfigNodejsParams::from_context_value(
+            nodejs.backend.retained_config_value().unwrap(),
+            &mut callback_tracker,
+        )
+        .unwrap();
+        assert!(!callback_params.install_engines);
+        assert!(!callback_params.install_packages);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+        assert!(
+            callback_tracker.errors().is_empty(),
+            "{:#?}",
+            callback_tracker.errors()
+        );
     }
 }

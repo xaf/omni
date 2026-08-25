@@ -46,8 +46,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         value: &compote::ContextValue<S, L>,
         tracker: &mut compote::ErrorTracker,
     ) -> Result<Self, compote::Error> {
-        let mut mise: UpConfigMise =
-            compote::FromContextValue::from_context_value(value, tracker)?;
+        let mut mise: UpConfigMise = compote::FromContextValue::from_context_value(value, tracker)?;
         mise.tool_url = Some("https://github.com/xaf/asdf-bash".into());
         mise.requested_tool = "bash".to_string();
         mise.process_from_tag();
@@ -89,7 +88,12 @@ pub enum UpConfigTool {
     Bash(UpConfigBash),
 
     /// Bundler represents the bundler tool.
-    #[compote(rename = "bundler", alias = "bundle", variant = "bundler", variant = "bundle")]
+    #[compote(
+        rename = "bundler",
+        alias = "bundle",
+        variant = "bundler",
+        variant = "bundle"
+    )]
     Bundler(UpConfigBundler),
 
     /// CargoInstall represents a tool that can be installed from
@@ -98,9 +102,17 @@ pub enum UpConfigTool {
         rename = "cargo-install",
         alias = "cargo_install",
         alias = "cargoinstall",
+        alias = "cargo-install-crates",
+        alias = "cargo-install-crate",
+        alias = "cargo-crates",
+        alias = "cargo-crate",
         variant = "cargo-install",
         variant = "cargo_install",
-        variant = "cargoinstall"
+        variant = "cargoinstall",
+        variant = "cargo-install-crates",
+        variant = "cargo-install-crate",
+        variant = "cargo-crates",
+        variant = "cargo-crate"
     )]
     CargoInstall(UpConfigCargoInstalls),
 
@@ -121,6 +133,9 @@ pub enum UpConfigTool {
         alias = "github_releases",
         alias = "githubreleases",
         alias = "ghreleases",
+        alias = "github",
+        alias = "gh-release",
+        alias = "gh-releases",
         variant = "github-release",
         variant = "github_release",
         variant = "githubrelease",
@@ -128,7 +143,10 @@ pub enum UpConfigTool {
         variant = "github-releases",
         variant = "github_releases",
         variant = "githubreleases",
-        variant = "ghreleases"
+        variant = "ghreleases",
+        variant = "github",
+        variant = "gh-release",
+        variant = "gh-releases"
     )]
     GithubRelease(UpConfigGithubReleases),
 
@@ -142,14 +160,27 @@ pub enum UpConfigTool {
         rename = "go-install",
         alias = "go_install",
         alias = "goinstall",
+        alias = "go-install-tools",
+        alias = "go-install-tool",
+        alias = "go-tools",
+        alias = "go-tool",
         variant = "go-install",
         variant = "go_install",
-        variant = "goinstall"
+        variant = "goinstall",
+        variant = "go-install-tools",
+        variant = "go-install-tool",
+        variant = "go-tools",
+        variant = "go-tool"
     )]
     GoInstall(UpConfigGoInstalls),
 
     /// Homebrew represents the homebrew tool.
-    #[compote(rename = "homebrew", alias = "brew", variant = "homebrew", variant = "brew")]
+    #[compote(
+        rename = "homebrew",
+        alias = "brew",
+        variant = "homebrew",
+        variant = "brew"
+    )]
     Homebrew(UpConfigHomebrew),
 
     // TODO: Java(UpConfigMise), // JAVA_HOME
@@ -165,7 +196,12 @@ pub enum UpConfigTool {
     Nix(UpConfigNix),
 
     /// Nodejs represents the nodejs tool.
-    #[compote(rename = "nodejs", alias = "node", variant = "nodejs", variant = "node")]
+    #[compote(
+        rename = "nodejs",
+        alias = "node",
+        variant = "nodejs",
+        variant = "node"
+    )]
     Nodejs(UpConfigNodejs),
 
     /// Or represents a combination of tools where at least one must
@@ -197,9 +233,7 @@ impl Serialize for UpConfigTool {
         match self {
             UpConfigTool::And(configs) => create_hashmap("and", configs).serialize(serializer),
             UpConfigTool::Any(configs) => create_hashmap("any", configs).serialize(serializer),
-            UpConfigTool::Bash(config) => {
-                create_hashmap("bash", &config.0).serialize(serializer)
-            }
+            UpConfigTool::Bash(config) => create_hashmap("bash", &config.0).serialize(serializer),
             UpConfigTool::Bundler(config) => {
                 create_hashmap("bundler", config).serialize(serializer)
             }

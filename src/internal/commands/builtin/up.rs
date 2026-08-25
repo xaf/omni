@@ -38,8 +38,8 @@ use crate::internal::config::up::utils::SyncUpdateOperation;
 use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigLoader;
 use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::ConfigLoader;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
 use crate::internal::config::SyntaxOptArgType;
@@ -1099,6 +1099,7 @@ impl UpCommand {
         suggest_clone: bool,
         suggest_config_updated: bool,
         suggest_clone_updated: bool,
+        exit_code: i32,
         options: &UpOptions,
     ) {
         if let Some(suggested) = suggest_config {
@@ -1128,7 +1129,7 @@ impl UpCommand {
             }
         }
 
-        self.handle_sync_operation(SyncUpdateOperation::Exit(0), options);
+        self.handle_sync_operation(SyncUpdateOperation::Exit(exit_code), options);
     }
 
     fn handle_sync_operation(&self, operation: SyncUpdateOperation, options: &UpOptions) {
@@ -1463,6 +1464,7 @@ impl BuiltinCommand for UpCommand {
         }
 
         let has_up_config = up_config.is_some() && up_config.clone().unwrap().has_steps();
+        let has_up_errors = up_config.as_ref().is_some_and(UpConfig::has_errors);
         let has_clone_suggested = !suggest_clone_repositories.is_empty();
         if !has_up_config
             && suggest_config.is_none()
@@ -1474,7 +1476,7 @@ impl BuiltinCommand for UpCommand {
                 "up".italic(),
             ));
             UpConfig::clear_cache();
-            exit(0);
+            exit(if has_up_errors { 1 } else { 0 });
         }
 
         let trust = self.trust();
@@ -1538,6 +1540,7 @@ impl BuiltinCommand for UpCommand {
                     suggest_clone,
                     suggest_config_updated,
                     suggest_clone_updated,
+                    if has_up_errors { 1 } else { 0 },
                     &UpOptions::new(),
                 );
                 exit(0);
@@ -1642,6 +1645,7 @@ impl BuiltinCommand for UpCommand {
             suggest_clone,
             suggest_config_updated,
             suggest_clone_updated,
+            if has_up_errors { 1 } else { 0 },
             &options,
         );
     }

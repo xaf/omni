@@ -1,9 +1,7 @@
 use super::*;
 
 // Compote imports for deserialization tests
-use crate::internal::config::{
-    CompoteConfigContext, CompoteConfigLevel, CompoteConfigSource,
-};
+use crate::internal::config::{CompoteConfigContext, CompoteConfigLevel, CompoteConfigSource};
 
 // Helper to deserialize from YAML using compote
 fn deserialize_go_installs_yaml(yaml: &str) -> Result<UpConfigGoInstalls, compote::Error> {
@@ -26,7 +24,7 @@ fn test_go_installs_string_input() {
     assert_eq!(config.tools.len(), 1);
     assert_eq!(config.tools[0].path, "github.com/owner/tool");
     assert_eq!(config.tools[0].version, Some("v1.0.0".to_string()));
-    assert!(config.tools[0].exact); // exact is true when version is specified via @
+    assert!(config.tools[0].exact);
 }
 
 #[test]
@@ -82,8 +80,10 @@ github.com/owner/tool2: v2.0.0
     // Check tools are sorted by path (order_by = "path")
     assert_eq!(config.tools[0].path, "github.com/owner/tool1");
     assert_eq!(config.tools[0].version, Some("v1.0.0".to_string()));
+    assert!(!config.tools[0].exact);
     assert_eq!(config.tools[1].path, "github.com/owner/tool2");
     assert_eq!(config.tools[1].version, Some("v2.0.0".to_string()));
+    assert!(!config.tools[1].exact);
 }
 
 #[test]
@@ -156,14 +156,13 @@ dir:
 }
 
 #[test]
-fn test_go_install_exact_default_with_version() {
-    // exact defaults to true when version is specified (conditional default)
+fn test_go_install_version_resolves_by_default() {
     let yaml = r#"
 path: github.com/owner/tool
 version: "1.0.0"
 "#;
     let config = deserialize_go_installs_yaml(yaml).unwrap();
-    assert!(config.tools[0].exact, "exact should default to true when version is specified");
+    assert!(!config.tools[0].exact);
 }
 
 #[test]
@@ -173,19 +172,21 @@ fn test_go_install_exact_default_without_version() {
 path: github.com/owner/tool
 "#;
     let config = deserialize_go_installs_yaml(yaml).unwrap();
-    assert!(!config.tools[0].exact, "exact should default to false when version is not specified");
+    assert!(
+        !config.tools[0].exact,
+        "exact should default to false when version is not specified"
+    );
 }
 
 #[test]
-fn test_go_install_exact_explicit_override() {
-    // exact can be explicitly set to override the default
+fn test_go_install_exact_can_be_enabled_explicitly() {
     let yaml = r#"
 path: github.com/owner/tool
 version: "1.0.0"
-exact: false
+exact: true
 "#;
     let config = deserialize_go_installs_yaml(yaml).unwrap();
-    assert!(!config.tools[0].exact, "exact should be false when explicitly set");
+    assert!(config.tools[0].exact);
 }
 
 #[test]
@@ -280,10 +281,9 @@ fn test_parse_go_install_path_via_deserialization() {
     assert_eq!(config.tools[0].version, None);
 
     // Valid: pseudo-version
-    let config = deserialize_go_installs_yaml(
-        "github.com/user/repo@v0.0.0-20191109021931-daa7c04131f5",
-    )
-    .unwrap();
+    let config =
+        deserialize_go_installs_yaml("github.com/user/repo@v0.0.0-20191109021931-daa7c04131f5")
+            .unwrap();
     assert_eq!(config.tools[0].path, "github.com/user/repo");
     assert_eq!(
         config.tools[0].version,
@@ -297,7 +297,11 @@ fn test_parse_go_install_path_via_deserialization() {
     // This tests that the parsing handles this gracefully
     assert!(
         config.tools[0].config_error.is_some()
-            || config.tools[0].version.as_ref().map(|v| v.contains('@')).unwrap_or(false),
+            || config.tools[0]
+                .version
+                .as_ref()
+                .map(|v| v.contains('@'))
+                .unwrap_or(false),
         "Should either have config error or version containing @"
     );
 

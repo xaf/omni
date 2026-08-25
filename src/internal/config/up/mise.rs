@@ -1124,7 +1124,12 @@ pub struct UpConfigMise {
 
     /// A list of directories to install the tool for.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    #[compote(default, allow_single, rename = "dir", transform_each = "normalize_path")]
+    #[compote(
+        default,
+        allow_single,
+        rename = "dir",
+        transform_each = "normalize_path"
+    )]
     pub dirs: BTreeSet<String>,
 
     /// A list of functions to run to detect the version of the tool.
@@ -1196,6 +1201,19 @@ impl UpConfigMise {
 
     pub fn add_post_install_func(&mut self, func: PostInstallFunc) {
         self.post_install_funcs.push(func);
+    }
+
+    pub(crate) fn retain_config_value<S: compote::CustomSource, L: compote::CustomLevel>(
+        &mut self,
+        value: &compote::ContextValue<S, L>,
+    ) {
+        let value: compote::Value = value.into();
+        self.config_value = Some(value.into());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_config_value(&self) -> Option<&CompoteConfigValue> {
+        self.config_value.as_ref()
     }
 
     fn new_from_auto(&self, version: &str, dirs: BTreeSet<String>) -> Self {
