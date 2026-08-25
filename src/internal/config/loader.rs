@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Mutex;
 
-use fs4::fs_std::FileExt;
+use fs4::FileExt;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 
@@ -330,7 +330,7 @@ impl ConfigLoader {
             .open(file_path.clone())?;
 
         // Take the exclusive lock on the file, it will be release when `_file_lock` goes out of scope
-        let _file_lock = file.lock_exclusive();
+        let _file_lock = FileExt::lock(&file);
 
         // Now we'll want to open the file in question, and load its
         // configuration into a clean ConfigLoader.

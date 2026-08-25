@@ -11,7 +11,7 @@ use std::time::Duration as StdDuration;
 use std::time::Instant as StdInstant;
 
 use blake3::Hasher;
-use fs4::fs_std::FileExt;
+use fs4::FileExt;
 use gethostname::gethostname;
 use git2::Repository;
 use lazy_static::lazy_static;
@@ -1211,7 +1211,7 @@ impl WorkDirEnv {
             .open(sync_path)?;
 
         // Try to acquire an exclusive lock on the file
-        if let Ok(_file_lock) = file.try_lock_exclusive() {
+        if let Ok(_file_lock) = FileExt::try_lock(&file) {
             // Now that we have the lock, truncate the file contents
             file.set_len(0)?;
             file.flush()?;
@@ -1232,7 +1232,7 @@ impl WorkDirEnv {
                 let start_time = StdInstant::now();
 
                 loop {
-                    match file.try_lock_exclusive() {
+                    match FileExt::try_lock(&file) {
                         Ok(_file_lock) => {
                             // Now that we have the lock, truncate the file contents
                             file.set_len(0)?;
@@ -1258,7 +1258,7 @@ impl WorkDirEnv {
                 ));
 
                 // Grab the lock in a blocking way
-                file.lock_exclusive()?;
+                FileExt::lock(&file)?;
 
                 // Now that we have the lock, truncate the file contents
                 file.set_len(0)?;
