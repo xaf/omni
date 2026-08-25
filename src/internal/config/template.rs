@@ -6,7 +6,9 @@ use std::sync::RwLock;
 use crate::internal::git::ParsedRepoUrl;
 use serde::Deserialize;
 use serde::Serialize;
+use tera::Kwargs;
 use tera::Tera;
+use tera::Value;
 
 use crate::internal::cache::PromptsCache;
 use crate::internal::git::Repo;
@@ -90,10 +92,10 @@ pub fn render_askpass_template(context: &tera::Context) -> Result<String, tera::
     let template_str = include_str!("../../../templates/askpass.sh.tmpl");
 
     let mut template = Tera::default();
-    template.add_raw_template("askpass", template_str)?;
     template.register_filter("escape_multiline_command", filter_escape_multiline_command);
+    template.add_raw_template("askpass", template_str)?;
 
-    if let Some(template_name) = template.templates.keys().next() {
+    if let Some(template_name) = template.get_template_names().next() {
         let rendered = template.render(template_name, context)?;
         return Ok(rendered);
     }
@@ -113,7 +115,7 @@ pub fn render_config_template(
         make_partial_resolve_fn(Arc::clone(&arc_context)),
     );
 
-    if let Some(template_name) = template.templates.keys().next() {
+    if let Some(template_name) = template.get_template_names().next() {
         let rendered = template.render(template_name, context)?;
         return Ok(rendered);
     }
@@ -123,66 +125,78 @@ pub fn render_config_template(
 
 pub fn make_partial_resolve_fn(
     arc_context: Arc<RwLock<tera::Context>>,
-) -> impl tera::Function + 'static {
+) -> impl tera::Function<tera::TeraResult<Value>> + 'static {
     Box::new(
-        move |args: &HashMap<String, serde_json::Value>| -> Result<tera::Value, tera::Error> {
-            let handle = match args.get("handle") {
-                Some(val) => match tera::from_value::<String>(val.clone()) {
-                    Ok(v) => v,
-                    Err(_) => return Err("partial_resolve: could not parse handle".into()),
-                },
-                None => return Err("partial_resolve: no handle provided".into()),
-            };
+        move |args: Kwargs, _state: &tera::State| -> tera::TeraResult<Value> {
+            let handle = args
+                .must_get::<String>("handle")
+                .map_err(|_| tera::Error::message("partial_resolve: could not parse handle"))?;
 
             // Get the context from the arc pointer
             let context = arc_context.read().unwrap();
 
             let repo_object = match context.get("repo") {
-                Some(value) => match value.as_object() {
+                Some(value) => match value.as_map() {
                     Some(value) => value,
-                    None => return Err("partial_resolve: no repo in context".into()),
+                    None => {
+                        return Err(tera::Error::message(
+                            "partial_resolve: no repo in context",
+                        ));
+                    }
                 },
-                None => return Err("partial_resolve: no repo in context".into()),
+                None => return Err(tera::Error::message("partial_resolve: no repo in context")),
             };
 
-            let repo_handle = match repo_object.get("handle") {
+            let repo_handle = match repo_object
+                .iter()
+                .find_map(|(key, value)| (key.as_str() == Some("handle")).then_some(value))
+            {
                 Some(value) => match value.as_str() {
                     Some(value) => value,
-                    None => return Err("partial_resolve: no handle in repo".into()),
+                    None => {
+                        return Err(tera::Error::message(
+                            "partial_resolve: no handle in repo",
+                        ));
+                    }
                 },
-                None => return Err("partial_resolve: no handle in repo".into()),
+                None => return Err(tera::Error::message("partial_resolve: no handle in repo")),
             };
 
             let repo = match Repo::parse(repo_handle) {
                 Ok(repo) => repo,
-                Err(_) => return Err("partial_resolve: could not parse repo_handle".into()),
+                Err(_) => {
+                    return Err(tera::Error::message(
+                        "partial_resolve: could not parse repo_handle",
+                    ));
+                }
             };
 
             match repo.partial_resolve(&handle) {
-                Ok(value) => Ok(tera::to_value(value.to_string()).unwrap()),
-                Err(_) => Ok(tera::Value::Null),
+                Ok(value) => Ok(Value::from_serializable(&value.to_string())),
+                Err(_) => Ok(Value::none()),
             }
         },
     )
 }
 
 pub fn filter_escape_multiline_command(
-    value: &tera::Value,
-    options: &HashMap<String, tera::Value>,
-) -> Result<tera::Value, tera::Error> {
-    let value = match value {
-        tera::Value::String(value) => value,
-        tera::Value::Number(_) | tera::Value::Bool(_) => return Ok(value.clone()),
-        _ => return Err("escape_multiline_command: value is not a string".into()),
+    value: Value,
+    options: Kwargs,
+    _state: &tera::State,
+) -> tera::TeraResult<Value> {
+    let value = match value.as_str() {
+        Some(value) => value,
+        None if value.is_number() || value.as_bool().is_some() => return Ok(value),
+        None => {
+            return Err(tera::Error::message(
+                "escape_multiline_command: value is not a string",
+            ));
+        }
     };
 
-    let times = match options.get("times") {
-        Some(value) => match value {
-            tera::Value::Number(value) => value.as_u64().unwrap_or(1),
-            _ => return Err("escape_multiline_command: times is not a number".into()),
-        },
-        None => 1,
-    };
+    let times = options
+        .get::<u64>("times")?
+        .unwrap_or(1);
 
     let mut escaped: String = value.to_string();
     for _ in 0..times {
@@ -191,5 +205,5 @@ pub fn filter_escape_multiline_command(
             .replace('\n', "\\n")
             .replace('"', "\\\"");
     }
-    Ok(tera::Value::String(escaped))
+    Ok(Value::from_serializable(&escaped))
 }

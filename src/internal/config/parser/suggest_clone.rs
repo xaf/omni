@@ -181,7 +181,7 @@ impl SuggestCloneConfig {
             }
         }
 
-        if !template.templates.is_empty() {
+        if template.get_template_names().next().is_some() {
             match render_config_template(&template, template_context) {
                 Ok(value) => {
                     // Load the template as config value
