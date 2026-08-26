@@ -7,6 +7,7 @@ use std::process::exit;
 use std::time::Duration as StdDuration;
 use std::time::Instant as StdInstant;
 
+use fs4::FileExt as Fs4FileExt;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
@@ -352,8 +353,8 @@ impl SyncUpdateListener<'_> {
                 }
             }
 
-            if fs4::FileExt::try_lock(&file).is_ok() {
-                fs4::FileExt::unlock(file)?;
+            if Fs4FileExt::try_lock(file).is_ok() {
+                Fs4FileExt::unlock(file)?;
 
                 // The process was completed
                 break Ok(true);

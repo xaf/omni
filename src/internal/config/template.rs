@@ -5,7 +5,9 @@ use std::sync::RwLock;
 
 use crate::internal::git::ParsedRepoUrl;
 use serde::Serialize;
+use tera::Kwargs;
 use tera::Tera;
+use tera::Value;
 
 use crate::internal::cache::PromptsCache;
 use crate::internal::git::Repo;
@@ -129,53 +131,67 @@ pub fn register_partial_resolve_placeholder(template: &mut Tera) {
 
 pub fn make_partial_resolve_fn(
     arc_context: Arc<RwLock<tera::Context>>,
-) -> impl tera::Function<Result<tera::Value, tera::Error>> + 'static {
-    move |args: tera::Kwargs, _state: &tera::State| -> Result<tera::Value, tera::Error> {
-        let handle = args.must_get::<&str>("handle")?;
+) -> impl tera::Function<tera::TeraResult<Value>> + 'static {
+    Box::new(
+        move |args: Kwargs, _state: &tera::State| -> tera::TeraResult<Value> {
+            let handle = args
+                .must_get::<String>("handle")
+                .map_err(|_| tera::Error::message("partial_resolve: could not parse handle"))?;
 
-        // Get the context from the arc pointer
-        let context = arc_context.read().unwrap();
-
-        let repo_object = match context.get("repo") {
-            Some(value) => match value.as_map() {
-                Some(value) => value,
+            let context = arc_context.read().unwrap();
+            let repo_object = match context.get("repo") {
+                Some(value) => match value.as_map() {
+                    Some(value) => value,
+                    None => {
+                        return Err(tera::Error::message("partial_resolve: no repo in context"));
+                    }
+                },
                 None => return Err(tera::Error::message("partial_resolve: no repo in context")),
-            },
-            None => return Err(tera::Error::message("partial_resolve: no repo in context")),
-        };
+            };
 
-        let repo_handle = repo_object
-            .iter()
-            .find(|(key, _)| key.as_str() == Some("handle"))
-            .and_then(|(_, value)| value.as_str())
-            .ok_or_else(|| tera::Error::message("partial_resolve: no handle in repo"))?;
+            let repo_handle = match repo_object
+                .iter()
+                .find_map(|(key, value)| (key.as_str() == Some("handle")).then_some(value))
+            {
+                Some(value) => match value.as_str() {
+                    Some(value) => value,
+                    None => {
+                        return Err(tera::Error::message("partial_resolve: no handle in repo"));
+                    }
+                },
+                None => return Err(tera::Error::message("partial_resolve: no handle in repo")),
+            };
 
-        let repo = match Repo::parse(repo_handle) {
-            Ok(repo) => repo,
-            Err(_) => return Err(tera::Error::message("partial_resolve: could not parse repo_handle")),
-        };
+            let repo = match Repo::parse(repo_handle) {
+                Ok(repo) => repo,
+                Err(_) => {
+                    return Err(tera::Error::message(
+                        "partial_resolve: could not parse repo_handle",
+                    ));
+                }
+            };
 
-        match repo.partial_resolve(&handle) {
-            Ok(value) => Ok(tera::Value::normal_string(&value.to_string())),
-            Err(_) => Ok(tera::Value::none()),
-        }
-    }
+            match repo.partial_resolve(&handle) {
+                Ok(value) => Ok(Value::from_serializable(&value.to_string())),
+                Err(_) => Ok(Value::none()),
+            }
+        },
+    )
 }
 
 pub fn filter_escape_multiline_command(
-    value: tera::Value,
-    options: tera::Kwargs,
+    value: Value,
+    options: Kwargs,
     _state: &tera::State,
-) -> Result<tera::Value, tera::Error> {
-    let value = match value.kind() {
-        tera::value::ValueKind::String => value.as_str().unwrap(),
-        tera::value::ValueKind::U64
-        | tera::value::ValueKind::I64
-        | tera::value::ValueKind::U128
-        | tera::value::ValueKind::I128
-        | tera::value::ValueKind::F64
-        | tera::value::ValueKind::Bool => return Ok(value),
-        _ => return Err(tera::Error::message("escape_multiline_command: value is not a string")),
+) -> tera::TeraResult<Value> {
+    let value = match value.as_str() {
+        Some(value) => value,
+        None if value.is_number() || value.as_bool().is_some() => return Ok(value),
+        None => {
+            return Err(tera::Error::message(
+                "escape_multiline_command: value is not a string",
+            ));
+        }
     };
 
     let times = options.get::<u64>("times")?.unwrap_or(1);
@@ -187,7 +203,7 @@ pub fn filter_escape_multiline_command(
             .replace('\n', "\\n")
             .replace('"', "\\\"");
     }
-    Ok(tera::Value::normal_string(&escaped))
+    Ok(Value::from_serializable(&escaped))
 }
 
 #[cfg(test)]

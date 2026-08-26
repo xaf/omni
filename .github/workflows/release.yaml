@@ -152,6 +152,8 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    environment: crates-io
+
     needs:
       - create-release
 
@@ -176,11 +178,16 @@ jobs:
           perl -i -pe 's/^version = "0\.0\.0-git"$/version = "${{ env.RELEASE_VERSION }}"/' Cargo.lock
 
       - name: Publish crate
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Upload crate
         env:
           OMNI_RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
           # We use --allow-dirty since we override the version key
-          cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --allow-dirty --verbose
+          cargo publish --allow-dirty --verbose
 
       - name: Reset Cargo.toml and Cargo.lock
         run: |
