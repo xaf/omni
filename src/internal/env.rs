@@ -795,7 +795,7 @@ impl GitRepoEnv {
         }
 
         if let Ok(remote) = repository.find_remote("origin") {
-            if let Some(url) = remote.url() {
+            if let Ok(url) = remote.url() {
                 git_repo_env.origin = Some(url.to_string());
                 return git_repo_env;
             }
@@ -806,7 +806,7 @@ impl GitRepoEnv {
             let mut string_branch_name = branch_name.to_string();
             if string_branch_name == "__current" {
                 if let Ok(head) = repository.head() {
-                    if let Some(shorthand) = head.shorthand() {
+                    if let Ok(shorthand) = head.shorthand() {
                         if shorthand != "HEAD" {
                             string_branch_name = shorthand.to_string();
                         }
@@ -824,7 +824,7 @@ impl GitRepoEnv {
                     if let Ok(Some(upstream_name)) = upstream.name() {
                         let upstream_name = upstream_name.split('/').next().unwrap();
                         if let Ok(remote) = repository.find_remote(upstream_name) {
-                            if let Some(url) = remote.url() {
+                            if let Ok(url) = remote.url() {
                                 git_repo_env.origin = Some(url.to_string());
                                 return git_repo_env;
                             }
@@ -836,10 +836,12 @@ impl GitRepoEnv {
 
         if let Ok(remotes) = repository.remotes() {
             for remote in remotes.iter() {
-                if let Ok(remote) = repository.find_remote(remote.unwrap()) {
-                    if let Some(url) = remote.url() {
-                        git_repo_env.origin = Some(url.to_string());
-                        return git_repo_env;
+                if let Ok(Some(remote_name)) = remote {
+                    if let Ok(remote) = repository.find_remote(remote_name) {
+                        if let Ok(url) = remote.url() {
+                            git_repo_env.origin = Some(url.to_string());
+                            return git_repo_env;
+                        }
                     }
                 }
             }
