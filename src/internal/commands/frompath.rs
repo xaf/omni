@@ -13,10 +13,10 @@ use serde::Deserialize;
 use serde::Serialize;
 use walkdir::WalkDir;
 
-use crate::internal::config::CompoteConfigValue;
-use compote::ErrorTracker;
-use compote::FromContextValue;
-use compote::Level;
+use crate::internal::config::FeuilletageConfigValue;
+use feuilletage::ErrorTracker;
+use feuilletage::FromContextValue;
+use feuilletage::Level;
 
 use crate::internal::commands::base::AutocompleteParameter;
 use crate::internal::commands::base::CommandAutocompletion;
@@ -26,7 +26,7 @@ use crate::internal::commands::utils::str_to_bool;
 use crate::internal::commands::utils::SplitOnSeparators;
 use crate::internal::commands::Command;
 use crate::internal::config;
-use crate::internal::config::compote_loader::OmniConfigLoader;
+use crate::internal::config::feuilletage_loader::OmniConfigLoader;
 use crate::internal::config::loader::WORKDIR_CONFIG_FILES;
 use crate::internal::config::parser::parse_arg_name;
 use crate::internal::config::parser::ConfigErrorHandler;
@@ -75,21 +75,21 @@ impl PathCommand {
         // handle suggested configuration even if not applied globally before
         // going over the omnipath.
         let cfg = config(".");
-        let suggest_config_value = cfg.suggest_config.compote_config_value();
-        let local_config: OmniConfig = if matches!(suggest_config_value, CompoteConfigValue::Null(_)) {
+        let suggest_config_value = cfg.suggest_config.feuilletage_config_value();
+        let local_config: OmniConfig = if matches!(suggest_config_value, FeuilletageConfigValue::Null(_)) {
             cfg
         } else {
-            // Build config from all sources using compote loader
+            // Build config from all sources using feuilletage loader
             let mut loader = OmniConfigLoader::new_with_workdir(".");
-            let mut compote_config = match loader.build() {
+            let mut feuilletage_config = match loader.build() {
                 Ok(config) => config,
                 Err(_) => return vec![],
             };
             // Merge the suggest_config into the loaded config
-            compote_config.merge(suggest_config_value);
+            feuilletage_config.merge(suggest_config_value);
             // Deserialize from the merged config
             let mut tracker = ErrorTracker::new();
-            OmniConfig::from_context_value(compote_config.root(), &mut tracker).unwrap_or_default()
+            OmniConfig::from_context_value(feuilletage_config.root(), &mut tracker).unwrap_or_default()
         };
 
         // Get the package and worktree paths for the current repo
@@ -150,14 +150,14 @@ impl PathCommand {
             if pathobj.is_file() {
                 // Check if this is an omni configuration file
                 if WORKDIR_CONFIG_FILES.iter().any(|f| path.ends_with(f)) {
-                    // Load the file using compote loader
+                    // Load the file using feuilletage loader
                     let mut loader = OmniConfigLoader::new_from_file(path, Level::Local);
-                    let compote_config = match loader.build() {
+                    let feuilletage_config = match loader.build() {
                         Ok(config) => config,
                         Err(_) => continue,
                     };
                     let mut tracker = ErrorTracker::new();
-                    let file_config: OmniConfig = match OmniConfig::from_context_value(compote_config.root(), &mut tracker) {
+                    let file_config: OmniConfig = match OmniConfig::from_context_value(feuilletage_config.root(), &mut tracker) {
                         Ok(config) => config,
                         Err(_) => continue,
                     };

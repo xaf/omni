@@ -332,15 +332,15 @@ impl UpConfigHomebrew {
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for UpConfigHomebrew
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        error_tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        error_tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         // Extract install array
-        let install = if let compote::ContextValue::Object(map, _) = value {
+        let install = if let feuilletage::ContextValue::Object(map, _) = value {
             if let Some(install_value) = map.get("install") {
                 HomebrewInstall::parse_from_context_value(install_value, error_tracker)
                     .unwrap_or_default()
@@ -356,7 +356,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         };
 
         // Extract tap array
-        let tap = if let compote::ContextValue::Object(map, _) = value {
+        let tap = if let feuilletage::ContextValue::Object(map, _) = value {
             if let Some(tap_value) = map.get("tap") {
                 HomebrewTap::parse_from_context_value(tap_value, &install, error_tracker)
                     .unwrap_or_default()
@@ -689,16 +689,16 @@ impl HomebrewTap {
         taps
     }
 
-    fn parse_from_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
+    fn parse_from_context_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
         installs: &[HomebrewInstall],
-        error_tracker: &mut compote::ErrorTracker,
-    ) -> Result<Vec<Self>, compote::Error> {
+        error_tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Vec<Self>, feuilletage::Error> {
         #[allow(clippy::mutable_key_type)]
         let mut taps = BTreeSet::new();
 
         // Parse taps from the value
-        taps.extend(Self::compote_parse_taps_generic(value, error_tracker).unwrap_or_default());
+        taps.extend(Self::feuilletage_parse_taps_generic(value, error_tracker).unwrap_or_default());
 
         // Add implicit taps from install names
         taps = Self::add_implicit_taps_set(taps, installs);
@@ -706,30 +706,30 @@ impl HomebrewTap {
         Ok(taps.into_iter().collect())
     }
 
-    fn compote_parse_taps_generic<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
-        error_tracker: &mut compote::ErrorTracker,
-    ) -> Result<Vec<Self>, compote::Error> {
+    fn feuilletage_parse_taps_generic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
+        error_tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Vec<Self>, feuilletage::Error> {
         let mut parsed_taps = Vec::new();
 
         match value {
-            compote::ContextValue::Array(arr, _) => {
+            feuilletage::ContextValue::Array(arr, _) => {
                 for item in arr.iter() {
-                    if let Some(tap) = Self::compote_parse_tap_generic(None, item, error_tracker) {
+                    if let Some(tap) = Self::feuilletage_parse_tap_generic(None, item, error_tracker) {
                         parsed_taps.push(tap);
                     }
                 }
             }
-            compote::ContextValue::Object(map, _) => {
+            feuilletage::ContextValue::Object(map, _) => {
                 for (tap_name, tap_value) in map {
-                    parsed_taps.push(Self::compote_parse_config_generic(
+                    parsed_taps.push(Self::feuilletage_parse_config_generic(
                         tap_name.clone(),
                         tap_value,
                         error_tracker,
                     ));
                 }
             }
-            compote::ContextValue::String(s, _) => {
+            feuilletage::ContextValue::String(s, _) => {
                 parsed_taps.push(Self {
                     name: s.clone(),
                     url: None,
@@ -743,26 +743,26 @@ impl HomebrewTap {
         Ok(parsed_taps)
     }
 
-    fn compote_parse_tap_generic<S: compote::CustomSource, L: compote::CustomLevel>(
+    fn feuilletage_parse_tap_generic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
         name: Option<String>,
-        value: &compote::ContextValue<S, L>,
-        error_tracker: &mut compote::ErrorTracker,
+        value: &feuilletage::ContextValue<S, L>,
+        error_tracker: &mut feuilletage::ErrorTracker,
     ) -> Option<Self> {
         if let Some(name) = name {
-            return Some(Self::compote_parse_config_generic(name, value, error_tracker));
+            return Some(Self::feuilletage_parse_config_generic(name, value, error_tracker));
         }
 
         match value {
-            compote::ContextValue::String(s, _) => Some(Self {
+            feuilletage::ContextValue::String(s, _) => Some(Self {
                 name: s.clone(),
                 url: None,
                 upgrade: false,
                 was_handled: OnceCell::new(),
             }),
-            compote::ContextValue::Object(map, _) => {
+            feuilletage::ContextValue::Object(map, _) => {
                 if let Some(repo_value) = map.get("repo") {
-                    if let compote::ContextValue::String(repo_name, _) = repo_value {
-                        return Some(Self::compote_parse_config_generic(
+                    if let feuilletage::ContextValue::String(repo_name, _) = repo_value {
+                        return Some(Self::feuilletage_parse_config_generic(
                             repo_name.clone(),
                             value,
                             error_tracker,
@@ -773,7 +773,7 @@ impl HomebrewTap {
 
                 if map.len() == 1 {
                     let (name, config_value) = map.iter().next().unwrap();
-                    return Some(Self::compote_parse_config_generic(
+                    return Some(Self::feuilletage_parse_config_generic(
                         name.clone(),
                         config_value,
                         error_tracker,
@@ -786,27 +786,27 @@ impl HomebrewTap {
         }
     }
 
-    fn compote_parse_config_generic<S: compote::CustomSource, L: compote::CustomLevel>(
+    fn feuilletage_parse_config_generic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
         name: String,
-        value: &compote::ContextValue<S, L>,
-        _error_tracker: &mut compote::ErrorTracker,
+        value: &feuilletage::ContextValue<S, L>,
+        _error_tracker: &mut feuilletage::ErrorTracker,
     ) -> Self {
         let mut url = None;
         let mut upgrade = false;
 
         match value {
-            compote::ContextValue::String(s, _) => {
+            feuilletage::ContextValue::String(s, _) => {
                 url = Some(s.clone());
             }
-            compote::ContextValue::Object(map, _) => {
+            feuilletage::ContextValue::Object(map, _) => {
                 if let Some(url_value) = map.get("url") {
-                    if let compote::ContextValue::String(s, _) = url_value {
+                    if let feuilletage::ContextValue::String(s, _) = url_value {
                         url = Some(s.clone());
                     }
                 }
 
                 if let Some(upgrade_value) = map.get("upgrade") {
-                    if let compote::ContextValue::Bool(b, _) = upgrade_value {
+                    if let feuilletage::ContextValue::Bool(b, _) = upgrade_value {
                         upgrade = *b;
                     }
                 }
@@ -1589,14 +1589,14 @@ impl HomebrewInstall {
         }
     }
 
-    fn parse_from_context_value<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
-        error_tracker: &mut compote::ErrorTracker,
-    ) -> Result<Vec<Self>, compote::Error> {
+    fn parse_from_context_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
+        error_tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Vec<Self>, feuilletage::Error> {
         let mut installs = Vec::new();
 
         // Try to extract from "install" key if value is an object
-        let formulae_value = if let compote::ContextValue::Object(map, _) = value {
+        let formulae_value = if let feuilletage::ContextValue::Object(map, _) = value {
             if let Some(install_value) = map.get("install") {
                 install_value
             } else {
@@ -1607,19 +1607,19 @@ impl HomebrewInstall {
         };
 
         // Parse the formulae
-        installs.extend(Self::compote_parse_formulae_generic(formulae_value, error_tracker).unwrap_or_default());
+        installs.extend(Self::feuilletage_parse_formulae_generic(formulae_value, error_tracker).unwrap_or_default());
 
         Ok(installs)
     }
 
-    fn compote_parse_formulae_generic<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
-        _error_tracker: &mut compote::ErrorTracker,
-    ) -> Result<Vec<Self>, compote::Error> {
+    fn feuilletage_parse_formulae_generic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
+        _error_tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Vec<Self>, feuilletage::Error> {
         let mut installs = Vec::new();
 
         match value {
-            compote::ContextValue::Array(arr, _) => {
+            feuilletage::ContextValue::Array(arr, _) => {
                 for item in arr {
                     let mut install_type = HomebrewInstallType::Formula;
                     let mut version = None;
@@ -1627,14 +1627,14 @@ impl HomebrewInstall {
                     let mut upgrade = false;
 
                     match item {
-                        compote::ContextValue::Object(map, _) => {
+                        feuilletage::ContextValue::Object(map, _) => {
                             // Check for formula/cask key
                             if let Some(formula_value) = map.get("formula") {
-                                if let compote::ContextValue::String(s, _) = formula_value {
+                                if let feuilletage::ContextValue::String(s, _) = formula_value {
                                     name = Some(s.clone());
                                 }
                             } else if let Some(cask_value) = map.get("cask") {
-                                if let compote::ContextValue::String(s, _) = cask_value {
+                                if let feuilletage::ContextValue::String(s, _) = cask_value {
                                     install_type = HomebrewInstallType::Cask;
                                     name = Some(s.clone());
                                 }
@@ -1645,20 +1645,20 @@ impl HomebrewInstall {
 
                                 // Parse the rest of config
                                 match rest_value {
-                                    compote::ContextValue::Object(rest_map, _) => {
+                                    feuilletage::ContextValue::Object(rest_map, _) => {
                                         if let Some(upgrade_value) = rest_map.get("upgrade") {
-                                            if let compote::ContextValue::Bool(b, _) = upgrade_value {
+                                            if let feuilletage::ContextValue::Bool(b, _) = upgrade_value {
                                                 upgrade = *b;
                                             }
                                         }
 
                                         if let Some(version_value) = rest_map.get("version") {
-                                            if let compote::ContextValue::String(s, _) = version_value {
+                                            if let feuilletage::ContextValue::String(s, _) = version_value {
                                                 version = Some(s.clone());
                                             }
                                         }
                                     }
-                                    compote::ContextValue::String(s, _) => {
+                                    feuilletage::ContextValue::String(s, _) => {
                                         version = Some(s.clone());
                                     }
                                     _ => {}
@@ -1667,18 +1667,18 @@ impl HomebrewInstall {
 
                             // Extract upgrade and version from top-level if present
                             if let Some(upgrade_value) = map.get("upgrade") {
-                                if let compote::ContextValue::Bool(b, _) = upgrade_value {
+                                if let feuilletage::ContextValue::Bool(b, _) = upgrade_value {
                                     upgrade = *b;
                                 }
                             }
 
                             if let Some(version_value) = map.get("version") {
-                                if let compote::ContextValue::String(s, _) = version_value {
+                                if let feuilletage::ContextValue::String(s, _) = version_value {
                                     version = Some(s.clone());
                                 }
                             }
                         }
-                        compote::ContextValue::String(s, _) => {
+                        feuilletage::ContextValue::String(s, _) => {
                             name = Some(s.clone());
                         }
                         _ => {}
@@ -1695,7 +1695,7 @@ impl HomebrewInstall {
                     }
                 }
             }
-            compote::ContextValue::String(s, _) => {
+            feuilletage::ContextValue::String(s, _) => {
                 installs.push(Self::new_formula(s));
             }
             _ => {}

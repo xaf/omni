@@ -333,7 +333,7 @@ impl UpConfig {
 }
 
 // ============================================================================
-// Compote FromContextValue implementation for UpConfig
+// Feuilletage FromContextValue implementation for UpConfig
 // ============================================================================
 //
 // This implementation delegates to UpConfigTool's derived FromContextValue
@@ -341,19 +341,19 @@ impl UpConfig {
 // (e.g., YAML `3.2` parsed as a float) which are treated as mise tool names.
 // ============================================================================
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for UpConfig
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         let mut steps = Vec::new();
         let mut up_errors = Vec::new();
 
         // The value must be an array of tool configurations
         let config_array = match value {
-            compote::ContextValue::Array(arr, _) => arr,
+            feuilletage::ContextValue::Array(arr, _) => arr,
             _ => {
                 tracker.record_type_mismatch("array", value.type_name());
                 return Ok(Self {
@@ -367,8 +367,8 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             tracker.push_index(index);
 
             let empty_operation = match step_value {
-                compote::ContextValue::String(tag, _) => empty_operation_name(tag),
-                compote::ContextValue::Object(values, _) if values.len() == 1 => values
+                feuilletage::ContextValue::String(tag, _) => empty_operation_name(tag),
+                feuilletage::ContextValue::Object(values, _) if values.len() == 1 => values
                     .iter()
                     .next()
                     .filter(|(_, value)| value.is_null())
@@ -377,7 +377,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             };
 
             if let Some(operation) = empty_operation {
-                tracker.record(compote::Error::Custom {
+                tracker.record(feuilletage::Error::Custom {
                     code: "C002".to_string(),
                     path: format!("{}.{}", tracker.current_path(), operation),
                     message: "operation details are empty".to_string(),
@@ -393,15 +393,15 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 // A bare string names a tool without supplying configuration.
                 // Parse it like the equivalent `{ tool: {} }` external tag so
                 // the tool name is not mistaken for its version.
-                compote::ContextValue::String(tag, context) => {
+                feuilletage::ContextValue::String(tag, context) => {
                     let empty_config =
-                        compote::ContextValue::object(Default::default(), context.clone());
-                    let tagged_value = compote::ContextValue::object(
+                        feuilletage::ContextValue::object(Default::default(), context.clone());
+                    let tagged_value = feuilletage::ContextValue::object(
                         [(tag.clone(), empty_config)].into_iter().collect(),
                         context.clone(),
                     );
 
-                    match <UpConfigTool as compote::FromContextValue<S, L>>::from_context_value(
+                    match <UpConfigTool as feuilletage::FromContextValue<S, L>>::from_context_value(
                         &tagged_value,
                         tracker,
                     ) {
@@ -423,14 +423,14 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 // (e.g., YAML `3.2` parsed as a float key).
                 // These won't match any scalar variant in UpConfigTool's derived
                 // FromContextValue, so we handle them directly as Mise fallback.
-                compote::ContextValue::Int(i, _) => {
+                feuilletage::ContextValue::Int(i, _) => {
                     let mut mise = UpConfigMise::default();
                     mise.requested_tool = i.to_string();
                     mise.version = "latest".to_string();
                     mise.process_from_tag();
                     steps.push(UpConfigTool::Mise(mise));
                 }
-                compote::ContextValue::Float(f, _) => {
+                feuilletage::ContextValue::Float(f, _) => {
                     let mut mise = UpConfigMise::default();
                     mise.requested_tool = f.to_string();
                     mise.version = "latest".to_string();
@@ -440,7 +440,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 // All other types (string, object) delegate to UpConfigTool's
                 // derived FromContextValue which handles external_tag dispatch
                 _ => {
-                    match <UpConfigTool as compote::FromContextValue<S, L>>::from_context_value(
+                    match <UpConfigTool as feuilletage::FromContextValue<S, L>>::from_context_value(
                         step_value, tracker,
                     ) {
                         Ok(mut up_config) => {
@@ -473,15 +473,15 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 
 #[cfg(test)]
 mod tests {
-    use compote::FromContextValue;
+    use feuilletage::FromContextValue;
 
     use super::*;
 
-    fn parse_up(yaml: &str) -> (UpConfig, compote::ErrorTracker) {
-        let context = compote::Context::new(compote::Source::Programmatic, compote::Level::User);
-        let mut config = compote::Config::default();
+    fn parse_up(yaml: &str) -> (UpConfig, feuilletage::ErrorTracker) {
+        let context = feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
         config.load_yaml(yaml, context);
-        let mut tracker = compote::ErrorTracker::new();
+        let mut tracker = feuilletage::ErrorTracker::new();
         let up = UpConfig::from_context_value(config.root(), &mut tracker).unwrap();
         (up, tracker)
     }

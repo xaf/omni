@@ -313,18 +313,18 @@ impl SandboxCommand {
             .ok_or_else(|| "failed to convert config path to string".to_string())?;
 
         let mut changes_made = false;
-        ConfigLoader::edit_workdir_config_file_compote(config_path_str, |config| {
+        ConfigLoader::edit_workdir_config_file_feuilletage(config_path_str, |config| {
             // Create default context for parsing YAML
-            let context = compote::Context::new(
-                compote::Source::Programmatic,
-                compote::Level::Local,
+            let context = feuilletage::Context::new(
+                feuilletage::Source::Programmatic,
+                feuilletage::Level::Local,
             );
 
             // Collect existing dependencies as YAML strings for comparison
             let mut current_deps: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
 
-            if let Some(compote::ContextValue::Array(arr, _)) = config.at("up").get() {
+            if let Some(feuilletage::ContextValue::Array(arr, _)) = config.at("up").get() {
                 for item in arr.iter() {
                     // Serialize each dependency to YAML for comparison
                     if let Ok(yaml) = item.to_yaml() {
@@ -340,15 +340,15 @@ impl SandboxCommand {
             }
 
             // Parse and filter new dependencies
-            let new_deps: Vec<compote::Value> = dependencies
+            let new_deps: Vec<feuilletage::Value> = dependencies
                 .iter()
                 .filter_map(|dep| {
                     // Parse the dependency as YAML to handle both simple strings and complex structures
                     // like "go: latest" or just "go"
-                    let dep_value = compote::loader::load_yaml(dep, context.clone())
+                    let dep_value = feuilletage::loader::load_yaml(dep, context.clone())
                         .or_else(|_| {
                             // If parsing fails, treat it as a simple string
-                            compote::loader::load_yaml(&format!("\"{dep}\""), context.clone())
+                            feuilletage::loader::load_yaml(&format!("\"{dep}\""), context.clone())
                         })
                         .ok()?;
 
@@ -358,7 +358,7 @@ impl SandboxCommand {
                             return None;
                         }
                     }
-                    Some(compote::Value::from(dep_value))
+                    Some(feuilletage::Value::from(dep_value))
                 })
                 .collect();
 

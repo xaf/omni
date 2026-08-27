@@ -1,4 +1,4 @@
-use crate::internal::config::Value as CompoteValue;
+use crate::internal::config::Value as FeuilletageValue;
 use serde::Serialize;
 
 use tera::Tera;
@@ -13,10 +13,10 @@ use crate::internal::git_env;
 use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
-// Compote imports
-use crate::internal::config::CompoteConfigContext;
-use crate::internal::config::CompoteConfigLevel;
-use crate::internal::config::CompoteConfigSource;
+// Feuilletage imports
+use crate::internal::config::FeuilletageConfigContext;
+use crate::internal::config::FeuilletageConfigLevel;
+use crate::internal::config::FeuilletageConfigSource;
 
 #[derive(Default, Debug, Clone)]
 pub struct PromptsConfig {
@@ -29,7 +29,7 @@ impl Empty for PromptsConfig {
     }
 }
 
-impl compote::IsEmpty for PromptsConfig {
+impl feuilletage::IsEmpty for PromptsConfig {
     fn is_empty(&self) -> bool {
         Empty::is_empty(self)
     }
@@ -54,8 +54,8 @@ impl PromptsConfig {
 pub struct PromptConfig {
     pub id: String,
     pub prompt: String,
-    #[serde(skip_serializing_if = "compote_value_is_null")]
-    pub default: CompoteValue,
+    #[serde(skip_serializing_if = "feuilletage_value_is_null")]
+    pub default: FeuilletageValue,
     #[serde(flatten, skip_serializing_if = "PromptType::is_default")]
     pub prompt_type: PromptType,
     #[serde(skip_serializing_if = "PromptScope::is_default")]
@@ -99,12 +99,12 @@ impl PromptConfig {
 
         match render_config_template(&template, &template_context) {
             Ok(value) => {
-                // Parse YAML using compote
-                let context = CompoteConfigContext::new(
-                    CompoteConfigSource::Programmatic,
-                    CompoteConfigLevel::Local,
+                // Parse YAML using feuilletage
+                let context = FeuilletageConfigContext::new(
+                    FeuilletageConfigSource::Programmatic,
+                    FeuilletageConfigLevel::Local,
                 );
-                let config_value = match compote::loader::load_yaml(&value, context) {
+                let config_value = match feuilletage::loader::load_yaml(&value, context) {
                     Ok(cv) => cv,
                     Err(err) => {
                         return Err(format!(
@@ -114,9 +114,9 @@ impl PromptConfig {
                     }
                 };
 
-                // Use compote's FromContextValue implementation
-                let mut tracker = compote::ErrorTracker::new();
-                match <Self as compote::FromContextValue<CompoteConfigSource, CompoteConfigLevel>>::from_context_value(&config_value, &mut tracker) {
+                // Use feuilletage's FromContextValue implementation
+                let mut tracker = feuilletage::ErrorTracker::new();
+                match <Self as feuilletage::FromContextValue<FeuilletageConfigSource, FeuilletageConfigLevel>>::from_context_value(&config_value, &mut tracker) {
                     Ok(prompt) => Ok(prompt),
                     Err(err) => Err(format!(
                         "failed to parse prompt {} from rendered template: {}",
@@ -192,14 +192,14 @@ impl PromptType {
         &self,
         id: &str,
         prompt: &str,
-        default: CompoteValue,
+        default: FeuilletageValue,
         scope: PromptScope,
     ) -> bool {
         // Override the default value with the cached answer if there is one
         // for the current scope; otherwise, use the default value.
-        // The cache returns serde_json::Value, so we convert it to CompoteValue.
+        // The cache returns serde_json::Value, so we convert it to FeuilletageValue.
         let default = match PromptsCache::get().answers(".").get(id) {
-            Some(answer) => json_value_to_compote_value(answer),
+            Some(answer) => json_value_to_feuilletage_value(answer),
             None => default,
         };
 
@@ -292,10 +292,10 @@ impl PromptType {
                     .collect::<Vec<_>>();
 
                 if !default.is_null() {
-                    let defaults: Vec<CompoteValue> = match default.clone() {
-                        CompoteValue::Array(defaults) => defaults,
-                        CompoteValue::String(_) => vec![default],
-                        CompoteValue::Int(_) => vec![default],
+                    let defaults: Vec<FeuilletageValue> = match default.clone() {
+                        FeuilletageValue::Array(defaults) => defaults,
+                        FeuilletageValue::String(_) => vec![default],
+                        FeuilletageValue::Int(_) => vec![default],
                         _ => vec![],
                     };
 
@@ -540,21 +540,21 @@ impl PromptChoicesConfig {
         match self {
             Self::ChoicesAsArray(choices) => Ok(choices.clone()),
             Self::ChoicesAsString(template) => {
-                // Parse YAML using compote
-                let context = CompoteConfigContext::new(
-                    CompoteConfigSource::Programmatic,
-                    CompoteConfigLevel::Local,
+                // Parse YAML using feuilletage
+                let context = FeuilletageConfigContext::new(
+                    FeuilletageConfigSource::Programmatic,
+                    FeuilletageConfigLevel::Local,
                 );
-                let config_value = match compote::loader::load_yaml(template, context) {
+                let config_value = match feuilletage::loader::load_yaml(template, context) {
                     Ok(cv) => cv,
                     Err(err) => {
                         return Err(format!("failed to parse choices template as yaml: {err}"));
                     }
                 };
 
-                // Convert to Vec<PromptChoiceConfig> using compote's FromContextValue
-                let mut tracker = compote::ErrorTracker::new();
-                match <Vec<PromptChoiceConfig> as compote::FromContextValue<CompoteConfigSource, CompoteConfigLevel>>::from_context_value(
+                // Convert to Vec<PromptChoiceConfig> using feuilletage's FromContextValue
+                let mut tracker = feuilletage::ErrorTracker::new();
+                match <Vec<PromptChoiceConfig> as feuilletage::FromContextValue<FeuilletageConfigSource, FeuilletageConfigLevel>>::from_context_value(
                     &config_value,
                     &mut tracker,
                 ) {
@@ -584,13 +584,13 @@ impl Serialize for PromptChoicesConfig {
     }
 }
 
-#[derive(Debug, Clone, compote::Config)]
-#[compote(scalar_as = "id")]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(scalar_as = "id")]
 pub struct PromptChoiceConfig {
-    #[compote(fallback = "choice")]
+    #[feuilletage(fallback = "choice")]
     pub id: String,
 
-    #[compote(fallback = "id")]
+    #[feuilletage(fallback = "id")]
     pub choice: String,
 }
 
@@ -607,48 +607,48 @@ impl From<&PromptChoiceConfig> for String {
 }
 
 // ============================================================================
-// CompoteValue helper functions
+// FeuilletageValue helper functions
 // ============================================================================
 
 /// Helper function for serde skip_serializing_if
-fn compote_value_is_null(value: &CompoteValue) -> bool {
-    matches!(value, CompoteValue::Null)
+fn feuilletage_value_is_null(value: &FeuilletageValue) -> bool {
+    matches!(value, FeuilletageValue::Null)
 }
 
-/// Convert serde_json::Value to compote::Value
-fn json_value_to_compote_value(value: &serde_json::Value) -> CompoteValue {
+/// Convert serde_json::Value to feuilletage::Value
+fn json_value_to_feuilletage_value(value: &serde_json::Value) -> FeuilletageValue {
     match value {
-        serde_json::Value::Null => CompoteValue::Null,
-        serde_json::Value::Bool(b) => CompoteValue::Bool(*b),
+        serde_json::Value::Null => FeuilletageValue::Null,
+        serde_json::Value::Bool(b) => FeuilletageValue::Bool(*b),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                CompoteValue::Int(i)
+                FeuilletageValue::Int(i)
             } else if let Some(f) = n.as_f64() {
-                CompoteValue::Float(f)
+                FeuilletageValue::Float(f)
             } else {
-                CompoteValue::Null
+                FeuilletageValue::Null
             }
         }
-        serde_json::Value::String(s) => CompoteValue::String(s.clone()),
+        serde_json::Value::String(s) => FeuilletageValue::String(s.clone()),
         serde_json::Value::Array(arr) => {
-            let items: Vec<CompoteValue> = arr
+            let items: Vec<FeuilletageValue> = arr
                 .iter()
-                .map(json_value_to_compote_value)
+                .map(json_value_to_feuilletage_value)
                 .collect();
-            CompoteValue::Array(items)
+            FeuilletageValue::Array(items)
         }
         serde_json::Value::Object(map) => {
-            let items: indexmap::IndexMap<String, CompoteValue> = map
+            let items: indexmap::IndexMap<String, FeuilletageValue> = map
                 .iter()
-                .map(|(k, v)| (k.clone(), json_value_to_compote_value(v)))
+                .map(|(k, v)| (k.clone(), json_value_to_feuilletage_value(v)))
                 .collect();
-            CompoteValue::Object(items)
+            FeuilletageValue::Object(items)
         }
     }
 }
 
 // ============================================================================
-// Compote FromContextValue implementations
+// Feuilletage FromContextValue implementations
 // ============================================================================
 //
 // These manual implementations CANNOT be converted to derive macro due to technical limitations:
@@ -673,26 +673,26 @@ fn json_value_to_compote_value(value: &serde_json::Value) -> CompoteValue {
 //
 // 5. PromptChoicesConfig - Union type (array or string)
 //    - Can be Vec<PromptChoiceConfig> OR String (template)
-//    - This pattern would need #[compote(untagged)] but serialization is also custom
+//    - This pattern would need #[feuilletage(untagged)] but serialization is also custom
 //
 // Note: PromptChoiceConfig was converted to use the derive macro with:
-//   - #[compote(scalar_as = "id")] - handles string input
-//   - #[compote(fallback = "choice")] on id - id falls back to choice
-//   - #[compote(fallback = "id")] on choice - choice falls back to id
+//   - #[feuilletage(scalar_as = "id")] - handles string input
+//   - #[feuilletage(fallback = "choice")] on id - id falls back to choice
+//   - #[feuilletage(fallback = "id")] on choice - choice falls back to id
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for PromptsConfig
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         match value {
-            compote::ContextValue::Array(arr, _) => {
+            feuilletage::ContextValue::Array(arr, _) => {
                 let mut prompts = Vec::new();
                 for (idx, item) in arr.iter().enumerate() {
                     tracker.push_index(idx);
-                    match <PromptConfig as compote::FromContextValue<S, L>>::from_context_value(
+                    match <PromptConfig as feuilletage::FromContextValue<S, L>>::from_context_value(
                         item, tracker,
                     ) {
                         Ok(prompt) => prompts.push(prompt),
@@ -702,8 +702,8 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 }
                 Ok(Self { prompts })
             }
-            compote::ContextValue::Null(_) => Ok(Self::default()),
-            _ => Err(compote::Error::TypeMismatch {
+            feuilletage::ContextValue::Null(_) => Ok(Self::default()),
+            _ => Err(feuilletage::Error::TypeMismatch {
                 expected: "array".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),
@@ -712,17 +712,17 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for PromptConfig
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         let table = match value {
-            compote::ContextValue::Object(map, _) => map,
+            feuilletage::ContextValue::Object(map, _) => map,
             _ => {
-                return Err(compote::Error::TypeMismatch {
+                return Err(feuilletage::Error::TypeMismatch {
                     expected: "table".to_string(),
                     actual: value.type_name().to_string(),
                     path: tracker.current_path(),
@@ -734,10 +734,10 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         let id = if let Some(v) = table.get("id") {
             tracker.push_field("id");
             let result = match v {
-                compote::ContextValue::String(s, _) => {
+                feuilletage::ContextValue::String(s, _) => {
                     let trimmed = s.trim().to_string();
                     if trimmed.is_empty() {
-                        Err(compote::Error::InvalidValue {
+                        Err(feuilletage::Error::InvalidValue {
                             message: "id cannot be empty".to_string(),
                             path: tracker.current_path(),
                         })
@@ -745,7 +745,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                         Ok(trimmed)
                     }
                 }
-                _ => Err(compote::Error::TypeMismatch {
+                _ => Err(feuilletage::Error::TypeMismatch {
                     expected: "string".to_string(),
                     actual: v.type_name().to_string(),
                     path: tracker.current_path(),
@@ -757,17 +757,17 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             tracker.push_field("id");
             let path = tracker.current_path();
             tracker.pop();
-            return Err(compote::Error::MissingField { path });
+            return Err(feuilletage::Error::MissingField { path });
         };
 
         // Required: prompt
         let prompt = if let Some(v) = table.get("prompt") {
             tracker.push_field("prompt");
             let result = match v {
-                compote::ContextValue::String(s, _) => {
+                feuilletage::ContextValue::String(s, _) => {
                     let trimmed = s.trim().to_string();
                     if trimmed.is_empty() {
-                        Err(compote::Error::InvalidValue {
+                        Err(feuilletage::Error::InvalidValue {
                             message: "prompt cannot be empty".to_string(),
                             path: tracker.current_path(),
                         })
@@ -775,7 +775,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                         Ok(trimmed)
                     }
                 }
-                _ => Err(compote::Error::TypeMismatch {
+                _ => Err(feuilletage::Error::TypeMismatch {
                     expected: "string".to_string(),
                     actual: v.type_name().to_string(),
                     path: tracker.current_path(),
@@ -787,30 +787,30 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             tracker.push_field("prompt");
             let path = tracker.current_path();
             tracker.pop();
-            return Err(compote::Error::MissingField { path });
+            return Err(feuilletage::Error::MissingField { path });
         };
 
         // Optional: type (defaults to text)
         let prompt_type =
-            <PromptType as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?;
+            <PromptType as feuilletage::FromContextValue<S, L>>::from_context_value(value, tracker)?;
 
         // Optional: default
         let default = if let Some(v) = table.get("default") {
-            CompoteValue::from(v)
+            FeuilletageValue::from(v)
         } else {
-            CompoteValue::Null
+            FeuilletageValue::Null
         };
 
         // Optional: scope
         let scope =
-            <PromptScope as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?;
+            <PromptScope as feuilletage::FromContextValue<S, L>>::from_context_value(value, tracker)?;
 
         // Optional: if
         let if_condition = if let Some(v) = table.get("if") {
             match v {
-                compote::ContextValue::String(s, _) => Some(s.clone()),
-                compote::ContextValue::Bool(b, _) => Some(b.to_string()),
-                compote::ContextValue::Int(i, _) => Some(i.to_string()),
+                feuilletage::ContextValue::String(s, _) => Some(s.clone()),
+                feuilletage::ContextValue::Bool(b, _) => Some(b.to_string()),
+                feuilletage::ContextValue::Int(i, _) => Some(i.to_string()),
                 _ => None,
             }
         } else {
@@ -828,15 +828,15 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for PromptScope
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         let table = match value {
-            compote::ContextValue::Object(map, _) => map,
+            feuilletage::ContextValue::Object(map, _) => map,
             _ => return Ok(Self::default()),
         };
 
@@ -846,14 +846,14 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         };
 
         match scope_value {
-            compote::ContextValue::String(s, _) => {
+            feuilletage::ContextValue::String(s, _) => {
                 let scope = s.trim().to_lowercase();
                 match scope.as_str() {
                     "repo" | "repository" => Ok(Self::Repository),
                     "org" | "organization" => Ok(Self::Organization),
                     _ => {
                         tracker.push_field("scope");
-                        tracker.record(compote::Error::InvalidValue {
+                        tracker.record(feuilletage::Error::InvalidValue {
                             message: format!(
                                 "invalid scope '{}': expected 'repo' or 'org'",
                                 scope
@@ -867,7 +867,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             }
             _ => {
                 tracker.push_field("scope");
-                tracker.record(compote::Error::TypeMismatch {
+                tracker.record(feuilletage::Error::TypeMismatch {
                     expected: "string".to_string(),
                     actual: scope_value.type_name().to_string(),
                     path: tracker.current_path(),
@@ -879,15 +879,15 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for PromptType
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         let table = match value {
-            compote::ContextValue::Object(map, _) => map,
+            feuilletage::ContextValue::Object(map, _) => map,
             _ => return Ok(Self::default()),
         };
 
@@ -897,10 +897,10 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         };
 
         let type_str = match type_value {
-            compote::ContextValue::String(s, _) => s.trim().to_lowercase(),
+            feuilletage::ContextValue::String(s, _) => s.trim().to_lowercase(),
             _ => {
                 tracker.push_field("type");
-                tracker.record(compote::Error::TypeMismatch {
+                tracker.record(feuilletage::Error::TypeMismatch {
                     expected: "string".to_string(),
                     actual: type_value.type_name().to_string(),
                     path: tracker.current_path(),
@@ -912,7 +912,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 
         if type_str.is_empty() {
             tracker.push_field("type");
-            tracker.record(compote::Error::InvalidValue {
+            tracker.record(feuilletage::Error::InvalidValue {
                 message: "type cannot be empty".to_string(),
                 path: tracker.current_path(),
             });
@@ -927,7 +927,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             "choice" | "select" | "choices" | "multichoice" | "multiselect" => {
                 if let Some(choices_value) = table.get("choices") {
                     tracker.push_field("choices");
-                    let choices = <PromptChoicesConfig as compote::FromContextValue<S, L>>::from_context_value(
+                    let choices = <PromptChoicesConfig as feuilletage::FromContextValue<S, L>>::from_context_value(
                         choices_value,
                         tracker,
                     )?;
@@ -941,13 +941,13 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                     tracker.push_field("choices");
                     let path = tracker.current_path();
                     tracker.pop();
-                    Err(compote::Error::MissingField { path })
+                    Err(feuilletage::Error::MissingField { path })
                 }
             }
             "int" => {
                 let min = if let Some(v) = table.get("min") {
                     match v {
-                        compote::ContextValue::Int(i, _) => Some(*i),
+                        feuilletage::ContextValue::Int(i, _) => Some(*i),
                         _ => None,
                     }
                 } else {
@@ -955,7 +955,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 };
                 let max = if let Some(v) = table.get("max") {
                     match v {
-                        compote::ContextValue::Int(i, _) => Some(*i),
+                        feuilletage::ContextValue::Int(i, _) => Some(*i),
                         _ => None,
                     }
                 } else {
@@ -966,8 +966,8 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             "float" => {
                 let min = if let Some(v) = table.get("min") {
                     match v {
-                        compote::ContextValue::Float(f, _) => Some(*f),
-                        compote::ContextValue::Int(i, _) => Some(*i as f64),
+                        feuilletage::ContextValue::Float(f, _) => Some(*f),
+                        feuilletage::ContextValue::Int(i, _) => Some(*i as f64),
                         _ => None,
                     }
                 } else {
@@ -975,8 +975,8 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 };
                 let max = if let Some(v) = table.get("max") {
                     match v {
-                        compote::ContextValue::Float(f, _) => Some(*f),
-                        compote::ContextValue::Int(i, _) => Some(*i as f64),
+                        feuilletage::ContextValue::Float(f, _) => Some(*f),
+                        feuilletage::ContextValue::Int(i, _) => Some(*i as f64),
                         _ => None,
                     }
                 } else {
@@ -986,7 +986,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
             }
             _ => {
                 tracker.push_field("type");
-                tracker.record(compote::Error::InvalidValue {
+                tracker.record(feuilletage::Error::InvalidValue {
                     message: format!(
                         "invalid type '{}': expected text, password, confirm, choice, multichoice, int, or float",
                         type_str
@@ -1000,19 +1000,19 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for PromptChoicesConfig
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         match value {
-            compote::ContextValue::Array(arr, _) => {
+            feuilletage::ContextValue::Array(arr, _) => {
                 let mut choices = Vec::new();
                 for (idx, item) in arr.iter().enumerate() {
                     tracker.push_index(idx);
-                    match <PromptChoiceConfig as compote::FromContextValue<S, L>>::from_context_value(
+                    match <PromptChoiceConfig as feuilletage::FromContextValue<S, L>>::from_context_value(
                         item, tracker,
                     ) {
                         Ok(choice) => choices.push(choice),
@@ -1022,7 +1022,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 }
 
                 if choices.is_empty() {
-                    Err(compote::Error::InvalidValue {
+                    Err(feuilletage::Error::InvalidValue {
                         message: "choices cannot be empty".to_string(),
                         path: tracker.current_path(),
                     })
@@ -1030,8 +1030,8 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                     Ok(Self::ChoicesAsArray(choices))
                 }
             }
-            compote::ContextValue::String(s, _) => Ok(Self::ChoicesAsString(s.clone())),
-            _ => Err(compote::Error::TypeMismatch {
+            feuilletage::ContextValue::String(s, _) => Ok(Self::ChoicesAsString(s.clone())),
+            _ => Err(feuilletage::Error::TypeMismatch {
                 expected: "array or template string".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),

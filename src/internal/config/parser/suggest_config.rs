@@ -5,58 +5,58 @@ use serde::Serialize;
 
 use crate::internal::cache::utils::Empty;
 
-// Compote imports
-use crate::internal::config::CompoteConfigContext;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteConfigLevel;
-use crate::internal::config::CompoteConfigSource;
-use crate::internal::config::Value as CompoteValue;
+// Feuilletage imports
+use crate::internal::config::FeuilletageConfigContext;
+use crate::internal::config::FeuilletageConfigValue;
+use crate::internal::config::FeuilletageConfigLevel;
+use crate::internal::config::FeuilletageConfigSource;
+use crate::internal::config::Value as FeuilletageValue;
 
 // ============================================================================
-// COMPOTE CONVERSION: Store compote::Value directly
+// FEUILLETAGE CONVERSION: Store feuilletage::Value directly
 // ============================================================================
 //
-// Strategy: Store compote::Value directly instead of serializing to YAML string.
+// Strategy: Store feuilletage::Value directly instead of serializing to YAML string.
 // This is the clean approach that has eliminated config_value from suggest_config.
 //
 // Key points:
-// 1. The `config` field stores `compote::Value` directly
-// 2. `config()` returns `&compote::Value`
-// 3. `compote_config_value()` returns `compote::ConfigValue` for merging
+// 1. The `config` field stores `feuilletage::Value` directly
+// 2. `config()` returns `&feuilletage::Value`
+// 3. `feuilletage_config_value()` returns `feuilletage::ConfigValue` for merging
 // 4. Custom FromConfigValue impl handles variant-style parsing
 //
 // ============================================================================
 
 /// Create a synthetic ConfigContext for deserialized values
-fn synthetic_context() -> CompoteConfigContext {
-    CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::Local)
+fn synthetic_context() -> FeuilletageConfigContext {
+    FeuilletageConfigContext::new(FeuilletageConfigSource::Programmatic, FeuilletageConfigLevel::Local)
 }
 
-/// Wrapper for storing arbitrary config as compote::Value
+/// Wrapper for storing arbitrary config as feuilletage::Value
 #[derive(Debug, Clone)]
-pub struct StoredConfig(pub CompoteValue);
+pub struct StoredConfig(pub FeuilletageValue);
 
 impl Default for StoredConfig {
     fn default() -> Self {
-        StoredConfig(CompoteValue::Null)
+        StoredConfig(FeuilletageValue::Null)
     }
 }
 
 impl StoredConfig {
     pub fn is_empty(&self) -> bool {
-        matches!(self.0, CompoteValue::Null)
+        matches!(self.0, FeuilletageValue::Null)
     }
 
-    /// Get the stored compote::Value
+    /// Get the stored feuilletage::Value
     /// This is the new API - callers should migrate to using this instead of to_config_value()
     #[allow(dead_code)]
-    pub fn value(&self) -> &CompoteValue {
+    pub fn value(&self) -> &FeuilletageValue {
         &self.0
     }
 
-    /// Convert to compote::ConfigValue for merging with compote::Config
-    pub fn to_compote_config_value(&self) -> CompoteConfigValue {
-        value_to_compote_config_value(&self.0, synthetic_context())
+    /// Convert to feuilletage::ConfigValue for merging with feuilletage::Config
+    pub fn to_feuilletage_config_value(&self) -> FeuilletageConfigValue {
+        value_to_feuilletage_config_value(&self.0, synthetic_context())
     }
 }
 
@@ -65,8 +65,8 @@ impl Serialize for StoredConfig {
     where
         S: serde::Serializer,
     {
-        // Serialize the compote::Value directly
-        serialize_compote_value(&self.0, serializer)
+        // Serialize the feuilletage::Value directly
+        serialize_feuilletage_value(&self.0, serializer)
     }
 }
 
@@ -75,128 +75,128 @@ impl<'de> Deserialize<'de> for StoredConfig {
     where
         D: serde::Deserializer<'de>,
     {
-        // Deserialize as serde_yaml::Value and convert to compote::Value
+        // Deserialize as serde_yaml::Value and convert to feuilletage::Value
         let value: serde_yaml::Value = serde_yaml::Value::deserialize(deserializer)?;
-        let compote_value = yaml_value_to_compote_value(value);
-        Ok(StoredConfig(compote_value))
+        let feuilletage_value = yaml_value_to_feuilletage_value(value);
+        Ok(StoredConfig(feuilletage_value))
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for StoredConfig
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        _tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        _tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         // Convert ContextValue to Value (stripping context)
-        Ok(StoredConfig(CompoteValue::from(value)))
+        Ok(StoredConfig(FeuilletageValue::from(value)))
     }
 }
 
-/// Convert compote::Value to compote::ConfigValue with the given context
-fn value_to_compote_config_value(value: &CompoteValue, context: CompoteConfigContext) -> CompoteConfigValue {
+/// Convert feuilletage::Value to feuilletage::ConfigValue with the given context
+fn value_to_feuilletage_config_value(value: &FeuilletageValue, context: FeuilletageConfigContext) -> FeuilletageConfigValue {
     match value {
-        CompoteValue::Null => CompoteConfigValue::null(context),
-        CompoteValue::Bool(b) => CompoteConfigValue::bool(*b, context),
-        CompoteValue::Int(i) => CompoteConfigValue::int(*i, context),
-        CompoteValue::Float(f) => CompoteConfigValue::float(*f, context),
-        CompoteValue::String(s) => CompoteConfigValue::string(s.clone(), context),
-        CompoteValue::Array(arr) => {
-            let items: Vec<CompoteConfigValue> = arr
+        FeuilletageValue::Null => FeuilletageConfigValue::null(context),
+        FeuilletageValue::Bool(b) => FeuilletageConfigValue::bool(*b, context),
+        FeuilletageValue::Int(i) => FeuilletageConfigValue::int(*i, context),
+        FeuilletageValue::Float(f) => FeuilletageConfigValue::float(*f, context),
+        FeuilletageValue::String(s) => FeuilletageConfigValue::string(s.clone(), context),
+        FeuilletageValue::Array(arr) => {
+            let items: Vec<FeuilletageConfigValue> = arr
                 .iter()
-                .map(|v| value_to_compote_config_value(v, context.clone()))
+                .map(|v| value_to_feuilletage_config_value(v, context.clone()))
                 .collect();
-            CompoteConfigValue::array(items, context)
+            FeuilletageConfigValue::array(items, context)
         }
-        CompoteValue::Object(map) => {
-            let items: indexmap::IndexMap<String, CompoteConfigValue> = map
+        FeuilletageValue::Object(map) => {
+            let items: indexmap::IndexMap<String, FeuilletageConfigValue> = map
                 .iter()
-                .map(|(k, v)| (k.clone(), value_to_compote_config_value(v, context.clone())))
+                .map(|(k, v)| (k.clone(), value_to_feuilletage_config_value(v, context.clone())))
                 .collect();
-            CompoteConfigValue::object(items, context)
+            FeuilletageConfigValue::object(items, context)
         }
     }
 }
 
-/// Convert serde_yaml::Value to compote::Value (contextless)
-fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteValue {
+/// Convert serde_yaml::Value to feuilletage::Value (contextless)
+fn yaml_value_to_feuilletage_value(value: serde_yaml::Value) -> FeuilletageValue {
     match value {
-        serde_yaml::Value::Null => CompoteValue::Null,
-        serde_yaml::Value::Bool(b) => CompoteValue::Bool(b),
+        serde_yaml::Value::Null => FeuilletageValue::Null,
+        serde_yaml::Value::Bool(b) => FeuilletageValue::Bool(b),
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                CompoteValue::Int(i)
+                FeuilletageValue::Int(i)
             } else if let Some(f) = n.as_f64() {
-                CompoteValue::Float(f)
+                FeuilletageValue::Float(f)
             } else {
-                CompoteValue::Null
+                FeuilletageValue::Null
             }
         }
-        serde_yaml::Value::String(s) => CompoteValue::String(s),
+        serde_yaml::Value::String(s) => FeuilletageValue::String(s),
         serde_yaml::Value::Sequence(arr) => {
-            let items: Vec<CompoteValue> = arr
+            let items: Vec<FeuilletageValue> = arr
                 .into_iter()
-                .map(yaml_value_to_compote_value)
+                .map(yaml_value_to_feuilletage_value)
                 .collect();
-            CompoteValue::Array(items)
+            FeuilletageValue::Array(items)
         }
         serde_yaml::Value::Mapping(map) => {
-            let items: indexmap::IndexMap<String, CompoteValue> = map
+            let items: indexmap::IndexMap<String, FeuilletageValue> = map
                 .into_iter()
                 .filter_map(|(k, v)| {
                     let key = match k {
                         serde_yaml::Value::String(s) => s,
                         _ => return None,
                     };
-                    Some((key, yaml_value_to_compote_value(v)))
+                    Some((key, yaml_value_to_feuilletage_value(v)))
                 })
                 .collect();
-            CompoteValue::Object(items)
+            FeuilletageValue::Object(items)
         }
-        serde_yaml::Value::Tagged(tagged) => yaml_value_to_compote_value(tagged.value),
+        serde_yaml::Value::Tagged(tagged) => yaml_value_to_feuilletage_value(tagged.value),
     }
 }
 
-/// Serialize compote::Value using serde
-fn serialize_compote_value<S>(value: &CompoteValue, serializer: S) -> Result<S::Ok, S::Error>
+/// Serialize feuilletage::Value using serde
+fn serialize_feuilletage_value<S>(value: &FeuilletageValue, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
     match value {
-        CompoteValue::Null => serializer.serialize_none(),
-        CompoteValue::Bool(b) => serializer.serialize_bool(*b),
-        CompoteValue::Int(i) => serializer.serialize_i64(*i),
-        CompoteValue::Float(f) => serializer.serialize_f64(*f),
-        CompoteValue::String(s) => serializer.serialize_str(s),
-        CompoteValue::Array(arr) => {
+        FeuilletageValue::Null => serializer.serialize_none(),
+        FeuilletageValue::Bool(b) => serializer.serialize_bool(*b),
+        FeuilletageValue::Int(i) => serializer.serialize_i64(*i),
+        FeuilletageValue::Float(f) => serializer.serialize_f64(*f),
+        FeuilletageValue::String(s) => serializer.serialize_str(s),
+        FeuilletageValue::Array(arr) => {
             use serde::ser::SerializeSeq;
             let mut seq = serializer.serialize_seq(Some(arr.len()))?;
             for item in arr {
-                seq.serialize_element(&SerializableCompoteValue(item))?;
+                seq.serialize_element(&SerializableFeuilletageValue(item))?;
             }
             seq.end()
         }
-        CompoteValue::Object(map) => {
+        FeuilletageValue::Object(map) => {
             use serde::ser::SerializeMap;
             let mut m = serializer.serialize_map(Some(map.len()))?;
             for (k, v) in map {
-                m.serialize_entry(k, &SerializableCompoteValue(v))?;
+                m.serialize_entry(k, &SerializableFeuilletageValue(v))?;
             }
             m.end()
         }
     }
 }
 
-/// Helper for serializing compote::Value
-struct SerializableCompoteValue<'a>(&'a CompoteValue);
+/// Helper for serializing feuilletage::Value
+struct SerializableFeuilletageValue<'a>(&'a FeuilletageValue);
 
-impl<'a> Serialize for SerializableCompoteValue<'a> {
+impl<'a> Serialize for SerializableFeuilletageValue<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serialize_compote_value(self.0, serializer)
+        serialize_feuilletage_value(self.0, serializer)
     }
 }
 
@@ -216,15 +216,15 @@ impl<'a> Serialize for SerializableCompoteValue<'a> {
 //    generate struct-style serialization which would break compatibility.
 //
 // 3. **Serialize impl conflict**: Since we need custom Serialize, using
-//    `#[derive(compote::Config)]` would generate a conflicting Serialize impl.
+//    `#[derive(feuilletage::Config)]` would generate a conflicting Serialize impl.
 //
-// To convert this, compote would need:
-// - A `#[compote(key_presence_variant)]` or similar pattern
+// To convert this, feuilletage would need:
+// - A `#[feuilletage(key_presence_variant)]` or similar pattern
 // - A way to opt-out of Serialize generation while keeping FromContextValue
 // ==========================================================================
 #[derive(Debug, Clone)]
 pub struct SuggestConfig {
-    /// Arbitrary config value, stored as compote::Value
+    /// Arbitrary config value, stored as feuilletage::Value
     pub config: StoredConfig,
 
     pub template: String,
@@ -233,19 +233,19 @@ pub struct SuggestConfig {
 }
 
 /// Implement FromContextValue manually to handle variant-style parsing
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for SuggestConfig
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         // Check if it's an object with special keys
-        if let compote::ContextValue::Object(map, _) = value {
+        if let feuilletage::ContextValue::Object(map, _) = value {
             // Check for "config" key - use its value directly
             if let Some(config_val) = map.get("config") {
                 return Ok(Self {
-                    config: StoredConfig(CompoteValue::from(config_val)),
+                    config: StoredConfig(FeuilletageValue::from(config_val)),
                     template: String::new(),
                     template_file: String::new(),
                 });
@@ -253,7 +253,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 
             // Check for "template" key
             if let Some(template_val) = map.get("template") {
-                if let compote::ContextValue::String(s, _) = template_val {
+                if let feuilletage::ContextValue::String(s, _) = template_val {
                     return Ok(Self {
                         config: StoredConfig::default(),
                         template: s.clone(),
@@ -264,7 +264,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 
             // Check for "template_file" key
             if let Some(template_file_val) = map.get("template_file") {
-                if let compote::ContextValue::String(s, _) = template_file_val {
+                if let feuilletage::ContextValue::String(s, _) = template_file_val {
                     return Ok(Self {
                         config: StoredConfig::default(),
                         template: String::new(),
@@ -276,7 +276,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 
         // If not a special variant, treat the entire value as config
         let stored_config =
-            <StoredConfig as compote::FromContextValue<S, L>>::from_context_value(value, tracker)?;
+            <StoredConfig as feuilletage::FromContextValue<S, L>>::from_context_value(value, tracker)?;
         Ok(Self {
             config: stored_config,
             template: String::new(),
@@ -291,7 +291,7 @@ impl Empty for SuggestConfig {
     }
 }
 
-impl compote::IsEmpty for SuggestConfig {
+impl feuilletage::IsEmpty for SuggestConfig {
     fn is_empty(&self) -> bool {
         Empty::is_empty(self)
     }
@@ -321,17 +321,17 @@ impl Serialize for SuggestConfig {
 }
 
 impl SuggestConfig {
-    /// Get the config as compote::Value
+    /// Get the config as feuilletage::Value
     /// This is the new API - callers should migrate to using this instead of config_value()
     #[allow(dead_code)]
-    pub fn config(&self) -> &CompoteValue {
+    pub fn config(&self) -> &FeuilletageValue {
         self.config_in_context(".")
     }
 
-    /// Get the config as compote::Value in the given context
+    /// Get the config as feuilletage::Value in the given context
     /// This is the new API - callers should migrate to using this instead of config_value_in_context()
     #[allow(dead_code)]
-    pub fn config_in_context(&self, _path: &str) -> &CompoteValue {
+    pub fn config_in_context(&self, _path: &str) -> &FeuilletageValue {
         // For direct config, just return it
         // Template processing returns owned value, so we need internal mutability or different API
         // For now, if template is set, we don't support context-based config retrieval via this method
@@ -344,16 +344,16 @@ impl SuggestConfig {
         &self.config.0
     }
 
-    /// Get the config as compote::ConfigValue for merging with compote::Config
+    /// Get the config as feuilletage::ConfigValue for merging with feuilletage::Config
     ///
     /// This is the primary API for getting the suggest config for merging purposes.
-    /// It converts the internal compote::Value to a compote::ConfigValue with synthetic context.
+    /// It converts the internal feuilletage::Value to a feuilletage::ConfigValue with synthetic context.
     ///
     /// Note: Template rendering is not yet supported via this method.
-    pub fn compote_config_value(&self) -> CompoteConfigValue {
+    pub fn feuilletage_config_value(&self) -> FeuilletageConfigValue {
         // For now, we only support direct config (no template rendering)
-        // TODO: Add template rendering support for compote path
-        self.config.to_compote_config_value()
+        // TODO: Add template rendering support for feuilletage path
+        self.config.to_feuilletage_config_value()
     }
 }
 
@@ -380,9 +380,9 @@ impl<'de> Deserialize<'de> for SuggestConfig {
         if let serde_yaml::Value::Mapping(ref map) = value {
             // Check for "config" key
             if let Some(config_val) = map.get(&serde_yaml::Value::String("config".to_string())) {
-                let compote_value = yaml_value_to_compote_value(config_val.clone());
+                let feuilletage_value = yaml_value_to_feuilletage_value(config_val.clone());
                 return Ok(SuggestConfig {
-                    config: StoredConfig(compote_value),
+                    config: StoredConfig(feuilletage_value),
                     template: String::new(),
                     template_file: String::new(),
                 });
@@ -412,9 +412,9 @@ impl<'de> Deserialize<'de> for SuggestConfig {
         }
 
         // Otherwise, treat the entire value as config
-        let compote_value = yaml_value_to_compote_value(value);
+        let feuilletage_value = yaml_value_to_feuilletage_value(value);
         Ok(SuggestConfig {
-            config: StoredConfig(compote_value),
+            config: StoredConfig(feuilletage_value),
             template: String::new(),
             template_file: String::new(),
         })

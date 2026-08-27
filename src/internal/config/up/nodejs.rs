@@ -29,11 +29,11 @@ use crate::internal::workdir;
 /// Parameters for Node.js configuration (separate from the backend config).
 ///
 /// Controls whether to auto-install engines and packages from package.json.
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct UpConfigNodejsParams {
-    #[compote(default = "true", skip_if_default)]
+    #[feuilletage(default = "true", skip_if_default)]
     pub install_engines: bool,
-    #[compote(default = "true", skip_if_default)]
+    #[feuilletage(default = "true", skip_if_default)]
     pub install_packages: bool,
 }
 
@@ -52,7 +52,7 @@ impl UpConfigNodejsParams {
 }
 
 // Manual FromContextValue implementation replaced by derive macro above
-// The #[compote(default = "true")] handles the default values for both boolean fields
+// The #[feuilletage(default = "true")] handles the default values for both boolean fields
 
 /// Configuration for Node.js tool installation.
 ///
@@ -106,16 +106,16 @@ impl UpConfigNodejs {
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for UpConfigNodejs
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        errors: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        errors: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         // Create backend using FromContextValue, then set the tool name and process it
         let mut backend: UpConfigMise =
-            compote::FromContextValue::from_context_value(value, errors)?;
+            feuilletage::FromContextValue::from_context_value(value, errors)?;
         backend.requested_tool = "node".to_string();
         backend.process_from_tag();
         backend.retain_config_value(value);
@@ -125,8 +125,8 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         backend.add_post_install_func(remove_mise_reshim_from_bin);
         backend.add_post_install_func(setup_individual_npm_prefix);
 
-        let params = if matches!(value, compote::ContextValue::Object(_, _)) {
-            <UpConfigNodejsParams as compote::FromContextValue<S, L>>::from_context_value(
+        let params = if matches!(value, feuilletage::ContextValue::Object(_, _)) {
+            <UpConfigNodejsParams as feuilletage::FromContextValue<S, L>>::from_context_value(
                 value, errors,
             )?
         } else {
@@ -300,8 +300,8 @@ fn setup_individual_npm_prefix(
     };
 
     let params = if let Some(config_value) = args.config_value.as_ref() {
-        let mut tracker = compote::ErrorTracker::new();
-        <UpConfigNodejsParams as compote::FromContextValue<_, _>>::from_context_value(
+        let mut tracker = feuilletage::ErrorTracker::new();
+        <UpConfigNodejsParams as feuilletage::FromContextValue<_, _>>::from_context_value(
             config_value,
             &mut tracker,
         )
@@ -491,15 +491,15 @@ impl PackageInstallEngine {
 
 #[cfg(test)]
 mod tests {
-    use compote::FromContextValue;
+    use feuilletage::FromContextValue;
 
     use super::*;
 
-    fn parse_nodejs(yaml: &str) -> (UpConfigNodejs, compote::ErrorTracker) {
-        let context = compote::Context::new(compote::Source::Programmatic, compote::Level::User);
-        let mut config = compote::Config::default();
+    fn parse_nodejs(yaml: &str) -> (UpConfigNodejs, feuilletage::ErrorTracker) {
+        let context = feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
         config.load_yaml(yaml, context);
-        let mut tracker = compote::ErrorTracker::new();
+        let mut tracker = feuilletage::ErrorTracker::new();
         let nodejs = UpConfigNodejs::from_context_value(config.root(), &mut tracker).unwrap();
         (nodejs, tracker)
     }
@@ -525,7 +525,7 @@ mod tests {
         assert_eq!(nodejs.backend.version, "20");
         assert!(!nodejs.params.install_engines);
         assert!(!nodejs.params.install_packages);
-        let mut callback_tracker = compote::ErrorTracker::new();
+        let mut callback_tracker = feuilletage::ErrorTracker::new();
         let callback_params = UpConfigNodejsParams::from_context_value(
             nodejs.backend.retained_config_value().unwrap(),
             &mut callback_tracker,

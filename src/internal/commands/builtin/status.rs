@@ -9,7 +9,7 @@ use crate::internal::cache::utils::Empty;
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::path::omnipath_entries;
 use crate::internal::commands::Command;
-use crate::internal::config::compote_loader::OmniConfigLoader;
+use crate::internal::config::feuilletage_loader::OmniConfigLoader;
 use crate::internal::config::config;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
@@ -120,7 +120,7 @@ impl StatusCommand {
         }
 
         let config = config(".");
-        match compote::to_yaml(&config) {
+        match feuilletage::to_yaml(&config) {
             Ok(yaml_code) => {
                 println!("{}", self.color_yaml(&yaml_code, args.single));
             }

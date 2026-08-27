@@ -241,7 +241,7 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
             org: orgs,
         };
 
-        if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|compote_config| {
+        if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|feuilletage_config| {
             // Convert our config object to YAML using serde
             let yaml = match serde_json::to_value(&config)
                 .ok()
@@ -254,12 +254,12 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
                 }
             };
 
-            // Parse the YAML into a compote ConfigValue
-            let context = compote::Context::new(
-                compote::Source::Programmatic,
-                compote::Level::User,
+            // Parse the YAML into a feuilletage ConfigValue
+            let context = feuilletage::Context::new(
+                feuilletage::Source::Programmatic,
+                feuilletage::Level::User,
             );
-            let new_config_value = match compote::loader::load_yaml(&yaml, context) {
+            let new_config_value = match feuilletage::loader::load_yaml(&yaml, context) {
                 Ok(value) => value,
                 Err(err) => {
                     omni_error!(format!("failed to parse configuration: {}", err));
@@ -268,7 +268,7 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
             };
 
             // Merge the new values into the existing config
-            compote_config.merge(new_config_value);
+            feuilletage_config.merge(new_config_value);
 
             // Return true to save the configuration
             true

@@ -44,21 +44,21 @@ fn nix_gcroot_command<T: AsRef<Path>>(tmp_profile: T, perm_profile: T) -> TokioC
     command
 }
 
-#[derive(Debug, Serialize, Clone, Default, compote::Config)]
-#[compote(scalar_as = "nixfile", array_as = "packages", skip_serialize, skip_deserialize)]
+#[derive(Debug, Serialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(scalar_as = "nixfile", array_as = "packages", skip_serialize, skip_deserialize)]
 pub struct UpConfigNix {
     /// List of nix packages to install.
-    #[compote(default)]
+    #[feuilletage(default)]
     #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
     pub packages: Vec<String>,
 
     /// Path to a nix file to use.
-    #[compote(alias = "file")]
+    #[feuilletage(alias = "file")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nixfile: Option<String>,
 
     /// Path to the nix profile(s) stored in the data path
-    #[compote(skip)]
+    #[feuilletage(skip)]
     #[serde(skip)]
     pub data_paths: OnceCell<Vec<PathBuf>>,
 }

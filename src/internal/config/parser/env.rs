@@ -50,20 +50,20 @@ impl Empty for EnvConfig {
     }
 }
 
-impl compote::IsEmpty for EnvConfig {
+impl feuilletage::IsEmpty for EnvConfig {
     fn is_empty(&self) -> bool {
         Empty::is_empty(self)
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for EnvConfig
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        if matches!(value, compote::ContextValue::Null(_)) {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        if matches!(value, feuilletage::ContextValue::Null(_)) {
             return Ok(Self::default());
         }
 
@@ -73,7 +73,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 
         // Parse as Vec<EnvVarConfig>
         let entries: Vec<EnvVarConfig> =
-            compote::FromContextValue::from_context_value(&transformed, tracker)?;
+            feuilletage::FromContextValue::from_context_value(&transformed, tracker)?;
 
         // Flatten to operations
         let operations = entries.iter().flat_map(|e| e.to_operations()).collect();
@@ -130,22 +130,22 @@ struct EnvOpValue {
     value_type: String,
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for EnvOpValue
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         match value {
-            compote::ContextValue::Null(_) => Ok(EnvOpValue {
+            feuilletage::ContextValue::Null(_) => Ok(EnvOpValue {
                 value: None,
                 value_type: "text".to_string(),
             }),
-            compote::ContextValue::Object(table, _) => {
+            feuilletage::ContextValue::Object(table, _) => {
                 let parsed_value = if let Some(value_cv) = table.get("value") {
                     match value_cv {
-                        compote::ContextValue::Null(_) => None,
+                        feuilletage::ContextValue::Null(_) => None,
                         _ => Some(coerce_to_string(value_cv, tracker)?),
                     }
                 } else {
@@ -153,17 +153,17 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 };
                 let vtype = if let Some(type_cv) = table.get("type") {
                     match type_cv {
-                        compote::ContextValue::String(s, _) if s == "text" || s == "path" => {
+                        feuilletage::ContextValue::String(s, _) if s == "text" || s == "path" => {
                             s.clone()
                         }
-                        compote::ContextValue::String(s, _) => {
-                            return Err(compote::Error::InvalidValue {
+                        feuilletage::ContextValue::String(s, _) => {
+                            return Err(feuilletage::Error::InvalidValue {
                                 path: tracker.current_path(),
                                 message: format!("type must be 'text' or 'path', got '{}'", s),
                             });
                         }
                         _ => {
-                            return Err(compote::Error::TypeMismatch {
+                            return Err(feuilletage::Error::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
                                 actual: type_cv.type_name().to_string(),
@@ -191,32 +191,32 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 }
 
 // ============================================================================
-// EnvVarConfig - compote-derived struct for a single env var entry
+// EnvVarConfig - feuilletage-derived struct for a single env var entry
 // ============================================================================
 
-#[derive(Debug, Clone, Default, compote::Config)]
-#[compote(skip_serialize)]
+#[derive(Debug, Clone, Default, feuilletage::Config)]
+#[feuilletage(skip_serialize)]
 struct EnvVarConfig {
     name: String,
-    #[compote(default, allow_single)]
+    #[feuilletage(default, allow_single)]
     set: Vec<EnvOpValue>,
-    #[compote(default, allow_single)]
+    #[feuilletage(default, allow_single)]
     prepend: Vec<EnvOpValue>,
-    #[compote(default, allow_single)]
+    #[feuilletage(default, allow_single)]
     append: Vec<EnvOpValue>,
-    #[compote(default, allow_single)]
+    #[feuilletage(default, allow_single)]
     remove: Vec<EnvOpValue>,
-    #[compote(default, allow_single)]
+    #[feuilletage(default, allow_single)]
     prefix: Vec<EnvOpValue>,
-    #[compote(default, allow_single)]
+    #[feuilletage(default, allow_single)]
     suffix: Vec<EnvOpValue>,
     // Fallback: when no operation key present, {value: X, type: Y} means implicit Set
-    #[compote(default)]
+    #[feuilletage(default)]
     value: Option<String>,
-    #[compote(default = "text", rename = "type")]
+    #[feuilletage(default = "text", rename = "type")]
     value_type: String,
     // Source path for path resolution, extracted from context metadata
-    #[compote(from_context = "source.file_path")]
+    #[feuilletage(from_context = "source.file_path")]
     source_path: Option<std::path::PathBuf>,
 }
 
@@ -305,40 +305,40 @@ const OPERATION_KEYS: &[&str] = &["set", "prepend", "append", "remove", "prefix"
 ///   - If value is scalar: create `{name: KEY, set: value}`
 ///   - If value is object with op keys: merge and wrap null op values
 ///   - If value is object without op keys: merge as value/type fields
-fn env_entries_transform<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &mut compote::ContextValue<S, L>,
-) -> Result<(), compote::Error> {
+fn env_entries_transform<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+) -> Result<(), feuilletage::Error> {
     // Step 1: If input is an Object, convert to sorted array of single-key objects
-    if matches!(value, compote::ContextValue::Object(_, _)) {
+    if matches!(value, feuilletage::ContextValue::Object(_, _)) {
         // Clone the value to avoid borrow conflict (read from clone, write to original)
         let cloned = value.clone();
         let ctx = cloned.context().clone();
-        if let compote::ContextValue::Object(table, _) = &cloned {
+        if let feuilletage::ContextValue::Object(table, _) = &cloned {
             let mut items = Vec::new();
             for key in table.keys().sorted() {
                 let item_value = table.get(key).unwrap().clone();
                 let item_ctx = item_value.context().clone();
                 let mut single_entry = indexmap::IndexMap::new();
                 single_entry.insert(key.clone(), item_value);
-                items.push(compote::ContextValue::object(single_entry, item_ctx));
+                items.push(feuilletage::ContextValue::object(single_entry, item_ctx));
             }
-            *value = compote::ContextValue::array(items, ctx);
+            *value = feuilletage::ContextValue::array(items, ctx);
         }
     }
 
     // Step 2: Process each array element
-    if let compote::ContextValue::Array(items, _) = value {
+    if let feuilletage::ContextValue::Array(items, _) = value {
         for item in items.iter_mut() {
             // Clone context and check structure before mutable borrow
             let item_ctx = item.context().clone();
             let item_clone = item.clone();
-            if let compote::ContextValue::Object(table, _) = &item_clone {
+            if let feuilletage::ContextValue::Object(table, _) = &item_clone {
                 if table.len() != 1 {
                     continue;
                 }
                 let (name, var_value) = table.iter().next().unwrap();
                 let new_obj = normalize_env_entry(name, var_value, &item_ctx);
-                *item = compote::ContextValue::object(new_obj, item_ctx);
+                *item = feuilletage::ContextValue::object(new_obj, item_ctx);
             }
         }
     }
@@ -347,26 +347,26 @@ fn env_entries_transform<S: compote::CustomSource, L: compote::CustomLevel>(
 }
 
 /// Normalize a single env entry `{KEY: value}` into a flat object with `name` field.
-fn normalize_env_entry<S: compote::CustomSource, L: compote::CustomLevel>(
+fn normalize_env_entry<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
     name: &str,
-    var_value: &compote::ContextValue<S, L>,
-    ctx: &compote::Context<S, L>,
-) -> indexmap::IndexMap<String, compote::ContextValue<S, L>> {
+    var_value: &feuilletage::ContextValue<S, L>,
+    ctx: &feuilletage::Context<S, L>,
+) -> indexmap::IndexMap<String, feuilletage::ContextValue<S, L>> {
     let mut obj = indexmap::IndexMap::new();
     obj.insert(
         "name".to_string(),
-        compote::ContextValue::string(name, ctx.clone()),
+        feuilletage::ContextValue::string(name, ctx.clone()),
     );
 
     match var_value {
-        compote::ContextValue::Null(_) => {
-            // null -> unset: wrap as {set: [{value: null}]} to prevent compote
+        feuilletage::ContextValue::Null(_) => {
+            // null -> unset: wrap as {set: [{value: null}]} to prevent feuilletage
             // from treating null as "missing field" (which would use default)
             let null_wrapped = wrap_null_value(ctx);
-            let set_array = compote::ContextValue::array(vec![null_wrapped], ctx.clone());
+            let set_array = feuilletage::ContextValue::array(vec![null_wrapped], ctx.clone());
             obj.insert("set".to_string(), set_array);
         }
-        compote::ContextValue::Object(inner_table, _) => {
+        feuilletage::ContextValue::Object(inner_table, _) => {
             let has_op_keys = inner_table
                 .keys()
                 .any(|k| OPERATION_KEYS.contains(&k.as_str()));
@@ -375,12 +375,12 @@ fn normalize_env_entry<S: compote::CustomSource, L: compote::CustomLevel>(
                 // Merge object fields, wrapping null operation values
                 for (k, v) in inner_table {
                     if OPERATION_KEYS.contains(&k.as_str()) {
-                        if matches!(v, compote::ContextValue::Null(_)) {
+                        if matches!(v, feuilletage::ContextValue::Null(_)) {
                             // Wrap null operation value to preserve it
                             let null_wrapped = wrap_null_value(ctx);
                             obj.insert(
                                 k.clone(),
-                                compote::ContextValue::array(vec![null_wrapped], ctx.clone()),
+                                feuilletage::ContextValue::array(vec![null_wrapped], ctx.clone()),
                             );
                         } else {
                             obj.insert(k.clone(), v.clone());
@@ -406,31 +406,31 @@ fn normalize_env_entry<S: compote::CustomSource, L: compote::CustomLevel>(
 }
 
 /// Create a `{value: null}` ContextValue object to wrap null values.
-fn wrap_null_value<S: compote::CustomSource, L: compote::CustomLevel>(
-    ctx: &compote::Context<S, L>,
-) -> compote::ContextValue<S, L> {
+fn wrap_null_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    ctx: &feuilletage::Context<S, L>,
+) -> feuilletage::ContextValue<S, L> {
     let mut wrapped = indexmap::IndexMap::new();
     wrapped.insert(
         "value".to_string(),
-        compote::ContextValue::null(ctx.clone()),
+        feuilletage::ContextValue::null(ctx.clone()),
     );
-    compote::ContextValue::object(wrapped, ctx.clone())
+    feuilletage::ContextValue::object(wrapped, ctx.clone())
 }
 
 // ============================================================================
 // Helper: coerce ContextValue to String
 // ============================================================================
 
-fn coerce_to_string<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &compote::ContextValue<S, L>,
-    tracker: &mut compote::ErrorTracker,
-) -> Result<String, compote::Error> {
+fn coerce_to_string<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<String, feuilletage::Error> {
     match value {
-        compote::ContextValue::String(s, _) => Ok(s.clone()),
-        compote::ContextValue::Int(i, _) => Ok(i.to_string()),
-        compote::ContextValue::Float(f, _) => Ok(f.to_string()),
-        compote::ContextValue::Bool(b, _) => Ok(b.to_string()),
-        _ => Err(compote::Error::TypeMismatch {
+        feuilletage::ContextValue::String(s, _) => Ok(s.clone()),
+        feuilletage::ContextValue::Int(i, _) => Ok(i.to_string()),
+        feuilletage::ContextValue::Float(f, _) => Ok(f.to_string()),
+        feuilletage::ContextValue::Bool(b, _) => Ok(b.to_string()),
+        _ => Err(feuilletage::Error::TypeMismatch {
             path: tracker.current_path(),
             expected: "scalar value".to_string(),
             actual: value.type_name().to_string(),

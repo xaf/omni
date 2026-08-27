@@ -50,7 +50,7 @@ lazy_static! {
     };
 }
 
-// Default functions for compote derive
+// Default functions for feuilletage derive
 fn get_default_worktree() -> String {
     DEFAULT_WORKTREE.to_string()
 }
@@ -63,78 +63,78 @@ fn get_default_repo_path_format() -> String {
     "%{host}/%{org}/%{repo}".to_string()
 }
 
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct OmniConfig {
-    #[compote(default)]
+    #[feuilletage(default)]
     pub askpass: AskPassConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub cache: CacheConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub cd: CdConfig,
 
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub check: CheckConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub clone: CloneConfig,
 
-    #[compote(default = "0.12")]
+    #[feuilletage(default = "0.12")]
     pub command_match_min_score: f64,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub command_match_skip_prompt_if: MatchSkipPromptIfConfig,
 
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub commands: HashMap<String, CommandDefinition>,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub config_commands: ConfigCommandsConfig,
 
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub env: EnvConfig,
 
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub github: GithubConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub makefile_commands: MakefileCommandsConfig,
 
-    #[compote(default, mutable_by = ["system", "user"], skip_if_empty)]
+    #[feuilletage(default, mutable_by = ["system", "user"], skip_if_empty)]
     pub org: Vec<OrgConfig>,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub path: PathConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub path_repo_updates: PathRepoUpdatesConfig,
 
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub prompts: PromptsConfig,
 
-    #[compote(default_fn = "get_default_repo_path_format", skip_if_empty)]
+    #[feuilletage(default_fn = "get_default_repo_path_format", skip_if_empty)]
     pub repo_path_format: String,
 
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub shell_aliases: ShellAliasesConfig,
 
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub suggest_clone: SuggestCloneConfig,
 
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub suggest_config: SuggestConfig,
 
-    #[compote(skip_if_empty)]
+    #[feuilletage(skip_if_empty)]
     pub up: Option<UpConfig>,
 
-    #[compote(default, nested)]
+    #[feuilletage(default, nested)]
     pub up_command: UpCommandConfig,
 
-    #[compote(default_fn = "get_default_sandbox", skip_if_empty)]
+    #[feuilletage(default_fn = "get_default_sandbox", skip_if_empty)]
     pub sandbox: String,
 
-    #[compote(default_fn = "get_default_worktree", skip_if_empty)]
+    #[feuilletage(default_fn = "get_default_worktree", skip_if_empty)]
     pub worktree: String,
 }
 
@@ -178,20 +178,20 @@ impl OmniConfig {
         let mut config_hasher = blake3::Hasher::new();
 
         if let Some(up) = &self.up {
-            if let Ok(up_str) = compote::to_yaml(&up) {
+            if let Ok(up_str) = feuilletage::to_yaml(&up) {
                 config_hasher.update(up_str.as_bytes());
             }
         }
 
-        if let Ok(suggest_config_str) = compote::to_yaml(&self.suggest_config) {
+        if let Ok(suggest_config_str) = feuilletage::to_yaml(&self.suggest_config) {
             config_hasher.update(suggest_config_str.as_bytes());
         }
 
-        if let Ok(suggest_clone_str) = compote::to_yaml(&self.suggest_clone) {
+        if let Ok(suggest_clone_str) = feuilletage::to_yaml(&self.suggest_clone) {
             config_hasher.update(suggest_clone_str.as_bytes());
         }
 
-        if let Ok(env_str) = compote::to_yaml(&self.env) {
+        if let Ok(env_str) = feuilletage::to_yaml(&self.env) {
             config_hasher.update(env_str.as_bytes());
         }
 

@@ -1,22 +1,22 @@
-/// MatchSkipPromptIfConfig using compote's derive macro.
+/// MatchSkipPromptIfConfig using feuilletage's derive macro.
 ///
 /// This configuration controls automatic prompt skipping based on match scores.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
 ///
 /// We still need manual `serde::Deserialize` for compatibility with the existing
 /// codebase that uses serde for some operations (e.g., loading from cache files).
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct MatchSkipPromptIfConfig {
-    #[compote(default = "false")]
+    #[feuilletage(default = "false")]
     pub enabled: bool,
 
-    #[compote(default = "0.80")]
+    #[feuilletage(default = "0.80")]
     pub first_min: f64,
 
-    #[compote(default = "0.60")]
+    #[feuilletage(default = "0.60")]
     pub second_max: f64,
 }
 

@@ -404,32 +404,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "compote"
-version = "0.1.0"
-dependencies = [
- "atomic-write-file",
- "chrono",
- "compote-macros",
- "fs4",
- "hashbrown 0.17.1",
- "indexmap",
- "regex",
- "serde",
- "serde-saphyr",
- "serde_json",
- "toml",
-]
-
-[[package]]
-name = "compote-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.4",
-]
-
-[[package]]
 name = "console"
 version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -761,6 +735,36 @@ name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+
+[[package]]
+name = "feuilletage"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "030e0bf139166a330471f40b313d0a8e710a485e0c0cd44b3fe68831f0c41d27"
+dependencies = [
+ "atomic-write-file",
+ "chrono",
+ "feuilletage-macros",
+ "fs4",
+ "hashbrown 0.17.1",
+ "indexmap",
+ "regex",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "feuilletage-macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5dab3f5dadd57d11f6805a19cef32948f714fb2bcf2a6f3467cb9490f7019607"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
+]
 
 [[package]]
 name = "filetime"
@@ -1854,9 +1858,9 @@ dependencies = [
  "blake3",
  "cfg-if",
  "clap",
- "compote",
  "ctrlc",
  "duct",
+ "feuilletage",
  "flate2",
  "fs4",
  "futures",

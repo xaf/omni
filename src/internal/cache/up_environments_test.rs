@@ -244,11 +244,11 @@ mod up_environments_cache {
 
             // Write the max_total to the config file
             let expected_max_total = 5;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 // Write to cache.environment.max_total, using a yaml string
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    max_total: {expected_max_total}"),
-                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
                 );
                 true
             }) {
@@ -289,11 +289,11 @@ mod up_environments_cache {
 
             // Write the max_total to the config file
             let expected_max_total = 5;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 // Write to cache.environment.max_total, using a yaml string
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    max_total: {expected_max_total}"),
-                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
                 );
                 true
             }) {
@@ -335,13 +335,13 @@ mod up_environments_cache {
 
             // Write the max_total to the config file
             let expected_max_per_workdir = 2;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 // Write to cache.environment.max_per_workdir, using a yaml string
                 config.load_yaml(
                     &format!(
                         "cache:\n  environment:\n    max_per_workdir: {expected_max_per_workdir}"
                     ),
-                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
                 );
                 true
             }) {
@@ -387,10 +387,10 @@ mod up_environments_cache {
 
             // Set retention_stale to 60 seconds for testing
             let retention_stale = 60;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
-                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
                 );
                 true
             }) {
@@ -442,10 +442,10 @@ mod up_environments_cache {
 
             // Set retention_stale to 60 seconds
             let retention_stale = 60;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
-                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
                 );
                 true
             }) {
@@ -480,10 +480,10 @@ mod up_environments_cache {
 
             // Set retention_stale to 60 seconds
             let retention_stale = 60;
-            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
-                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
                 );
                 true
             }) {
@@ -530,10 +530,10 @@ mod up_environments_cache {
             let cache = UpEnvironmentsCache::get();
 
             // Set retention to 0 to disable cleanup
-            if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+            if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 config.load_yaml(
                     "cache:\n  environment:\n    retention: 0",
-                    compote::Context::new(compote::Source::Programmatic, compote::Level::User),
+                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
                 );
                 true
             }) {

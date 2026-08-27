@@ -1,8 +1,8 @@
-pub(crate) mod compote_loader;
-pub(crate) use compote_loader::OmniConfigLoader;
+pub(crate) mod feuilletage_loader;
+pub(crate) use feuilletage_loader::OmniConfigLoader;
 
-pub(crate) mod compote_types;
-pub(crate) use compote_types::*;
+pub(crate) mod feuilletage_types;
+pub(crate) use feuilletage_types::*;
 
 
 pub(crate) mod loader;

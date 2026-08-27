@@ -7,23 +7,23 @@ use crate::internal::git::package_path_from_handle;
 use crate::internal::git::package_root_path;
 
 // ============================================================================
-// NEW IMPLEMENTATION USING COMPOTE
+// NEW IMPLEMENTATION USING FEUILLETAGE
 // ============================================================================
 
-/// PathConfig using compote's derive macro.
+/// PathConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
 ///
 /// We still need manual `serde::Deserialize` for compatibility with the existing
 /// codebase that uses serde for some operations.
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct PathConfig {
-    #[compote(default = "Vec::new()", skip_if_empty)]
+    #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub append: Vec<PathEntryConfig>,
 
-    #[compote(default = "Vec::new()", skip_if_empty)]
+    #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub prepend: Vec<PathEntryConfig>,
 }
 
@@ -37,26 +37,26 @@ impl Default for PathConfig {
     }
 }
 
-/// PathEntryConfig using compote's derive macro.
+/// PathEntryConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
 ///
 /// We still need manual `serde::Deserialize` for compatibility with the existing
 /// codebase that uses serde for some operations.
 ///
-/// Note: The `full_path` field is computed and uses `#[compote(skip)]` to exclude
+/// Note: The `full_path` field is computed and uses `#[feuilletage(skip)]` to exclude
 /// it from both serialization and deserialization.
-#[derive(Debug, Clone, PartialEq, compote::Config)]
+#[derive(Debug, Clone, PartialEq, feuilletage::Config)]
 pub struct PathEntryConfig {
-    #[compote(default = "String::new()")]
+    #[feuilletage(default = "String::new()")]
     pub path: String,
 
-    #[compote(skip_if_empty)]
+    #[feuilletage(skip_if_empty)]
     pub package: Option<String>,
 
-    #[compote(skip, default = "String::new()")]
+    #[feuilletage(skip, default = "String::new()")]
     pub full_path: String,
 }
 
@@ -144,42 +144,42 @@ impl PathEntryConfig {
         false
     }
 
-    /// Convert to compote Value for use with compote's Config API
-    pub fn to_compote_value(&self) -> compote::Value {
+    /// Convert to feuilletage Value for use with feuilletage's Config API
+    pub fn to_feuilletage_value(&self) -> feuilletage::Value {
         if let Some(package) = &self.package {
             let mut map = indexmap::IndexMap::new();
             map.insert(
                 "path".to_string(),
-                compote::Value::String(self.path.clone()),
+                feuilletage::Value::String(self.path.clone()),
             );
             map.insert(
                 "package".to_string(),
-                compote::Value::String(package.clone()),
+                feuilletage::Value::String(package.clone()),
             );
-            compote::Value::Object(map)
+            feuilletage::Value::Object(map)
         } else {
             // Just the path as a string
-            compote::Value::String(self.full_path.clone())
+            feuilletage::Value::String(self.full_path.clone())
         }
     }
 
-    /// Convert from compote ConfigValue to PathEntryConfig
-    pub fn from_compote_value(
-        config_value: &compote::ContextValue,
+    /// Convert from feuilletage ConfigValue to PathEntryConfig
+    pub fn from_feuilletage_value(
+        config_value: &feuilletage::ContextValue,
         error_handler: &ConfigErrorHandler,
     ) -> Option<Self> {
         match config_value {
-            compote::ContextValue::Object(map, _) => {
+            feuilletage::ContextValue::Object(map, _) => {
                 let path = map
                     .get("path")
                     .and_then(|v| match v {
-                        compote::ContextValue::String(s, _) => Some(s.clone()),
+                        feuilletage::ContextValue::String(s, _) => Some(s.clone()),
                         _ => None,
                     })
                     .unwrap_or_default();
 
                 let package = map.get("package").and_then(|v| match v {
-                    compote::ContextValue::String(s, _) => Some(s.clone()),
+                    feuilletage::ContextValue::String(s, _) => Some(s.clone()),
                     _ => None,
                 });
 
@@ -217,12 +217,12 @@ impl PathEntryConfig {
                     })
                 }
             }
-            compote::ContextValue::String(path, _) => Some(Self {
+            feuilletage::ContextValue::String(path, _) => Some(Self {
                 path: path.clone(),
                 package: None,
                 full_path: path.clone(),
             }),
-            compote::ContextValue::Int(i, _) => Some(Self {
+            feuilletage::ContextValue::Int(i, _) => Some(Self {
                 path: i.to_string(),
                 package: None,
                 full_path: i.to_string(),

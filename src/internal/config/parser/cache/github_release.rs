@@ -1,17 +1,17 @@
-/// GithubReleaseCacheConfig using compote's derive macro.
+/// GithubReleaseCacheConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct GithubReleaseCacheConfig {
-    #[compote(duration, default = "86400")]
+    #[feuilletage(duration, default = "86400")]
     pub versions_expire: u64, // 1 day
 
-    #[compote(duration, default = "7776000")]
+    #[feuilletage(duration, default = "7776000")]
     pub versions_retention: u64, // 90 days
 
-    #[compote(duration, default = "604800")]
+    #[feuilletage(duration, default = "604800")]
     pub cleanup_after: u64, // 1 week
 }
 

@@ -1,7 +1,7 @@
 use std::process::exit;
 
 use crate::internal::commands::config_bootstrap;
-use crate::internal::config::compote_loader::OmniConfigLoader;
+use crate::internal::config::feuilletage_loader::OmniConfigLoader;
 use crate::internal::config::flush_config;
 use crate::internal::env::shell_is_interactive;
 use crate::internal::user_interface::colors::StringColor;

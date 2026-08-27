@@ -33,7 +33,7 @@ struct UpConfigGolangSerialized {
     dirs: BTreeSet<String>,
 }
 
-fn normalize_dir(value: &mut String) -> Result<(), compote::Error> {
+fn normalize_dir(value: &mut String) -> Result<(), feuilletage::Error> {
     *value = PathBuf::from(&*value)
         .normalize()
         .to_string_lossy()
@@ -46,17 +46,17 @@ fn normalize_dir(value: &mut String) -> Result<(), compote::Error> {
 /// Accepts:
 /// - A string or number: interpreted as version (via scalar_as)
 /// - An object with version, version_file, upgrade, and dir fields
-#[derive(Debug, Clone, compote::Config)]
-#[compote(scalar_as = "version", skip_serialize)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(scalar_as = "version", skip_serialize)]
 pub struct UpConfigGolang {
-    #[compote(coerce)]
+    #[feuilletage(coerce)]
     pub version: Option<String>,
     pub version_file: Option<String>,
-    #[compote(default)]
+    #[feuilletage(default)]
     pub upgrade: bool,
-    #[compote(allow_single, default, rename = "dir", transform_each_after = "normalize_dir")]
+    #[feuilletage(allow_single, default, rename = "dir", transform_each_after = "normalize_dir")]
     pub dirs: BTreeSet<String>,
-    #[compote(skip)]
+    #[feuilletage(skip)]
     pub backend: OnceCell<UpConfigMise>,
 }
 

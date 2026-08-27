@@ -12,16 +12,16 @@ This plan covers the final steps to completely eliminate the `config_value` crat
 
 ---
 
-## Phase 5b: Replace ConfigErrorKind with Compote Errors
+## Phase 5b: Replace ConfigErrorKind with Feuilletage Errors
 
 ### Background
 
-`ConfigErrorKind` is an enum in `config_value/src/error.rs` with ~40 variants for different error types. The `ConfigErrorHandler` in `src/internal/config/parser/errors.rs` has a `to_compote_error()` mapping that converts these to compote's `ConfigError`.
+`ConfigErrorKind` is an enum in `config_value/src/error.rs` with ~40 variants for different error types. The `ConfigErrorHandler` in `src/internal/config/parser/errors.rs` has a `to_feuilletage_error()` mapping that converts these to feuilletage's `ConfigError`.
 
 ### Strategy
 
-**Option A (Recommended): Direct Compote Errors**
-Replace `ConfigErrorKind` usages with direct `compote::ConfigError` construction.
+**Option A (Recommended): Direct Feuilletage Errors**
+Replace `ConfigErrorKind` usages with direct `feuilletage::ConfigError` construction.
 
 **Option B: Keep ConfigErrorKind as Omni-local Enum**
 Move the enum definition from config_value to omni's codebase (as it's omni-specific anyway).
@@ -51,11 +51,11 @@ Move the enum definition from config_value to omni's codebase (as it's omni-spec
 ### Implementation Steps
 
 1. **Update `ConfigErrorHandler`** in `errors.rs`:
-   - Add methods that accept `compote::ConfigError` directly
+   - Add methods that accept `feuilletage::ConfigError` directly
    - Keep `ConfigErrorKind` methods as deprecated aliases during transition
 
 2. **Update each file** (in order of complexity, low to high):
-   - Replace `error_handler.error(ConfigErrorKind::Foo)` with `error_handler.compote_error(CompoteConfigError::Foo {...})`
+   - Replace `error_handler.error(ConfigErrorKind::Foo)` with `error_handler.feuilletage_error(FeuilletageConfigError::Foo {...})`
    - Update imports
 
 3. **Remove `ConfigErrorKind` re-export** from `errors.rs`
@@ -88,12 +88,12 @@ error_handler.record(ConfigError::TypeMismatch {
 
 | File | Usage | Replacement Strategy |
 |------|-------|---------------------|
-| `src/internal/commands/frompath.rs` | Metadata header parsing | Use `compote::Value` |
-| `src/internal/commands/builtin/status.rs` | Config display | Use `compote::Value` |
-| `src/internal/commands/builtin/up.rs` | Config manipulation | Use `compote::Value` |
+| `src/internal/commands/frompath.rs` | Metadata header parsing | Use `feuilletage::Value` |
+| `src/internal/commands/builtin/status.rs` | Config display | Use `feuilletage::Value` |
+| `src/internal/commands/builtin/up.rs` | Config manipulation | Use `feuilletage::Value` |
 | `src/internal/config/parser/omniconfig.rs` | ? | Investigate |
-| `src/internal/config/parser/errors.rs` | ErrorHandler | Use `compote::Value` |
-| `src/internal/cache/prompts.rs` | Prompt storage | Use `compote::Value` |
+| `src/internal/config/parser/errors.rs` | ErrorHandler | Use `feuilletage::Value` |
+| `src/internal/cache/prompts.rs` | Prompt storage | Use `feuilletage::Value` |
 | `src/internal/cache/prompts_test.rs` | Tests | Update with prompts.rs |
 | `src/internal/config/utils.rs` | Bridge function | Remove when bridge is gone |
 
@@ -105,22 +105,22 @@ The `PathCommandFileDetails` struct uses `config_value::Value` for parsing metad
 2. Converting to `config_value::Value`
 3. Using methods like `as_mapping()`, `as_str()`, `as_bool()`
 
-**Solution:** Use `compote::Value` directly, which provides similar methods.
+**Solution:** Use `feuilletage::Value` directly, which provides similar methods.
 
 ### Implementation Steps
 
-1. **Create `compote::Value` from YAML helper** (if not exists):
+1. **Create `feuilletage::Value` from YAML helper** (if not exists):
    ```rust
-   fn yaml_to_compote_value(yaml: serde_yaml::Value) -> compote::Value
+   fn yaml_to_feuilletage_value(yaml: serde_yaml::Value) -> feuilletage::Value
    ```
 
 2. **Update frompath.rs**:
-   - Change `Value::from(yaml_value)` to `yaml_to_compote_value(yaml_value)`
+   - Change `Value::from(yaml_value)` to `yaml_to_feuilletage_value(yaml_value)`
    - Update method calls (`as_mapping()` -> `as_object()`, etc.)
 
 3. **Update remaining files** similarly
 
-4. **Remove bridge function** `compote_to_config_value()` from utils.rs
+4. **Remove bridge function** `feuilletage_to_config_value()` from utils.rs
 
 ---
 
@@ -131,20 +131,20 @@ The `PathCommandFileDetails` struct uses `config_value::Value` for parsing metad
 1. **`src/internal/config/config_value.rs`**:
    - Remove `pub use config_value::{ ... }` re-exports
    - Keep `ConfigSource`, `ConfigScope` definitions (these are omni-specific)
-   - Remove `to_compote_config_value()` function
+   - Remove `to_feuilletage_config_value()` function
    - Remove `omni_config_loader()` function
 
 2. **`src/internal/config/mod.rs`**:
    - Remove re-exports from config_value module
-   - Add direct re-exports from compote where needed:
+   - Add direct re-exports from feuilletage where needed:
      ```rust
-     pub(crate) use compote::Value;
-     pub(crate) use compote::ConfigValue;
+     pub(crate) use feuilletage::Value;
+     pub(crate) use feuilletage::ConfigValue;
      ```
 
 3. **`src/internal/config/loader.rs`**:
    - Remove `use config_value::FileDefinition`
-   - Replace with compote equivalent or inline
+   - Replace with feuilletage equivalent or inline
 
 4. **`Cargo.toml`**:
    - Remove `config-value` dependency

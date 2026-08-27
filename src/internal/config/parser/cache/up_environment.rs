@@ -1,18 +1,18 @@
-/// UpEnvironmentCacheConfig using compote's derive macro.
+/// UpEnvironmentCacheConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct UpEnvironmentCacheConfig {
-    #[compote(duration, default = "7776000")]
+    #[feuilletage(duration, default = "7776000")]
     pub retention: u64, // 90 days
 
     pub max_per_workdir: Option<usize>,
 
     pub max_total: Option<usize>,
 
-    #[compote(duration, default = "15552000")]
+    #[feuilletage(duration, default = "15552000")]
     pub retention_stale: u64, // 180 days (6 months)
 }
 

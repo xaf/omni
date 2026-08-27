@@ -1,21 +1,21 @@
-//! Compote type aliases and custom types for omni.
+//! Feuilletage type aliases and custom types for omni.
 //!
 //! This module defines omni-specific source types and re-exports commonly used
-//! compote types for convenience.
+//! feuilletage types for convenience.
 //!
 //! # Source Types
 //!
-//! Omni uses a custom source type [`OmniSource`] that extends compote's built-in
+//! Omni uses a custom source type [`OmniSource`] that extends feuilletage's built-in
 //! sources with package tracking capability. This allows omni to track which
 //! package a configuration value came from.
 //!
 //! # Usage
 //!
 //! Most code should use the type aliases defined here:
-//! - [`Source`] - alias for `compote::Source` (built-in sources)
-//! - [`Level`] - alias for `compote::Level` (built-in levels)
-//! - [`Context`] - alias for `compote::Context<Source, Level>`
-//! - [`ContextValue`] - alias for `compote::ContextValue<Source, Level>`
+//! - [`Source`] - alias for `feuilletage::Source` (built-in sources)
+//! - [`Level`] - alias for `feuilletage::Level` (built-in levels)
+//! - [`Context`] - alias for `feuilletage::Context<Source, Level>`
+//! - [`ContextValue`] - alias for `feuilletage::ContextValue<Source, Level>`
 //!
 //! For code that needs to track package sources, use `OmniSource` directly
 //! with the appropriate generic parameters.
@@ -31,11 +31,11 @@ use crate::internal::config::parser::PathEntryConfig;
 // Custom Source Type
 // =============================================================================
 
-/// Custom source type for omni extending compote's Source enum.
+/// Custom source type for omni extending feuilletage's Source enum.
 ///
 /// This type includes all the standard source variants (File, Environment,
 /// Programmatic, Default) plus omni-specific variants like Package.
-/// It implements `compote::CustomSource` so it can be used as a source type
+/// It implements `feuilletage::CustomSource` so it can be used as a source type
 /// parameter in `Config<OmniSource, Level>`, etc.
 ///
 /// # Examples
@@ -72,7 +72,7 @@ impl Default for OmniSource {
     }
 }
 
-impl compote::CustomSource for OmniSource {
+impl feuilletage::CustomSource for OmniSource {
     fn display_name(&self) -> String {
         match self {
             OmniSource::File(path) => path.display().to_string(),
@@ -113,22 +113,22 @@ impl compote::CustomSource for OmniSource {
 }
 
 // =============================================================================
-// Type aliases for compote types
+// Type aliases for feuilletage types
 // =============================================================================
 
-/// Source type - re-export of compote's built-in Source enum.
+/// Source type - re-export of feuilletage's built-in Source enum.
 ///
 /// Use this for most source tracking. For package-aware tracking, use `OmniSource`.
-pub type Source = compote::Source;
+pub type Source = feuilletage::Source;
 
-/// Level type - re-export of compote's built-in Level enum.
-pub type Level = compote::Level;
+/// Level type - re-export of feuilletage's built-in Level enum.
+pub type Level = feuilletage::Level;
 
 /// Context type using built-in Source and Level.
-pub type Context = compote::Context<Source, Level>;
+pub type Context = feuilletage::Context<Source, Level>;
 
 /// ContextValue type using built-in Source and Level.
-pub type ContextValue = compote::ContextValue<Source, Level>;
+pub type ContextValue = feuilletage::ContextValue<Source, Level>;
 
 
 // =============================================================================
@@ -136,29 +136,29 @@ pub type ContextValue = compote::ContextValue<Source, Level>;
 // =============================================================================
 
 /// Alias for Source matching existing code patterns.
-pub type CompoteConfigSource = Source;
+pub type FeuilletageConfigSource = Source;
 
 /// Alias for Level matching existing code patterns.
-pub type CompoteConfigLevel = Level;
+pub type FeuilletageConfigLevel = Level;
 
 /// Alias for Context matching existing code patterns.
-pub type CompoteConfigContext = Context;
+pub type FeuilletageConfigContext = Context;
 
 /// Alias for ContextValue matching existing code patterns.
-pub type CompoteConfigValue = ContextValue;
+pub type FeuilletageConfigValue = ContextValue;
 
 /// Alias for ErrorTracker matching existing code patterns.
-pub type CompoteErrorTracker = compote::ErrorTracker;
+pub type FeuilletageErrorTracker = feuilletage::ErrorTracker;
 
 /// Alias for FromContextValue matching existing code patterns.
 /// Note: FromContextValue is a trait, so we just re-export it.
-pub use compote::FromContextValue as CompoteFromConfigValue;
+pub use feuilletage::FromContextValue as FeuilletageFromConfigValue;
 
 // =============================================================================
-// Re-export compote types that don't need generic parameters
+// Re-export feuilletage types that don't need generic parameters
 // =============================================================================
 
-pub use compote::{
+pub use feuilletage::{
     // Values
     Value,
     // Traits (for custom implementations)

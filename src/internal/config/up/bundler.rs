@@ -22,12 +22,12 @@ fn default_bundler_path() -> Option<String> {
 /// Accepts either:
 /// - A string: interpreted as the gemfile path
 /// - An object with `gemfile` and `path` fields
-#[derive(Debug, Clone, compote::Config)]
-#[compote(scalar_as = "gemfile")]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(scalar_as = "gemfile")]
 pub struct UpConfigBundler {
-    #[compote(skip_if_empty)]
+    #[feuilletage(skip_if_empty)]
     pub gemfile: Option<String>,
-    #[compote(default_fn = "default_bundler_path", skip_if_empty)]
+    #[feuilletage(default_fn = "default_bundler_path", skip_if_empty)]
     pub path: Option<String>,
 }
 
@@ -158,5 +158,5 @@ impl UpConfigBundler {
 }
 
 // Manual FromContextValue implementation replaced by derive macro above
-// The #[compote(scalar_as = "gemfile")] attribute handles string-to-object wrapping
-// The #[compote(default = "vendor/bundle")] handles the default path value
+// The #[feuilletage(scalar_as = "gemfile")] attribute handles string-to-object wrapping
+// The #[feuilletage(default = "vendor/bundle")] handles the default path value

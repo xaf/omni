@@ -15,9 +15,9 @@ pub const WORKDIR_CONFIG_FILES: [&str; 2] = [".omni.yaml", ".omni/config.yaml"];
 ///
 /// This struct provides static methods for:
 /// - Discovering configuration file locations
-/// - Editing configuration files using compote
+/// - Editing configuration files using feuilletage
 ///
-/// For loading configuration, use `OmniConfigLoader` from `compote_loader.rs`.
+/// For loading configuration, use `OmniConfigLoader` from `feuilletage_loader.rs`.
 #[derive(Debug, Clone)]
 pub struct ConfigLoader;
 
@@ -99,20 +99,20 @@ impl ConfigLoader {
         config_files
     }
 
-    /// Edit the first writeable user config file using compote's Config API.
+    /// Edit the first writeable user config file using feuilletage's Config API.
     ///
     /// Searches for user config files in reverse order and edits the first
     /// one that is writeable (either exists with write permission, or can be
     /// created because the parent directory is writeable).
-    pub fn edit_main_user_config_file_compote<F>(edit_fn: F) -> io::Result<()>
+    pub fn edit_main_user_config_file_feuilletage<F>(edit_fn: F) -> io::Result<()>
     where
-        F: FnOnce(&mut compote::Config) -> bool,
+        F: FnOnce(&mut feuilletage::Config) -> bool,
     {
         let candidates = Self::user_config_files()
             .into_iter()
             .rev()
             .collect::<Vec<_>>();
-        match compote::edit_first_writeable(&candidates, edit_fn)? {
+        match feuilletage::edit_first_writeable(&candidates, edit_fn)? {
             Some(_path) => Ok(()),
             None => Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -121,19 +121,19 @@ impl ConfigLoader {
         }
     }
 
-    /// Edit a workdir config file using compote's Config API.
-    pub fn edit_workdir_config_file_compote<F>(file_path: &str, edit_fn: F) -> io::Result<()>
+    /// Edit a workdir config file using feuilletage's Config API.
+    pub fn edit_workdir_config_file_feuilletage<F>(file_path: &str, edit_fn: F) -> io::Result<()>
     where
-        F: FnOnce(&mut compote::Config) -> bool,
+        F: FnOnce(&mut feuilletage::Config) -> bool,
     {
-        compote::edit_file(file_path, edit_fn).map(|_| ())
+        feuilletage::edit_file(file_path, edit_fn).map(|_| ())
     }
 
-    /// Edit a user config file using compote's Config API (specific file).
-    pub fn edit_user_config_file_compote<F>(file_path: &str, edit_fn: F) -> io::Result<()>
+    /// Edit a user config file using feuilletage's Config API (specific file).
+    pub fn edit_user_config_file_feuilletage<F>(file_path: &str, edit_fn: F) -> io::Result<()>
     where
-        F: FnOnce(&mut compote::Config) -> bool,
+        F: FnOnce(&mut feuilletage::Config) -> bool,
     {
-        compote::edit_file(file_path, edit_fn).map(|_| ())
+        feuilletage::edit_file(file_path, edit_fn).map(|_| ())
     }
 }

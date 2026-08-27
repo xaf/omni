@@ -20,18 +20,18 @@ use crate::internal::config::OmniSource;
 use crate::internal::user_interface::colors::StringColor;
 use crate::internal::ORG_LOADER;
 
-// Compote type aliases for the YAML deserialization (uses concrete types)
-type CompoteConfigValue = crate::internal::config::ContextValue;
-type CompoteErrorTracker = compote::ErrorTracker;
+// Feuilletage type aliases for the YAML deserialization (uses concrete types)
+type FeuilletageConfigValue = crate::internal::config::ContextValue;
+type FeuilletageErrorTracker = feuilletage::ErrorTracker;
 
-#[derive(Debug, Serialize, Clone, compote::Config)]
-#[compote(skip_serialize)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(skip_serialize)]
 pub struct CommandDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desc: Option<String>,
     pub run: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[compote(default, allow_single)]
+    #[feuilletage(default, allow_single)]
     pub aliases: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub syntax: Option<CommandSyntax>,
@@ -42,19 +42,19 @@ pub struct CommandDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subcommands: Option<HashMap<String, CommandDefinition>>,
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
-    #[compote(default = "false")]
+    #[feuilletage(default = "false")]
     pub argparser: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub tags: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
-    #[compote(default = "false")]
+    #[feuilletage(default = "false")]
     pub export: bool,
     #[serde(skip)]
-    #[compote(from_context_fn = "command_def_source_from_context")]
+    #[feuilletage(from_context_fn = "command_def_source_from_context")]
     pub source: OmniSource,
     #[serde(skip)]
-    #[compote(from_context_fn = "command_def_scope_from_context")]
+    #[feuilletage(from_context_fn = "command_def_scope_from_context")]
     pub scope: Level,
 }
 
@@ -83,11 +83,11 @@ impl CommandSyntax {
         D: serde::Deserializer<'de>,
     {
         let value = serde_yaml::Value::deserialize(deserializer)?;
-        // Convert serde_yaml::Value to compote ConfigValue
-        let compote_value = yaml_value_to_compote_value(value);
-        let mut tracker = CompoteErrorTracker::new();
+        // Convert serde_yaml::Value to feuilletage ConfigValue
+        let feuilletage_value = yaml_value_to_feuilletage_value(value);
+        let mut tracker = FeuilletageErrorTracker::new();
         if let Some(command_syntax) =
-            CommandSyntax::from_compote_config_value(&compote_value, &mut tracker)
+            CommandSyntax::from_feuilletage_config_value(&feuilletage_value, &mut tracker)
         {
             Ok(command_syntax)
         } else {
@@ -2054,11 +2054,11 @@ fn sanitize_str(s: &str) -> String {
 }
 
 // ============================================================================
-// Helper functions for compote derive macro (from_context_fn)
+// Helper functions for feuilletage derive macro (from_context_fn)
 // ============================================================================
 
-fn command_def_source_from_context<S: compote::CustomSource, L: compote::CustomLevel>(
-    ctx: &compote::Context<S, L>,
+fn command_def_source_from_context<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    ctx: &feuilletage::Context<S, L>,
 ) -> OmniSource {
     match ctx.source.file_path() {
         Some(p) => OmniSource::File(p.to_path_buf()),
@@ -2066,8 +2066,8 @@ fn command_def_source_from_context<S: compote::CustomSource, L: compote::CustomL
     }
 }
 
-fn command_def_scope_from_context<S: compote::CustomSource, L: compote::CustomLevel>(
-    ctx: &compote::Context<S, L>,
+fn command_def_scope_from_context<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    ctx: &feuilletage::Context<S, L>,
 ) -> Level {
     match ctx.level.name() {
         "system" => Level::System,
@@ -2076,18 +2076,18 @@ fn command_def_scope_from_context<S: compote::CustomSource, L: compote::CustomLe
     }
 }
 
-/// Bridge: allow compote derive to deserialize CommandSyntax via existing
-/// `from_compote_config_value` method.
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+/// Bridge: allow feuilletage derive to deserialize CommandSyntax via existing
+/// `from_feuilletage_config_value` method.
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for CommandSyntax
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        match CommandSyntax::from_compote_config_value(value, tracker) {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        match CommandSyntax::from_feuilletage_config_value(value, tracker) {
             Some(syntax) => Ok(syntax),
-            None => Err(compote::Error::TypeMismatch {
+            None => Err(feuilletage::Error::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "command syntax (array or object)".to_string(),
                 actual: value.type_name().to_string(),
@@ -2097,63 +2097,63 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 }
 
 // ============================================================================
-// Compote helper functions for parsing
+// Feuilletage helper functions for parsing
 // ============================================================================
 
-/// Convert a serde_yaml::Value to compote ConfigValue
-fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
-    let context = compote::Context::new(compote::Source::Default, compote::Level::System);
+/// Convert a serde_yaml::Value to feuilletage ConfigValue
+fn yaml_value_to_feuilletage_value(value: serde_yaml::Value) -> FeuilletageConfigValue {
+    let context = feuilletage::Context::new(feuilletage::Source::Default, feuilletage::Level::System);
     match value {
-        serde_yaml::Value::Null => CompoteConfigValue::null(context),
-        serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, context),
+        serde_yaml::Value::Null => FeuilletageConfigValue::null(context),
+        serde_yaml::Value::Bool(b) => FeuilletageConfigValue::bool(b, context),
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                CompoteConfigValue::int(i, context)
+                FeuilletageConfigValue::int(i, context)
             } else if let Some(f) = n.as_f64() {
-                CompoteConfigValue::float(f, context)
+                FeuilletageConfigValue::float(f, context)
             } else {
-                CompoteConfigValue::null(context)
+                FeuilletageConfigValue::null(context)
             }
         }
-        serde_yaml::Value::String(s) => CompoteConfigValue::string(s, context),
+        serde_yaml::Value::String(s) => FeuilletageConfigValue::string(s, context),
         serde_yaml::Value::Sequence(seq) => {
-            let arr: Vec<CompoteConfigValue> =
-                seq.into_iter().map(yaml_value_to_compote_value).collect();
-            CompoteConfigValue::array(arr, context)
+            let arr: Vec<FeuilletageConfigValue> =
+                seq.into_iter().map(yaml_value_to_feuilletage_value).collect();
+            FeuilletageConfigValue::array(arr, context)
         }
         serde_yaml::Value::Mapping(map) => {
-            let obj: indexmap::IndexMap<String, CompoteConfigValue> = map
+            let obj: indexmap::IndexMap<String, FeuilletageConfigValue> = map
                 .into_iter()
                 .filter_map(|(k, v)| {
                     let key = match k {
                         serde_yaml::Value::String(s) => s,
                         _ => return None,
                     };
-                    Some((key, yaml_value_to_compote_value(v)))
+                    Some((key, yaml_value_to_feuilletage_value(v)))
                 })
                 .collect();
-            CompoteConfigValue::object(obj, context)
+            FeuilletageConfigValue::object(obj, context)
         }
-        serde_yaml::Value::Tagged(_) => CompoteConfigValue::null(context),
+        serde_yaml::Value::Tagged(_) => FeuilletageConfigValue::null(context),
     }
 }
 
-/// Get a string value from a compote object, returning None if not present
-fn compote_get_str_or_none<S: compote::CustomSource, L: compote::CustomLevel>(
-    table: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
+/// Get a string value from a feuilletage object, returning None if not present
+fn feuilletage_get_str_or_none<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    table: &indexmap::IndexMap<String, feuilletage::ContextValue<S, L>>,
     key: &str,
-    tracker: &mut compote::ErrorTracker,
+    tracker: &mut feuilletage::ErrorTracker,
 ) -> Option<String> {
     let value = table.get(key)?;
     match value {
-        compote::ContextValue::String(s, _) => Some(s.clone()),
-        compote::ContextValue::Int(i, _) => Some(i.to_string()),
-        compote::ContextValue::Float(f, _) => Some(f.to_string()),
-        compote::ContextValue::Bool(b, _) => Some(b.to_string()),
-        compote::ContextValue::Null(_) => None,
+        feuilletage::ContextValue::String(s, _) => Some(s.clone()),
+        feuilletage::ContextValue::Int(i, _) => Some(i.to_string()),
+        feuilletage::ContextValue::Float(f, _) => Some(f.to_string()),
+        feuilletage::ContextValue::Bool(b, _) => Some(b.to_string()),
+        feuilletage::ContextValue::Null(_) => None,
         _ => {
             tracker.push_field(key);
-            tracker.record(compote::Error::TypeMismatch {
+            tracker.record(feuilletage::Error::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "string".to_string(),
                 actual: value.type_name().to_string(),
@@ -2164,22 +2164,22 @@ fn compote_get_str_or_none<S: compote::CustomSource, L: compote::CustomLevel>(
     }
 }
 
-/// Get a boolean value from a compote object with a default
-fn compote_get_bool_or_default<S: compote::CustomSource, L: compote::CustomLevel>(
-    table: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
+/// Get a boolean value from a feuilletage object with a default
+fn feuilletage_get_bool_or_default<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    table: &indexmap::IndexMap<String, feuilletage::ContextValue<S, L>>,
     key: &str,
     default: bool,
-    tracker: &mut compote::ErrorTracker,
+    tracker: &mut feuilletage::ErrorTracker,
 ) -> bool {
     let Some(value) = table.get(key) else {
         return default;
     };
     match value {
-        compote::ContextValue::Bool(b, _) => *b,
-        compote::ContextValue::Null(_) => default,
+        feuilletage::ContextValue::Bool(b, _) => *b,
+        feuilletage::ContextValue::Null(_) => default,
         _ => {
             tracker.push_field(key);
-            tracker.record(compote::Error::TypeMismatch {
+            tracker.record(feuilletage::Error::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "boolean".to_string(),
                 actual: value.type_name().to_string(),
@@ -2190,39 +2190,39 @@ fn compote_get_bool_or_default<S: compote::CustomSource, L: compote::CustomLevel
     }
 }
 
-/// Get an array of strings from a compote object
-fn compote_get_str_array<S: compote::CustomSource, L: compote::CustomLevel>(
-    table: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
+/// Get an array of strings from a feuilletage object
+fn feuilletage_get_str_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    table: &indexmap::IndexMap<String, feuilletage::ContextValue<S, L>>,
     key: &str,
-    tracker: &mut compote::ErrorTracker,
+    tracker: &mut feuilletage::ErrorTracker,
 ) -> Vec<String> {
     let Some(value) = table.get(key) else {
         return Vec::new();
     };
 
     tracker.push_field(key);
-    let result = compote_value_to_str_array(value, tracker);
+    let result = feuilletage_value_to_str_array(value, tracker);
     tracker.pop();
     result
 }
 
-/// Convert a compote value to an array of strings
-fn compote_value_to_str_array<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &compote::ContextValue<S, L>,
-    tracker: &mut compote::ErrorTracker,
+/// Convert a feuilletage value to an array of strings
+fn feuilletage_value_to_str_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
 ) -> Vec<String> {
     match value {
-        compote::ContextValue::Array(arr, _) => {
+        feuilletage::ContextValue::Array(arr, _) => {
             let mut result = Vec::new();
             for (idx, item) in arr.iter().enumerate() {
                 match item {
-                    compote::ContextValue::String(s, _) => result.push(s.clone()),
-                    compote::ContextValue::Int(i, _) => result.push(i.to_string()),
-                    compote::ContextValue::Float(f, _) => result.push(f.to_string()),
-                    compote::ContextValue::Bool(b, _) => result.push(b.to_string()),
+                    feuilletage::ContextValue::String(s, _) => result.push(s.clone()),
+                    feuilletage::ContextValue::Int(i, _) => result.push(i.to_string()),
+                    feuilletage::ContextValue::Float(f, _) => result.push(f.to_string()),
+                    feuilletage::ContextValue::Bool(b, _) => result.push(b.to_string()),
                     _ => {
                         tracker.push_index(idx);
-                        tracker.record(compote::Error::TypeMismatch {
+                        tracker.record(feuilletage::Error::TypeMismatch {
                             path: tracker.current_path(),
                             expected: "string".to_string(),
                             actual: item.type_name().to_string(),
@@ -2233,10 +2233,10 @@ fn compote_value_to_str_array<S: compote::CustomSource, L: compote::CustomLevel>
             }
             result
         }
-        compote::ContextValue::String(s, _) => vec![s.clone()],
-        compote::ContextValue::Null(_) => Vec::new(),
+        feuilletage::ContextValue::String(s, _) => vec![s.clone()],
+        feuilletage::ContextValue::Null(_) => Vec::new(),
         _ => {
-            tracker.record(compote::Error::TypeMismatch {
+            tracker.record(feuilletage::Error::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "array or string".to_string(),
                 actual: value.type_name().to_string(),
@@ -2247,31 +2247,31 @@ fn compote_value_to_str_array<S: compote::CustomSource, L: compote::CustomLevel>
 }
 
 // ============================================================================
-// Compote parsing for CommandSyntax
+// Feuilletage parsing for CommandSyntax
 // ============================================================================
 
 impl CommandSyntax {
-    fn from_compote_config_value<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
+    fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
     ) -> Option<Self> {
         let mut usage = None;
         let mut parameters = vec![];
         let mut groups = vec![];
 
         match value {
-            compote::ContextValue::Array(array, _) => {
+            feuilletage::ContextValue::Array(array, _) => {
                 for (idx, item) in array.iter().enumerate() {
                     tracker.push_index(idx);
                     if let Some(param) =
-                        SyntaxOptArg::from_compote_config_value(item, None, tracker)
+                        SyntaxOptArg::from_feuilletage_config_value(item, None, tracker)
                     {
                         parameters.push(param);
                     }
                     tracker.pop();
                 }
             }
-            compote::ContextValue::Object(table, _) => {
+            feuilletage::ContextValue::Object(table, _) => {
                 let keys = [
                     ("parameters", None),
                     ("arguments", Some(true)),
@@ -2285,10 +2285,10 @@ impl CommandSyntax {
                     if let Some(param_value) = table.get(key) {
                         tracker.push_field(key);
                         match param_value {
-                            compote::ContextValue::Array(arr, _) => {
+                            feuilletage::ContextValue::Array(arr, _) => {
                                 for (idx, item) in arr.iter().enumerate() {
                                     tracker.push_index(idx);
-                                    if let Some(param) = SyntaxOptArg::from_compote_config_value(
+                                    if let Some(param) = SyntaxOptArg::from_feuilletage_config_value(
                                         item, required, tracker,
                                     ) {
                                         parameters.push(param);
@@ -2297,7 +2297,7 @@ impl CommandSyntax {
                                 }
                             }
                             _ => {
-                                if let Some(param) = SyntaxOptArg::from_compote_config_value(
+                                if let Some(param) = SyntaxOptArg::from_feuilletage_config_value(
                                     param_value,
                                     required,
                                     tracker,
@@ -2312,17 +2312,17 @@ impl CommandSyntax {
 
                 if let Some(groups_value) = table.get("groups") {
                     tracker.push_field("groups");
-                    groups = SyntaxGroup::from_compote_config_value_multi(groups_value, tracker);
+                    groups = SyntaxGroup::from_feuilletage_config_value_multi(groups_value, tracker);
                     tracker.pop();
                 }
 
                 if let Some(usage_value) = table.get("usage") {
                     tracker.push_field("usage");
                     match usage_value {
-                        compote::ContextValue::String(s, _) => usage = Some(s.clone()),
-                        compote::ContextValue::Int(i, _) => usage = Some(i.to_string()),
+                        feuilletage::ContextValue::String(s, _) => usage = Some(s.clone()),
+                        feuilletage::ContextValue::Int(i, _) => usage = Some(i.to_string()),
                         _ => {
-                            tracker.record(compote::Error::TypeMismatch {
+                            tracker.record(feuilletage::Error::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
                                 actual: usage_value.type_name().to_string(),
@@ -2332,15 +2332,15 @@ impl CommandSyntax {
                     tracker.pop();
                 }
             }
-            compote::ContextValue::String(s, _) => {
+            feuilletage::ContextValue::String(s, _) => {
                 usage = Some(s.clone());
             }
-            compote::ContextValue::Int(i, _) => {
+            feuilletage::ContextValue::Int(i, _) => {
                 usage = Some(i.to_string());
             }
-            compote::ContextValue::Null(_) => return None,
+            feuilletage::ContextValue::Null(_) => return None,
             _ => {
-                tracker.record(compote::Error::TypeMismatch {
+                tracker.record(feuilletage::Error::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "array, object, or string".to_string(),
                     actual: value.type_name().to_string(),
@@ -2362,14 +2362,14 @@ impl CommandSyntax {
 }
 
 // ============================================================================
-// Compote parsing for SyntaxOptArg
+// Feuilletage parsing for SyntaxOptArg
 // ============================================================================
 
 impl SyntaxOptArg {
-    fn from_compote_config_value<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
+    fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
         required: Option<bool>,
-        tracker: &mut compote::ErrorTracker,
+        tracker: &mut feuilletage::ErrorTracker,
     ) -> Option<Self> {
         let mut names;
         let mut arg_type;
@@ -2395,18 +2395,18 @@ impl SyntaxOptArg {
         let mut required_if_eq_all = HashMap::new();
 
         match value {
-            compote::ContextValue::Object(table, _) => {
-                let value_for_details: Option<&compote::ContextValue<S, L>>;
+            feuilletage::ContextValue::Object(table, _) => {
+                let value_for_details: Option<&feuilletage::ContextValue<S, L>>;
 
                 if let Some(name_value) = table.get("name") {
                     match name_value {
-                        compote::ContextValue::String(s, _) => {
+                        feuilletage::ContextValue::String(s, _) => {
                             (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
                             value_for_details = Some(value);
                         }
                         _ => {
                             tracker.push_field("name");
-                            tracker.record(compote::Error::TypeMismatch {
+                            tracker.record(feuilletage::Error::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
                                 actual: name_value.type_name().to_string(),
@@ -2421,7 +2421,7 @@ impl SyntaxOptArg {
                     value_for_details = Some(val);
                 } else {
                     tracker.push_field("name");
-                    tracker.record(compote::Error::MissingField {
+                    tracker.record(feuilletage::Error::MissingField {
                         path: tracker.current_path(),
                     });
                     tracker.pop();
@@ -2430,15 +2430,15 @@ impl SyntaxOptArg {
 
                 if let Some(details) = value_for_details {
                     match details {
-                        compote::ContextValue::String(s, _) => {
+                        feuilletage::ContextValue::String(s, _) => {
                             desc = Some(s.clone());
                         }
-                        compote::ContextValue::Object(details_table, _) => {
-                            desc = compote_get_str_or_none(details_table, "desc", tracker);
-                            dest = compote_get_str_or_none(details_table, "dest", tracker);
+                        feuilletage::ContextValue::Object(details_table, _) => {
+                            desc = feuilletage_get_str_or_none(details_table, "desc", tracker);
+                            dest = feuilletage_get_str_or_none(details_table, "dest", tracker);
 
                             if required.is_none() {
-                                required = Some(compote_get_bool_or_default(
+                                required = Some(feuilletage_get_bool_or_default(
                                     details_table,
                                     "required",
                                     false,
@@ -2448,31 +2448,31 @@ impl SyntaxOptArg {
 
                             // Try to load placeholders
                             for key in &["placeholders", "placeholder"] {
-                                let ph = compote_get_str_array(details_table, key, tracker);
+                                let ph = feuilletage_get_str_array(details_table, key, tracker);
                                 if !ph.is_empty() {
                                     placeholders = ph;
                                     break;
                                 }
                             }
 
-                            default = compote_get_str_or_none(details_table, "default", tracker);
-                            default_missing_value = compote_get_str_or_none(
+                            default = feuilletage_get_str_or_none(details_table, "default", tracker);
+                            default_missing_value = feuilletage_get_str_or_none(
                                 details_table,
                                 "default_missing_value",
                                 tracker,
                             );
 
-                            num_values = SyntaxOptArgNumValues::from_compote_config_value(
+                            num_values = SyntaxOptArgNumValues::from_feuilletage_config_value(
                                 details_table.get("num_values"),
                                 tracker,
                             );
 
                             value_delimiter =
-                                compote_get_str_or_none(details_table, "delimiter", tracker)
+                                feuilletage_get_str_or_none(details_table, "delimiter", tracker)
                                     .and_then(|v| {
                                         v.chars().next().or_else(|| {
                                             tracker.push_field("delimiter");
-                                            tracker.record(compote::Error::InvalidValue {
+                                            tracker.record(feuilletage::Error::InvalidValue {
                                                 path: tracker.current_path(),
                                                 message: "delimiter must be non-empty".to_string(),
                                             });
@@ -2482,33 +2482,33 @@ impl SyntaxOptArg {
                                     });
 
                             last_arg_double_hyphen =
-                                compote_get_bool_or_default(details_table, "last", false, tracker);
-                            leftovers = compote_get_bool_or_default(
+                                feuilletage_get_bool_or_default(details_table, "last", false, tracker);
+                            leftovers = feuilletage_get_bool_or_default(
                                 details_table,
                                 "leftovers",
                                 false,
                                 tracker,
                             );
-                            allow_hyphen_values = compote_get_bool_or_default(
+                            allow_hyphen_values = feuilletage_get_bool_or_default(
                                 details_table,
                                 "allow_hyphen_values",
                                 false,
                                 tracker,
                             );
-                            allow_negative_numbers = compote_get_bool_or_default(
+                            allow_negative_numbers = feuilletage_get_bool_or_default(
                                 details_table,
                                 "allow_negative_numbers",
                                 false,
                                 tracker,
                             );
-                            group_occurrences = compote_get_bool_or_default(
+                            group_occurrences = feuilletage_get_bool_or_default(
                                 details_table,
                                 "group_occurrences",
                                 false,
                                 tracker,
                             );
 
-                            arg_type = SyntaxOptArgType::from_compote_config_value(
+                            arg_type = SyntaxOptArgType::from_feuilletage_config_value(
                                 details_table.get("type"),
                                 details_table.get("values"),
                                 value_delimiter,
@@ -2516,12 +2516,12 @@ impl SyntaxOptArg {
                             )
                             .unwrap_or(SyntaxOptArgType::String);
 
-                            requires = compote_get_str_array(details_table, "requires", tracker);
+                            requires = feuilletage_get_str_array(details_table, "requires", tracker);
                             conflicts_with =
-                                compote_get_str_array(details_table, "conflicts_with", tracker);
+                                feuilletage_get_str_array(details_table, "conflicts_with", tracker);
                             required_without =
-                                compote_get_str_array(details_table, "required_without", tracker);
-                            required_without_all = compote_get_str_array(
+                                feuilletage_get_str_array(details_table, "required_without", tracker);
+                            required_without_all = feuilletage_get_str_array(
                                 details_table,
                                 "required_without_all",
                                 tracker,
@@ -2530,24 +2530,24 @@ impl SyntaxOptArg {
                             if let Some(req_if_eq_value) = details_table.get("required_if_eq") {
                                 tracker.push_field("required_if_eq");
                                 match req_if_eq_value {
-                                    compote::ContextValue::Object(map, _) => {
+                                    feuilletage::ContextValue::Object(map, _) => {
                                         for (k, v) in map {
                                             match v {
-                                                compote::ContextValue::String(s, _) => {
+                                                feuilletage::ContextValue::String(s, _) => {
                                                     required_if_eq.insert(k.clone(), s.clone());
                                                 }
-                                                compote::ContextValue::Int(i, _) => {
+                                                feuilletage::ContextValue::Int(i, _) => {
                                                     required_if_eq.insert(k.clone(), i.to_string());
                                                 }
-                                                compote::ContextValue::Float(f, _) => {
+                                                feuilletage::ContextValue::Float(f, _) => {
                                                     required_if_eq.insert(k.clone(), f.to_string());
                                                 }
-                                                compote::ContextValue::Bool(b, _) => {
+                                                feuilletage::ContextValue::Bool(b, _) => {
                                                     required_if_eq.insert(k.clone(), b.to_string());
                                                 }
                                                 _ => {
                                                     tracker.push_field(k);
-                                                    tracker.record(compote::Error::TypeMismatch {
+                                                    tracker.record(feuilletage::Error::TypeMismatch {
                                                         path: tracker.current_path(),
                                                         expected: "string".to_string(),
                                                         actual: v.type_name().to_string(),
@@ -2558,7 +2558,7 @@ impl SyntaxOptArg {
                                         }
                                     }
                                     _ => {
-                                        tracker.record(compote::Error::TypeMismatch {
+                                        tracker.record(feuilletage::Error::TypeMismatch {
                                             path: tracker.current_path(),
                                             expected: "object".to_string(),
                                             actual: req_if_eq_value.type_name().to_string(),
@@ -2573,27 +2573,27 @@ impl SyntaxOptArg {
                             {
                                 tracker.push_field("required_if_eq_all");
                                 match req_if_eq_all_value {
-                                    compote::ContextValue::Object(map, _) => {
+                                    feuilletage::ContextValue::Object(map, _) => {
                                         for (k, v) in map {
                                             match v {
-                                                compote::ContextValue::String(s, _) => {
+                                                feuilletage::ContextValue::String(s, _) => {
                                                     required_if_eq_all.insert(k.clone(), s.clone());
                                                 }
-                                                compote::ContextValue::Int(i, _) => {
+                                                feuilletage::ContextValue::Int(i, _) => {
                                                     required_if_eq_all
                                                         .insert(k.clone(), i.to_string());
                                                 }
-                                                compote::ContextValue::Float(f, _) => {
+                                                feuilletage::ContextValue::Float(f, _) => {
                                                     required_if_eq_all
                                                         .insert(k.clone(), f.to_string());
                                                 }
-                                                compote::ContextValue::Bool(b, _) => {
+                                                feuilletage::ContextValue::Bool(b, _) => {
                                                     required_if_eq_all
                                                         .insert(k.clone(), b.to_string());
                                                 }
                                                 _ => {
                                                     tracker.push_field(k);
-                                                    tracker.record(compote::Error::TypeMismatch {
+                                                    tracker.record(feuilletage::Error::TypeMismatch {
                                                         path: tracker.current_path(),
                                                         expected: "string".to_string(),
                                                         actual: v.type_name().to_string(),
@@ -2604,7 +2604,7 @@ impl SyntaxOptArg {
                                         }
                                     }
                                     _ => {
-                                        tracker.record(compote::Error::TypeMismatch {
+                                        tracker.record(feuilletage::Error::TypeMismatch {
                                             path: tracker.current_path(),
                                             expected: "object".to_string(),
                                             actual: req_if_eq_all_value.type_name().to_string(),
@@ -2614,18 +2614,18 @@ impl SyntaxOptArg {
                                 tracker.pop();
                             }
 
-                            let aliases = compote_get_str_array(details_table, "aliases", tracker);
+                            let aliases = feuilletage_get_str_array(details_table, "aliases", tracker);
                             names.extend(aliases);
                         }
                         _ => {}
                     }
                 }
             }
-            compote::ContextValue::String(s, _) => {
+            feuilletage::ContextValue::String(s, _) => {
                 (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
             }
             _ => {
-                tracker.record(compote::Error::TypeMismatch {
+                tracker.record(feuilletage::Error::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string or object".to_string(),
                     actual: value.type_name().to_string(),
@@ -2661,23 +2661,23 @@ impl SyntaxOptArg {
 }
 
 // ============================================================================
-// Compote parsing for SyntaxOptArgNumValues
+// Feuilletage parsing for SyntaxOptArgNumValues
 // ============================================================================
 
 impl SyntaxOptArgNumValues {
-    fn from_compote_config_value<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: Option<&compote::ContextValue<S, L>>,
-        tracker: &mut compote::ErrorTracker,
+    fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: Option<&feuilletage::ContextValue<S, L>>,
+        tracker: &mut feuilletage::ErrorTracker,
     ) -> Option<Self> {
         let value = value?;
 
         tracker.push_field("num_values");
         let result = match value {
-            compote::ContextValue::Int(i, _) => Some(Self::Exactly(*i as usize)),
-            compote::ContextValue::String(s, _) => Self::from_str_compote(s, tracker),
-            compote::ContextValue::Null(_) => None,
+            feuilletage::ContextValue::Int(i, _) => Some(Self::Exactly(*i as usize)),
+            feuilletage::ContextValue::String(s, _) => Self::from_str_feuilletage(s, tracker),
+            feuilletage::ContextValue::Null(_) => None,
             _ => {
-                tracker.record(compote::Error::TypeMismatch {
+                tracker.record(feuilletage::Error::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "integer or string".to_string(),
                     actual: value.type_name().to_string(),
@@ -2689,7 +2689,7 @@ impl SyntaxOptArgNumValues {
         result
     }
 
-    fn from_str_compote(value: &str, tracker: &mut compote::ErrorTracker) -> Option<Self> {
+    fn from_str_feuilletage(value: &str, tracker: &mut feuilletage::ErrorTracker) -> Option<Self> {
         let value = value.trim();
 
         if value.contains("..") {
@@ -2708,7 +2708,7 @@ impl SyntaxOptArgNumValues {
                 value => match value.parse::<usize>() {
                     Ok(value) => Some(value),
                     Err(_) => {
-                        tracker.record(compote::Error::InvalidValue {
+                        tracker.record(feuilletage::Error::InvalidValue {
                             path: tracker.current_path(),
                             message: format!("expected positive integer, got '{}'", value),
                         });
@@ -2722,7 +2722,7 @@ impl SyntaxOptArgNumValues {
                 value => match value.parse::<usize>() {
                     Ok(value) => Some(value),
                     Err(_) => {
-                        tracker.record(compote::Error::InvalidValue {
+                        tracker.record(feuilletage::Error::InvalidValue {
                             path: tracker.current_path(),
                             message: format!("expected positive integer, got '{}'", value),
                         });
@@ -2738,7 +2738,7 @@ impl SyntaxOptArgNumValues {
                     if max > 0 {
                         Some(Self::AtMost(max - 1))
                     } else {
-                        tracker.record(compote::Error::InvalidValue {
+                        tracker.record(feuilletage::Error::InvalidValue {
                             path: tracker.current_path(),
                             message: "invalid range: min 0 max 0".to_string(),
                         });
@@ -2750,7 +2750,7 @@ impl SyntaxOptArgNumValues {
                     if min <= max {
                         Some(Self::Between(min, max))
                     } else {
-                        tracker.record(compote::Error::InvalidValue {
+                        tracker.record(feuilletage::Error::InvalidValue {
                             path: tracker.current_path(),
                             message: format!("invalid range: min {} > max {}", min, max),
                         });
@@ -2761,7 +2761,7 @@ impl SyntaxOptArgNumValues {
                     if min < max {
                         Some(Self::Between(min, max - 1))
                     } else {
-                        tracker.record(compote::Error::InvalidValue {
+                        tracker.record(feuilletage::Error::InvalidValue {
                             path: tracker.current_path(),
                             message: format!("invalid range: min {} >= max {}", min, max),
                         });
@@ -2773,7 +2773,7 @@ impl SyntaxOptArgNumValues {
             match value.parse::<usize>() {
                 Ok(value) => Some(Self::Exactly(value)),
                 Err(_) => {
-                    tracker.record(compote::Error::InvalidValue {
+                    tracker.record(feuilletage::Error::InvalidValue {
                         path: tracker.current_path(),
                         message: format!("expected positive integer, got '{}'", value),
                     });
@@ -2785,29 +2785,29 @@ impl SyntaxOptArgNumValues {
 }
 
 // ============================================================================
-// Compote parsing for SyntaxOptArgType
+// Feuilletage parsing for SyntaxOptArgType
 // ============================================================================
 
 impl SyntaxOptArgType {
-    pub(super) fn from_compote_config_value<S: compote::CustomSource, L: compote::CustomLevel>(
-        type_value: Option<&compote::ContextValue<S, L>>,
-        values_value: Option<&compote::ContextValue<S, L>>,
+    pub(super) fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        type_value: Option<&feuilletage::ContextValue<S, L>>,
+        values_value: Option<&feuilletage::ContextValue<S, L>>,
         value_delimiter: Option<char>,
-        tracker: &mut compote::ErrorTracker,
+        tracker: &mut feuilletage::ErrorTracker,
     ) -> Option<Self> {
         let type_value = type_value?;
 
         tracker.push_field("type");
 
         // Check if type is an array - treat as enum with those values
-        if let compote::ContextValue::Array(arr, _) = type_value {
+        if let feuilletage::ContextValue::Array(arr, _) = type_value {
             let values = arr
                 .iter()
                 .filter_map(|v| match v {
-                    compote::ContextValue::String(s, _) => Some(s.clone()),
-                    compote::ContextValue::Int(i, _) => Some(i.to_string()),
-                    compote::ContextValue::Float(f, _) => Some(f.to_string()),
-                    compote::ContextValue::Bool(b, _) => Some(b.to_string()),
+                    feuilletage::ContextValue::String(s, _) => Some(s.clone()),
+                    feuilletage::ContextValue::Int(i, _) => Some(i.to_string()),
+                    feuilletage::ContextValue::Float(f, _) => Some(f.to_string()),
+                    feuilletage::ContextValue::Bool(b, _) => Some(b.to_string()),
                     _ => None,
                 })
                 .collect::<Vec<String>>();
@@ -2816,14 +2816,14 @@ impl SyntaxOptArgType {
         }
 
         let type_str = match type_value {
-            compote::ContextValue::String(s, _) => s.clone(),
-            compote::ContextValue::Int(i, _) => i.to_string(),
-            compote::ContextValue::Null(_) => {
+            feuilletage::ContextValue::String(s, _) => s.clone(),
+            feuilletage::ContextValue::Int(i, _) => i.to_string(),
+            feuilletage::ContextValue::Null(_) => {
                 tracker.pop();
                 return None;
             }
             _ => {
-                tracker.record(compote::Error::TypeMismatch {
+                tracker.record(feuilletage::Error::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "string or array".to_string(),
                     actual: type_value.type_name().to_string(),
@@ -2833,27 +2833,27 @@ impl SyntaxOptArgType {
             }
         };
 
-        let obj = Self::from_str_compote(&type_str, tracker)?;
+        let obj = Self::from_str_feuilletage(&type_str, tracker)?;
         tracker.pop();
 
         match obj {
             Self::Enum(values) if values.is_empty() => {
                 if let Some(values_val) = values_value {
                     match values_val {
-                        compote::ContextValue::Array(arr, _) => {
+                        feuilletage::ContextValue::Array(arr, _) => {
                             let values = arr
                                 .iter()
                                 .filter_map(|v| match v {
-                                    compote::ContextValue::String(s, _) => Some(s.clone()),
-                                    compote::ContextValue::Int(i, _) => Some(i.to_string()),
-                                    compote::ContextValue::Float(f, _) => Some(f.to_string()),
-                                    compote::ContextValue::Bool(b, _) => Some(b.to_string()),
+                                    feuilletage::ContextValue::String(s, _) => Some(s.clone()),
+                                    feuilletage::ContextValue::Int(i, _) => Some(i.to_string()),
+                                    feuilletage::ContextValue::Float(f, _) => Some(f.to_string()),
+                                    feuilletage::ContextValue::Bool(b, _) => Some(b.to_string()),
                                     _ => None,
                                 })
                                 .collect::<Vec<String>>();
                             return Some(Self::Enum(values));
                         }
-                        compote::ContextValue::String(s, _) => {
+                        feuilletage::ContextValue::String(s, _) => {
                             if let Some(delim) = value_delimiter {
                                 let values = s
                                     .split(delim)
@@ -2873,7 +2873,7 @@ impl SyntaxOptArgType {
         }
     }
 
-    fn from_str_compote(value: &str, tracker: &mut compote::ErrorTracker) -> Option<Self> {
+    fn from_str_feuilletage(value: &str, tracker: &mut feuilletage::ErrorTracker) -> Option<Self> {
         let mut is_array = false;
 
         let normalized = value.trim().to_lowercase();
@@ -2918,7 +2918,7 @@ impl SyntaxOptArgType {
                         .collect::<Vec<String>>();
                     Self::Enum(values)
                 } else {
-                    tracker.record(compote::Error::InvalidValue {
+                    tracker.record(feuilletage::Error::InvalidValue {
                         path: tracker.current_path(),
                         message: format!(
                             "invalid type '{}', expected one of: int, float, bool, flag, count, str, path, enum, array/<type>",
@@ -2939,40 +2939,40 @@ impl SyntaxOptArgType {
 }
 
 // ============================================================================
-// Compote parsing for SyntaxGroup
+// Feuilletage parsing for SyntaxGroup
 // ============================================================================
 
 impl SyntaxGroup {
-    fn from_compote_config_value_multi<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
+    fn from_feuilletage_config_value_multi<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
     ) -> Vec<Self> {
         let mut groups = vec![];
 
         match value {
-            compote::ContextValue::Array(array, _) => {
+            feuilletage::ContextValue::Array(array, _) => {
                 for (idx, item) in array.iter().enumerate() {
                     tracker.push_index(idx);
-                    if let Some(group) = Self::from_compote_config_value(item, None, tracker) {
+                    if let Some(group) = Self::from_feuilletage_config_value(item, None, tracker) {
                         groups.push(group);
                     }
                     tracker.pop();
                 }
             }
-            compote::ContextValue::Object(table, _) => {
+            feuilletage::ContextValue::Object(table, _) => {
                 for (name, val) in table {
                     tracker.push_field(name);
                     if let Some(group) =
-                        Self::from_compote_config_value(val, Some(name.clone()), tracker)
+                        Self::from_feuilletage_config_value(val, Some(name.clone()), tracker)
                     {
                         groups.push(group);
                     }
                     tracker.pop();
                 }
             }
-            compote::ContextValue::Null(_) => {}
+            feuilletage::ContextValue::Null(_) => {}
             _ => {
-                tracker.record(compote::Error::TypeMismatch {
+                tracker.record(feuilletage::Error::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "array or object".to_string(),
                     actual: value.type_name().to_string(),
@@ -2983,16 +2983,16 @@ impl SyntaxGroup {
         groups
     }
 
-    fn from_compote_config_value<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
+    fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
         name: Option<String>,
-        tracker: &mut compote::ErrorTracker,
+        tracker: &mut feuilletage::ErrorTracker,
     ) -> Option<Self> {
         let table = match value {
-            compote::ContextValue::Object(map, _) => {
+            feuilletage::ContextValue::Object(map, _) => {
                 if map.is_empty() {
                     tracker.push_field("name");
-                    tracker.record(compote::Error::MissingField {
+                    tracker.record(feuilletage::Error::MissingField {
                         path: tracker.current_path(),
                     });
                     tracker.pop();
@@ -3001,7 +3001,7 @@ impl SyntaxGroup {
                 map
             }
             _ => {
-                tracker.record(compote::Error::TypeMismatch {
+                tracker.record(feuilletage::Error::TypeMismatch {
                     path: tracker.current_path(),
                     expected: "object".to_string(),
                     actual: value.type_name().to_string(),
@@ -3017,10 +3017,10 @@ impl SyntaxGroup {
                 if table.len() == 1 {
                     let (key, val) = table.iter().next().unwrap();
                     match val {
-                        compote::ContextValue::Object(inner, _) => (key.clone(), inner),
+                        feuilletage::ContextValue::Object(inner, _) => (key.clone(), inner),
                         _ => {
                             tracker.push_field(key);
-                            tracker.record(compote::Error::TypeMismatch {
+                            tracker.record(feuilletage::Error::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "object".to_string(),
                                 actual: val.type_name().to_string(),
@@ -3031,11 +3031,11 @@ impl SyntaxGroup {
                     }
                 } else if let Some(name_val) = table.get("name") {
                     match name_val {
-                        compote::ContextValue::String(s, _) => (s.clone(), table),
-                        compote::ContextValue::Int(i, _) => (i.to_string(), table),
+                        feuilletage::ContextValue::String(s, _) => (s.clone(), table),
+                        feuilletage::ContextValue::Int(i, _) => (i.to_string(), table),
                         _ => {
                             tracker.push_field("name");
-                            tracker.record(compote::Error::TypeMismatch {
+                            tracker.record(feuilletage::Error::TypeMismatch {
                                 path: tracker.current_path(),
                                 expected: "string".to_string(),
                                 actual: name_val.type_name().to_string(),
@@ -3046,7 +3046,7 @@ impl SyntaxGroup {
                     }
                 } else {
                     tracker.push_field("name");
-                    tracker.record(compote::Error::MissingField {
+                    tracker.record(feuilletage::Error::MissingField {
                         path: tracker.current_path(),
                     });
                     tracker.pop();
@@ -3056,20 +3056,20 @@ impl SyntaxGroup {
         };
 
         // Parse parameters
-        let parameters = compote_get_str_array(config_table, "parameters", tracker);
+        let parameters = feuilletage_get_str_array(config_table, "parameters", tracker);
         if parameters.is_empty() {
             tracker.push_field("parameters");
-            tracker.record(compote::Error::MissingField {
+            tracker.record(feuilletage::Error::MissingField {
                 path: tracker.current_path(),
             });
             tracker.pop();
             return None;
         }
 
-        let multiple = compote_get_bool_or_default(config_table, "multiple", false, tracker);
-        let required = compote_get_bool_or_default(config_table, "required", false, tracker);
-        let requires = compote_get_str_array(config_table, "requires", tracker);
-        let conflicts_with = compote_get_str_array(config_table, "conflicts_with", tracker);
+        let multiple = feuilletage_get_bool_or_default(config_table, "multiple", false, tracker);
+        let required = feuilletage_get_bool_or_default(config_table, "required", false, tracker);
+        let requires = feuilletage_get_str_array(config_table, "requires", tracker);
+        let conflicts_with = feuilletage_get_str_array(config_table, "conflicts_with", tracker);
 
         Some(Self {
             name,

@@ -117,19 +117,19 @@ struct ReleaseMetadata {
     immutable: bool,
 }
 
-#[derive(Debug, Clone, Default, compote::Config)]
-#[compote(transparent, skip_serialize, post_process = "reorder_gh_releases")]
+#[derive(Debug, Clone, Default, feuilletage::Config)]
+#[feuilletage(transparent, skip_serialize, post_process = "reorder_gh_releases")]
 pub struct UpConfigGithubReleases {
-    #[compote(default, allow_single, allow_map(key = "repository", scalar_as = "version"))]
+    #[feuilletage(default, allow_single, allow_map(key = "repository", scalar_as = "version"))]
     releases: Vec<UpConfigGithubRelease>,
 }
 
 /// Post-process: bump the "gh" tool to the front so it's installed first (needed for auth).
-fn reorder_gh_releases<S: compote::CustomSource, L: compote::CustomLevel>(
+fn reorder_gh_releases<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
     config: &mut UpConfigGithubReleases,
-    _source: &compote::ContextValue<S, L>,
-    _error_tracker: &mut compote::ErrorTracker,
-) -> Result<(), compote::Error> {
+    _source: &feuilletage::ContextValue<S, L>,
+    _error_tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
     if let Some(pos) = config.releases.iter().position(|r| r.is_gh()) {
         if pos > 0 {
             let gh_release = config.releases.remove(pos);
@@ -418,15 +418,15 @@ impl UpConfigGithubReleases {
     }
 }
 
-// Helper functions for compote parsing
+// Helper functions for feuilletage parsing
 
-fn compote_get_optional_string<S: compote::CustomSource, L: compote::CustomLevel>(
-    map: &indexmap::IndexMap<String, compote::ContextValue<S, L>>,
+fn feuilletage_get_optional_string<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    map: &indexmap::IndexMap<String, feuilletage::ContextValue<S, L>>,
     key: &str,
-    tracker: &mut compote::ErrorTracker,
+    tracker: &mut feuilletage::ErrorTracker,
 ) -> Option<String> {
     map.get(key).and_then(|v| {
-        if let compote::ContextValue::String(s, _) = v {
+        if let feuilletage::ContextValue::String(s, _) = v {
             Some(s.clone())
         } else {
             tracker.push_field(key);
@@ -440,27 +440,27 @@ fn compote_get_optional_string<S: compote::CustomSource, L: compote::CustomLevel
 /// Pre-deserialization transform for repository field.
 /// Converts `{owner: "x", name: "y"}` objects into `"x/y"` strings.
 /// Passes through string values unchanged.
-fn transform_repository<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &mut compote::ContextValue<S, L>,
-    _context: &compote::Context<S, L>,
-) -> Result<(), compote::Error> {
-    if let compote::ContextValue::Object(ref map, _) = value {
+fn transform_repository<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    if let feuilletage::ContextValue::Object(ref map, _) = value {
         let owner = map.get("owner").and_then(|v| {
-            if let compote::ContextValue::String(s, _) = v {
+            if let feuilletage::ContextValue::String(s, _) = v {
                 Some(s.clone())
             } else {
                 None
             }
         });
         let name = map.get("name").and_then(|v| {
-            if let compote::ContextValue::String(s, _) = v {
+            if let feuilletage::ContextValue::String(s, _) = v {
                 Some(s.clone())
             } else {
                 None
             }
         });
         if let (Some(owner), Some(name)) = (owner, name) {
-            *value = compote::ContextValue::string(
+            *value = feuilletage::ContextValue::string(
                 format!("{}/{}", owner, name),
                 value.context().clone(),
             );
@@ -476,8 +476,8 @@ pub enum GithubReleaseHandled {
     Unhandled,
 }
 
-#[derive(Debug, Serialize, Clone, compote::Config)]
-#[compote(
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(
     scalar_as = "repository",
     skip_serialize,
     allow_map(key = "repository", scalar_as = "version"),
@@ -485,7 +485,7 @@ pub enum GithubReleaseHandled {
 pub struct UpConfigGithubRelease {
     /// The repository to install the tool from, should
     /// be in the format `owner/repo`
-    #[compote(alias = "repo", transform = "crate::internal::config::up::github_release::transform_repository")]
+    #[feuilletage(alias = "repo", transform = "crate::internal::config::up::github_release::transform_repository")]
     pub repository: String,
 
     /// The version of the tool to install
@@ -495,19 +495,19 @@ pub struct UpConfigGithubRelease {
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub build: bool,
 
     /// Whether to only install immutable releases. When set to true,
@@ -515,7 +515,7 @@ pub struct UpConfigGithubRelease {
     /// When set to false (default), both immutable and non-immutable
     /// releases are accepted.
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub immutable: bool,
 
     /// Whether to install a file that is not currently in an
@@ -525,7 +525,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_true",
         skip_serializing_if = "cache_utils::is_true"
     )]
-    #[compote(default = "true")]
+    #[feuilletage(default = "true")]
     pub binary: bool,
 
     /// The name of the asset to download from the release. All
@@ -534,7 +534,7 @@ pub struct UpConfigGithubRelease {
     /// patterns, e.g. `*.tar.gz` or `special-asset-*`. If not
     /// set, will be similar as being set to `*`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[compote(allow_single)]
+    #[feuilletage(allow_single)]
     pub asset_name: Vec<AssetNameMatcher>,
 
     /// Whether to skip the OS matching when downloading the
@@ -544,7 +544,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub skip_os_matching: bool,
 
     /// Whether to skip the architecture matching when downloading
@@ -554,7 +554,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub skip_arch_matching: bool,
 
     /// Whether to prefer the 'dist' assets over the 'bin' assets.
@@ -563,7 +563,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub prefer_dist: bool,
 
     /// The URL of the GitHub API; this is only required if downloading
@@ -581,7 +581,7 @@ pub struct UpConfigGithubRelease {
         default,
         skip_serializing_if = "GithubReleaseChecksumConfig::is_default"
     )]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub checksum: GithubReleaseChecksumConfig,
 
     /// The authentication configuration for this specific
@@ -592,29 +592,29 @@ pub struct UpConfigGithubRelease {
         with = "serde_yaml::with::singleton_map",
         skip_serializing_if = "GithubAuthConfig::is_default"
     )]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub auth: GithubAuthConfig,
 
     /// Environment variables to set when using this release
     #[serde(default, skip_serializing_if = "EnvConfig::is_empty")]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub env: EnvConfig,
 
     /// A list of directories to make the release available for
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    #[compote(rename = "dir", allow_single, transform_each = "normalize_path")]
+    #[feuilletage(rename = "dir", allow_single, transform_each = "normalize_path")]
     pub dirs: BTreeSet<String>,
 
     #[serde(default, skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     actual_version: OnceCell<String>,
 
     #[serde(default, skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     actual_metadata: RefCell<Option<ReleaseMetadata>>,
 
     #[serde(default, skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     was_handled: OnceCell<GithubReleaseHandled>,
 }
 
@@ -2197,8 +2197,8 @@ impl UpConfigGithubRelease {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Default, compote::Config)]
-#[compote(scalar_as = "value", skip_serialize)]
+#[derive(Debug, Serialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(scalar_as = "value", skip_serialize)]
 pub struct GithubReleaseChecksumConfig {
     /// Whether checksum verification is enabled; if set to
     /// `false`, checksum verification will be skipped.
@@ -2227,7 +2227,7 @@ pub struct GithubReleaseChecksumConfig {
     /// The name of the asset containing the checksum value to
     /// compare against the downloaded release assets.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[compote(allow_single)]
+    #[feuilletage(allow_single)]
     asset_name: Vec<AssetNameMatcher>,
 }
 
@@ -2253,22 +2253,22 @@ impl GithubReleaseChecksumConfig {
     }
 }
 
-#[derive(Debug, Serialize, Clone, compote::Config)]
-#[compote(value_matched, skip_serialize)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(value_matched, skip_serialize)]
 enum GithubReleaseChecksumAlgorithm {
-    #[compote(variant = "md5")]
+    #[feuilletage(variant = "md5")]
     #[serde(rename = "md5")]
     Md5,
-    #[compote(variant = "sha1")]
+    #[feuilletage(variant = "sha1")]
     #[serde(rename = "sha1")]
     Sha1,
-    #[compote(variant = "sha256")]
+    #[feuilletage(variant = "sha256")]
     #[serde(rename = "sha256")]
     Sha256,
-    #[compote(variant = "sha384")]
+    #[feuilletage(variant = "sha384")]
     #[serde(rename = "sha384")]
     Sha384,
-    #[compote(variant = "sha512")]
+    #[feuilletage(variant = "sha512")]
     #[serde(rename = "sha512")]
     Sha512,
 }
@@ -2349,14 +2349,14 @@ pub struct AssetNameMatcher {
     disabled: bool,
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for AssetNameMatcher
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        Self::from_context_value_unit(value, tracker).ok_or_else(|| compote::Error::TypeMismatch {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        Self::from_context_value_unit(value, tracker).ok_or_else(|| feuilletage::Error::TypeMismatch {
             path: tracker.current_path(),
             expected: "string, array, or object".to_string(),
             actual: value.type_name().to_string(),
@@ -2399,12 +2399,12 @@ impl AssetNameMatcher {
         check_allowed(asset_name, &self.patterns)
     }
 
-    pub fn from_context_value_multi<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
+    pub fn from_context_value_multi<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
     ) -> Vec<Self> {
         // Handle string case
-        if let compote::ContextValue::String(s, _) = value {
+        if let feuilletage::ContextValue::String(s, _) = value {
             return vec![Self {
                 patterns: Self::patterns_from_string(s),
                 ..Self::default()
@@ -2412,7 +2412,7 @@ impl AssetNameMatcher {
         }
 
         // Handle array case
-        if let compote::ContextValue::Array(arr, _) = value {
+        if let feuilletage::ContextValue::Array(arr, _) = value {
             let mut results = Vec::new();
             for (idx, elem) in arr.iter().enumerate() {
                 tracker.push_index(idx);
@@ -2428,12 +2428,12 @@ impl AssetNameMatcher {
         vec![]
     }
 
-    fn from_context_value_unit<S: compote::CustomSource, L: compote::CustomLevel>(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
+    fn from_context_value_unit<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
     ) -> Option<Self> {
         // Handle string case
-        if let compote::ContextValue::String(s, _) = value {
+        if let feuilletage::ContextValue::String(s, _) = value {
             return Some(Self {
                 patterns: Self::patterns_from_string(s),
                 ..Self::default()
@@ -2441,7 +2441,7 @@ impl AssetNameMatcher {
         }
 
         // Handle array case - patterns as array of strings
-        if let compote::ContextValue::Array(arr, _) = value {
+        if let feuilletage::ContextValue::Array(arr, _) = value {
             return Some(Self {
                 patterns: Self::context_value_patterns_from_array(arr),
                 ..Self::default()
@@ -2449,14 +2449,14 @@ impl AssetNameMatcher {
         }
 
         // Handle object case with os, arch, and patterns
-        if let compote::ContextValue::Object(map, _) = value {
-            let os = compote_get_optional_string(map, "os", tracker);
-            let arch = compote_get_optional_string(map, "arch", tracker);
+        if let feuilletage::ContextValue::Object(map, _) = value {
+            let os = feuilletage_get_optional_string(map, "os", tracker);
+            let arch = feuilletage_get_optional_string(map, "arch", tracker);
 
             let patterns = if let Some(patterns_val) = map.get("patterns") {
-                if let compote::ContextValue::String(s, _) = patterns_val {
+                if let feuilletage::ContextValue::String(s, _) = patterns_val {
                     Self::patterns_from_string(s)
-                } else if let compote::ContextValue::Array(arr, _) = patterns_val {
+                } else if let feuilletage::ContextValue::Array(arr, _) = patterns_val {
                     Self::context_value_patterns_from_array(arr)
                 } else {
                     tracker.push_field("patterns");
@@ -2501,13 +2501,13 @@ impl AssetNameMatcher {
         None
     }
 
-    fn context_value_patterns_from_array<S: compote::CustomSource, L: compote::CustomLevel>(
-        array: &[compote::ContextValue<S, L>],
+    fn context_value_patterns_from_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        array: &[feuilletage::ContextValue<S, L>],
     ) -> Vec<String> {
         array
             .iter()
             .filter_map(|value| {
-                if let compote::ContextValue::String(s, _) = value {
+                if let feuilletage::ContextValue::String(s, _) = value {
                     Some(s.clone())
                 } else {
                     None

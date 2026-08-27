@@ -19,13 +19,13 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
 
-#[derive(Debug, Serialize, Clone, compote::Config)]
-#[compote(skip_serialize)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(skip_serialize)]
 pub struct UpConfigCustom {
-    #[compote(default = "true")]
+    #[feuilletage(default = "true")]
     pub meet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[compote(rename = "met?")]
+    #[feuilletage(rename = "met?")]
     pub met: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unmeet: Option<String>,
@@ -35,7 +35,7 @@ pub struct UpConfigCustom {
     pub dir: Option<String>,
 
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     data_paths: OnceCell<Vec<PathBuf>>,
 }
 

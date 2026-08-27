@@ -13,55 +13,55 @@ use crate::internal::config::template::tera_render_error_message;
 use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
-// Compote imports
-use crate::internal::config::CompoteConfigContext;
-use crate::internal::config::CompoteConfigValue;
-use crate::internal::config::CompoteErrorTracker;
-use crate::internal::config::CompoteConfigLevel;
-use crate::internal::config::CompoteConfigSource;
+// Feuilletage imports
+use crate::internal::config::FeuilletageConfigContext;
+use crate::internal::config::FeuilletageConfigValue;
+use crate::internal::config::FeuilletageErrorTracker;
+use crate::internal::config::FeuilletageConfigLevel;
+use crate::internal::config::FeuilletageConfigSource;
 
 /// Create a synthetic ConfigContext for deserialized values (from templates)
-fn synthetic_context() -> CompoteConfigContext {
-    CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::Local)
+fn synthetic_context() -> FeuilletageConfigContext {
+    FeuilletageConfigContext::new(FeuilletageConfigSource::Programmatic, FeuilletageConfigLevel::Local)
 }
 
-/// Convert serde_yaml::Value to compote::ContextValue
-fn yaml_value_to_compote_config_value(value: serde_yaml::Value) -> CompoteConfigValue {
+/// Convert serde_yaml::Value to feuilletage::ContextValue
+fn yaml_value_to_feuilletage_config_value(value: serde_yaml::Value) -> FeuilletageConfigValue {
     let ctx = synthetic_context();
     match value {
-        serde_yaml::Value::Null => CompoteConfigValue::null(ctx),
-        serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, ctx),
+        serde_yaml::Value::Null => FeuilletageConfigValue::null(ctx),
+        serde_yaml::Value::Bool(b) => FeuilletageConfigValue::bool(b, ctx),
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                CompoteConfigValue::int(i, ctx)
+                FeuilletageConfigValue::int(i, ctx)
             } else if let Some(f) = n.as_f64() {
-                CompoteConfigValue::float(f, ctx)
+                FeuilletageConfigValue::float(f, ctx)
             } else {
-                CompoteConfigValue::null(ctx)
+                FeuilletageConfigValue::null(ctx)
             }
         }
-        serde_yaml::Value::String(s) => CompoteConfigValue::string(s, ctx),
+        serde_yaml::Value::String(s) => FeuilletageConfigValue::string(s, ctx),
         serde_yaml::Value::Sequence(arr) => {
-            let items: Vec<CompoteConfigValue> = arr
+            let items: Vec<FeuilletageConfigValue> = arr
                 .into_iter()
-                .map(yaml_value_to_compote_config_value)
+                .map(yaml_value_to_feuilletage_config_value)
                 .collect();
-            CompoteConfigValue::array(items, ctx)
+            FeuilletageConfigValue::array(items, ctx)
         }
         serde_yaml::Value::Mapping(map) => {
-            let items: indexmap::IndexMap<String, CompoteConfigValue> = map
+            let items: indexmap::IndexMap<String, FeuilletageConfigValue> = map
                 .into_iter()
                 .filter_map(|(k, v)| {
                     let key = match k {
                         serde_yaml::Value::String(s) => s,
                         _ => return None,
                     };
-                    Some((key, yaml_value_to_compote_config_value(v)))
+                    Some((key, yaml_value_to_feuilletage_config_value(v)))
                 })
                 .collect();
-            CompoteConfigValue::object(items, ctx)
+            FeuilletageConfigValue::object(items, ctx)
         }
-        serde_yaml::Value::Tagged(tagged) => yaml_value_to_compote_config_value(tagged.value),
+        serde_yaml::Value::Tagged(tagged) => yaml_value_to_feuilletage_config_value(tagged.value),
     }
 }
 
@@ -78,7 +78,7 @@ impl Empty for SuggestCloneConfig {
     }
 }
 
-impl compote::IsEmpty for SuggestCloneConfig {
+impl feuilletage::IsEmpty for SuggestCloneConfig {
     fn is_empty(&self) -> bool {
         Empty::is_empty(self)
     }
@@ -151,13 +151,13 @@ impl SuggestCloneConfig {
         if template.get_template_names().next().is_some() {
             match render_config_template(&template, template_context) {
                 Ok(yaml_str) => {
-                    // Parse YAML string using compote
+                    // Parse YAML string using feuilletage
                     match serde_yaml::from_str::<serde_yaml::Value>(&yaml_str) {
                         Ok(yaml_value) => {
-                            // Convert to compote::ContextValue and deserialize
-                            let config_value = yaml_value_to_compote_config_value(yaml_value);
-                            let mut tracker = CompoteErrorTracker::new();
-                            match <Self as compote::FromContextValue<_, _>>::from_context_value(&config_value, &mut tracker) {
+                            // Convert to feuilletage::ContextValue and deserialize
+                            let config_value = yaml_value_to_feuilletage_config_value(yaml_value);
+                            let mut tracker = FeuilletageErrorTracker::new();
+                            match <Self as feuilletage::FromContextValue<_, _>>::from_context_value(&config_value, &mut tracker) {
                                 Ok(suggest_clone) => {
                                     // In case this is recursive for some reason...
                                     return suggest_clone
@@ -198,12 +198,12 @@ impl SuggestCloneConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, compote::Config)]
-#[compote(value_matched)]
+#[derive(Debug, Clone, PartialEq, feuilletage::Config)]
+#[feuilletage(value_matched)]
 pub enum SuggestCloneTypeEnum {
-    #[compote(variant = "package")]
+    #[feuilletage(variant = "package")]
     Package,
-    #[compote(variant = "worktree")]
+    #[feuilletage(variant = "worktree")]
     Worktree,
 }
 
@@ -227,29 +227,29 @@ impl FromStr for SuggestCloneTypeEnum {
 
 /// Transform function that converts a String ContextValue into an Array ContextValue
 /// using shell_words::split(), enabling Vec<String> deserialization from a shell command string.
-fn shell_words_transform<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &mut compote::ContextValue<S, L>,
-    _context: &compote::Context<S, L>,
-) -> Result<(), compote::Error> {
-    if let compote::ContextValue::String(s, ctx) = value {
+fn shell_words_transform<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    if let feuilletage::ContextValue::String(s, ctx) = value {
         let words = shell_words::split(s).unwrap_or_default();
         let arr = words
             .into_iter()
-            .map(|w| compote::ContextValue::string(w, ctx.clone()))
+            .map(|w| feuilletage::ContextValue::string(w, ctx.clone()))
             .collect();
-        *value = compote::ContextValue::array(arr, ctx.clone());
+        *value = feuilletage::ContextValue::array(arr, ctx.clone());
     }
     Ok(())
 }
 
-#[derive(Debug, Serialize, Clone, compote::Config)]
-#[compote(scalar_as = "handle", skip_serialize)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(scalar_as = "handle", skip_serialize)]
 pub struct SuggestCloneRepositoryConfig {
     pub handle: String,
-    #[compote(default, transform = "crate::internal::config::parser::suggest_clone::shell_words_transform")]
+    #[feuilletage(default, transform = "crate::internal::config::parser::suggest_clone::shell_words_transform")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
-    #[compote(default)]
+    #[feuilletage(default)]
     pub clone_type: SuggestCloneTypeEnum,
 }
 
@@ -260,35 +260,35 @@ impl SuggestCloneRepositoryConfig {
 }
 
 // ============================================================================
-// Compote Native Implementation
+// Feuilletage Native Implementation
 // ============================================================================
 
 /// Helper to select only Local (Workdir) scope values
 /// Returns None if the entire value should be rejected (not from Local scope)
-fn select_local_scope<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &compote::ContextValue<S, L>,
-) -> Option<compote::ContextValue<S, L>> {
+fn select_local_scope<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+) -> Option<feuilletage::ContextValue<S, L>> {
     match value {
-        compote::ContextValue::Object(map, ctx) => {
-            let filtered: indexmap::IndexMap<String, compote::ContextValue<S, L>> = map
+        feuilletage::ContextValue::Object(map, ctx) => {
+            let filtered: indexmap::IndexMap<String, feuilletage::ContextValue<S, L>> = map
                 .iter()
                 .filter_map(|(k, v)| select_local_scope(v).map(|filtered| (k.clone(), filtered)))
                 .collect();
             if filtered.is_empty() {
                 None
             } else {
-                Some(compote::ContextValue::object(filtered, ctx.clone()))
+                Some(feuilletage::ContextValue::object(filtered, ctx.clone()))
             }
         }
-        compote::ContextValue::Array(arr, ctx) => {
-            let filtered: Vec<compote::ContextValue<S, L>> = arr
+        feuilletage::ContextValue::Array(arr, ctx) => {
+            let filtered: Vec<feuilletage::ContextValue<S, L>> = arr
                 .iter()
                 .filter_map(select_local_scope)
                 .collect();
             if filtered.is_empty() {
                 None
             } else {
-                Some(compote::ContextValue::array(filtered, ctx.clone()))
+                Some(feuilletage::ContextValue::array(filtered, ctx.clone()))
             }
         }
         _ => {
@@ -303,15 +303,15 @@ fn select_local_scope<S: compote::CustomSource, L: compote::CustomLevel>(
 }
 
 // Manual impl replaced by derive macro:
-// impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+// impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
 //     for SuggestCloneTypeEnum
 // {
 //     fn from_context_value(
-//         value: &compote::ContextValue<S, L>,
-//         tracker: &mut compote::ErrorTracker,
-//     ) -> Result<Self, compote::Error> {
+//         value: &feuilletage::ContextValue<S, L>,
+//         tracker: &mut feuilletage::ErrorTracker,
+//     ) -> Result<Self, feuilletage::Error> {
 //         let s = String::from_context_value(value, tracker)?;
-//         Self::from_str(&s).map_err(|_| compote::Error::InvalidValue {
+//         Self::from_str(&s).map_err(|_| feuilletage::Error::InvalidValue {
 //             message: format!("Invalid clone type '{}', expected 'package' or 'worktree'", s),
 //             path: tracker.current_path(),
 //         })
@@ -326,23 +326,23 @@ fn select_local_scope<S: compote::CustomSource, L: compote::CustomLevel>(
 //
 // 1. **Level-based filtering**: The config only accepts values from Local
 //    (Workdir) scope. It uses `select_local_scope()` to filter out values
-//    from other levels. Compote doesn't support level-based value filtering.
+//    from other levels. Feuilletage doesn't support level-based value filtering.
 //
 // 2. **Multi-format input**: Accepts array, object with repositories/template/
 //    template_file keys, or returns default. This polymorphic parsing pattern
 //    goes beyond what derive macros can express.
 //
-// To convert this, compote would need:
-// - A `#[compote(filter_by_level = "local")]` attribute
+// To convert this, feuilletage would need:
+// - A `#[feuilletage(filter_by_level = "local")]` attribute
 // - Or a way to specify pre-processing filters on the input value
 // ==========================================================================
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for SuggestCloneConfig
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         // This config only accepts Local (Workdir) scope values
         let filtered = match select_local_scope(value) {
             Some(v) => v,
@@ -350,13 +350,13 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         };
 
         match &filtered {
-            compote::ContextValue::Null(_) => Ok(Self::default()),
+            feuilletage::ContextValue::Null(_) => Ok(Self::default()),
             // Array format: list of repository configs
-            compote::ContextValue::Array(arr, _) => {
+            feuilletage::ContextValue::Array(arr, _) => {
                 let mut repositories = Vec::new();
                 for (idx, v) in arr.iter().enumerate() {
                     tracker.push_index(idx);
-                    match <SuggestCloneRepositoryConfig as compote::FromContextValue<S, L>>::from_context_value(v, tracker) {
+                    match <SuggestCloneRepositoryConfig as feuilletage::FromContextValue<S, L>>::from_context_value(v, tracker) {
                         Ok(repo) => repositories.push(repo),
                         Err(e) => {
                             tracker.record(e);
@@ -370,15 +370,15 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
                 })
             }
             // Table format: can have repositories, template, or template_file
-            compote::ContextValue::Object(table, _) => {
+            feuilletage::ContextValue::Object(table, _) => {
                 // Check for repositories array
                 if let Some(v) = table.get("repositories") {
-                    if let compote::ContextValue::Array(arr, _) = v {
+                    if let feuilletage::ContextValue::Array(arr, _) = v {
                         let mut repositories = Vec::new();
                         for (idx, repo_v) in arr.iter().enumerate() {
                             tracker.push_field("repositories");
                             tracker.push_index(idx);
-                            match <SuggestCloneRepositoryConfig as compote::FromContextValue<S, L>>::from_context_value(repo_v, tracker) {
+                            match <SuggestCloneRepositoryConfig as feuilletage::FromContextValue<S, L>>::from_context_value(repo_v, tracker) {
                                 Ok(repo) => repositories.push(repo),
                                 Err(e) => {
                                     tracker.record(e);
@@ -418,7 +418,7 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
 
                 Ok(Self::default())
             }
-            _ => Err(compote::Error::TypeMismatch {
+            _ => Err(feuilletage::Error::TypeMismatch {
                 expected: "array or table".to_string(),
                 actual: filtered.type_name().to_string(),
                 path: tracker.current_path(),

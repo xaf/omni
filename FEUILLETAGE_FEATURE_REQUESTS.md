@@ -1,9 +1,9 @@
-# Compote Feature Requests
+# Feuilletage Feature Requests
 
-This document consolidates the compote features that would enable converting more manual
-`FromContextValue` implementations to use the `#[derive(compote::Config)]` macro.
+This document consolidates the feuilletage features that would enable converting more manual
+`FromContextValue` implementations to use the `#[derive(feuilletage::Config)]` macro.
 
-See `COMPOTE_MANUAL_IMPLS.md` for detailed documentation of each type that requires manual
+See `FEUILLETAGE_MANUAL_IMPLS.md` for detailed documentation of each type that requires manual
 implementation and why.
 
 ---
@@ -25,8 +25,8 @@ A comprehensive analysis of all remaining manual implementations was performed. 
 
 ### Key Findings
 
-1. **No remaining types can benefit from conversion** - All complex types have parsing logic that exceeds compote's declarative capabilities
-2. **Simple enums are used internally** - Types like `EnvOperationEnum`, `HomebrewInstallType`, and `HomebrewHandled` are constructed programmatically during parsing, not parsed via compote
+1. **No remaining types can benefit from conversion** - All complex types have parsing logic that exceeds feuilletage's declarative capabilities
+2. **Simple enums are used internally** - Types like `EnvOperationEnum`, `HomebrewInstallType`, and `HomebrewHandled` are constructed programmatically during parsing, not parsed via feuilletage
 3. **Common blockers across files:**
    - Dynamic key-to-field mapping (key becomes field value)
    - Polymorphic input (same field accepts string/array/object with different handling)
@@ -44,19 +44,19 @@ The following features from the original request list have been implemented:
 | Feature | Implementation | Status |
 |---------|---------------|--------|
 | Context metadata injection | `from_context = "source.file_path"`, `"level.name"`, `"source.display_name"` | ✅ Done |
-| Custom serialization override | `#[compote(transparent)]` attribute | ✅ Done |
-| Level-based filtering | `#[compote(mutable_by = ["level"])]` attribute | ✅ Done |
+| Custom serialization override | `#[feuilletage(transparent)]` attribute | ✅ Done |
+| Level-based filtering | `#[feuilletage(mutable_by = ["level"])]` attribute | ✅ Done |
 | Heuristic predicates | `variant = predicate("fn")`, `starts_with`, `ends_with`, `contains`, `regex`, `range` | ✅ Done |
 | Dual-nature variants | `scalar_variant` + `rename` combination | ✅ Done |
 | BTreeSet/HashSet support | `FromContextValue` impl with `on_error` support | ✅ Done |
 | Transform with arguments | Documented workaround: use wrapper functions | ✅ Workaround |
-| Field fallback/copy | `#[compote(fallback = "field")]` attribute | ✅ Done |
-| Conditional field defaults | `#[compote(default_fn = "fn(field1, field2)")]` | ✅ Done |
-| OnceCell field skip | `#[compote(skip)]` uses `Default::default()` | ✅ Done |
-| Separate Serialize/Deserialize | `#[compote(skip_serialize)]` container attribute | ✅ Done |
-| Parent-object field extraction | Use `#[compote(flatten)]` - nested type receives remaining object | ✅ Use flatten |
-| Multiple aliases per variant | `#[compote(aliases = ["alt1", "alt2"])]` on enum variants | ✅ Done |
-| Post-construction callbacks | `#[compote(post_process = "fn")]` - receives `&mut T`, original value, and error tracker | ✅ Done |
+| Field fallback/copy | `#[feuilletage(fallback = "field")]` attribute | ✅ Done |
+| Conditional field defaults | `#[feuilletage(default_fn = "fn(field1, field2)")]` | ✅ Done |
+| OnceCell field skip | `#[feuilletage(skip)]` uses `Default::default()` | ✅ Done |
+| Separate Serialize/Deserialize | `#[feuilletage(skip_serialize)]` container attribute | ✅ Done |
+| Parent-object field extraction | Use `#[feuilletage(flatten)]` - nested type receives remaining object | ✅ Use flatten |
+| Multiple aliases per variant | `#[feuilletage(aliases = ["alt1", "alt2"])]` on enum variants | ✅ Done |
+| Post-construction callbacks | `#[feuilletage(post_process = "fn")]` - receives `&mut T`, original value, and error tracker | ✅ Done |
 
 ---
 
@@ -79,15 +79,15 @@ The key (`MY_VAR`, `PATH`) is not a fixed schema key but a dynamic value that sh
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
-#[compote(key_as = "name")]  // Capture the map key into the `name` field
+#[derive(feuilletage::Config)]
+#[feuilletage(key_as = "name")]  // Capture the map key into the `name` field
 struct EnvOperation {
     name: String,       // Populated from the map key
     value: String,      // Populated from the map value
 }
 
 // On Vec field:
-#[compote(allow_map(key_as = "name"))]  // Each map entry's key -> name field
+#[feuilletage(allow_map(key_as = "name"))]  // Each map entry's key -> name field
 items: Vec<EnvOperation>,
 ```
 
@@ -107,8 +107,8 @@ MY_VAR:
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
-#[compote(expand_arrays)]  // Each array element in value produces separate struct
+#[derive(feuilletage::Config)]
+#[feuilletage(expand_arrays)]  // Each array element in value produces separate struct
 struct EnvOperation {
     name: String,
     value: String,
@@ -132,17 +132,17 @@ cask: "app-name"         # Sets name="app-name" AND install_type=Cask
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
+#[derive(feuilletage::Config)]
 struct HomebrewInstall {
-    #[compote(from_key = "formula" | "cask")]  // Key name determines this field
+    #[feuilletage(from_key = "formula" | "cask")]  // Key name determines this field
     install_type: HomebrewInstallType,
 
-    #[compote(from_value_of = "formula" | "cask")]  // Key's value populates this
+    #[feuilletage(from_value_of = "formula" | "cask")]  // Key's value populates this
     name: String,
 }
 
 // Alternative: key-based variant selection
-#[compote(key_variant = "formula" => Formula, "cask" => Cask)]
+#[feuilletage(key_variant = "formula" => Formula, "cask" => Cask)]
 install_type: HomebrewInstallType,
 ```
 
@@ -164,15 +164,15 @@ The existing `from_context = "level.name"` can only inject raw values, not compu
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
+#[derive(feuilletage::Config)]
 struct CheckPattern {
     pattern: String,
 
-    #[compote(from_context_fn = "compute_is_global")]
+    #[feuilletage(from_context_fn = "compute_is_global")]
     is_global: bool,
 }
 
-fn compute_is_global<S, L>(ctx: &compote::Context<S, L>) -> bool {
+fn compute_is_global<S, L>(ctx: &feuilletage::Context<S, L>) -> bool {
     ctx.level.name() != "local"
 }
 ```
@@ -198,9 +198,9 @@ tags: ["tag1", "tag2"]  # Should become {"tag1": default, "tag2": default}
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
+#[derive(feuilletage::Config)]
 struct CheckConfig {
-    #[compote(allow_array)]  // ["a", "b"] -> {"a": default, "b": default}
+    #[feuilletage(allow_array)]  // ["a", "b"] -> {"a": default, "b": default}
     tags: HashMap<String, StringFilter>,
 }
 ```
@@ -226,12 +226,12 @@ pub struct UpConfig {
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
-#[compote(accumulate_errors_in = "errors")]
+#[derive(feuilletage::Config)]
+#[feuilletage(accumulate_errors_in = "errors")]
 struct UpConfig {
     steps: Vec<UpConfigTool>,
 
-    #[compote(errors)]
+    #[feuilletage(errors)]
     errors: Vec<UpError>,
 }
 ```
@@ -247,7 +247,7 @@ struct UpConfig {
 **Current limitation:** Some variants need extra parameters passed to their constructor:
 ```rust
 // Current manual implementation:
-"bash" => UpConfigMise::compote_from_context_value_with_params(
+"bash" => UpConfigMise::feuilletage_from_context_value_with_params(
     "bash",
     config_value,
     UpConfigMiseParams { tool_url: Some("https://...".into()) },
@@ -257,10 +257,10 @@ struct UpConfig {
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
-#[compote(external_tag)]
+#[derive(feuilletage::Config)]
+#[feuilletage(external_tag)]
 enum UpConfigTool {
-    #[compote(
+    #[feuilletage(
         rename = "bash",
         construct_with = "UpConfigMise::with_params",
         args = ["bash", UpConfigMiseParams { tool_url: Some("...") }]
@@ -287,9 +287,9 @@ up:
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
+#[derive(feuilletage::Config)]
 struct UpConfig {
-    #[compote(heterogeneous_array(
+    #[feuilletage(heterogeneous_array(
         string => UpConfigTool::from_name,
         number => UpConfigTool::from_version,
         object => UpConfigTool::from_config
@@ -314,12 +314,12 @@ UpConfigTool::Mise(UpConfigMise::new("ruby", config_value))
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
-#[compote(external_tag)]
+#[derive(feuilletage::Config)]
+#[feuilletage(external_tag)]
 enum UpConfigTool {
     // ... known variants ...
 
-    #[compote(fallback, from_tag)]  // Captures the tag value
+    #[feuilletage(fallback, from_tag)]  // Captures the tag value
     Mise(UpConfigMise),  // UpConfigMise receives the tag as first arg
 }
 ```
@@ -345,15 +345,15 @@ pip: "requirements.txt"           # pip_files = ["requirements.txt"]
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
+#[derive(feuilletage::Config)]
 struct UpConfigPythonParams {
-    #[compote(from = "pip", when = array)]
+    #[feuilletage(from = "pip", when = array)]
     pip_files: Vec<String>,
 
-    #[compote(from = "pip", when = true | "auto")]
+    #[feuilletage(from = "pip", when = true | "auto")]
     pip_auto: bool,
 
-    #[compote(from = "pip", when = false)]
+    #[feuilletage(from = "pip", when = false)]
     pip_disabled: bool,
 }
 ```
@@ -378,9 +378,9 @@ dirs.insert(
 
 **Proposed syntax:**
 ```rust
-#[derive(compote::Config)]
+#[derive(feuilletage::Config)]
 struct UpConfigGolang {
-    #[compote(transform_each = "normalize_path_string")]
+    #[feuilletage(transform_each = "normalize_path_string")]
     dirs: BTreeSet<String>,
 }
 

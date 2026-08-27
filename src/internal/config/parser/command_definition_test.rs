@@ -2680,60 +2680,60 @@ mod parse_arg_name {
 
 mod syntax_opt_arg_type {
     use super::*;
-    use crate::internal::config::CompoteConfigValue;
-    use crate::internal::config::CompoteErrorTracker;
+    use crate::internal::config::FeuilletageConfigValue;
+    use crate::internal::config::FeuilletageErrorTracker;
 
-    /// Helper function to create a compote ConfigValue from a YAML string
-    fn make_compote_value(yaml: &str) -> CompoteConfigValue {
+    /// Helper function to create a feuilletage ConfigValue from a YAML string
+    fn make_feuilletage_value(yaml: &str) -> FeuilletageConfigValue {
         let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-        yaml_value_to_compote_value(value)
+        yaml_value_to_feuilletage_value(value)
     }
 
-    /// Convert a serde_yaml::Value to compote ConfigValue (test version)
-    fn yaml_value_to_compote_value(value: serde_yaml::Value) -> CompoteConfigValue {
-        let context = compote::Context::new(compote::Source::Default, compote::Level::System);
+    /// Convert a serde_yaml::Value to feuilletage ConfigValue (test version)
+    fn yaml_value_to_feuilletage_value(value: serde_yaml::Value) -> FeuilletageConfigValue {
+        let context = feuilletage::Context::new(feuilletage::Source::Default, feuilletage::Level::System);
         match value {
-            serde_yaml::Value::Null => CompoteConfigValue::null(context),
-            serde_yaml::Value::Bool(b) => CompoteConfigValue::bool(b, context),
+            serde_yaml::Value::Null => FeuilletageConfigValue::null(context),
+            serde_yaml::Value::Bool(b) => FeuilletageConfigValue::bool(b, context),
             serde_yaml::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    CompoteConfigValue::int(i, context)
+                    FeuilletageConfigValue::int(i, context)
                 } else if let Some(f) = n.as_f64() {
-                    CompoteConfigValue::float(f, context)
+                    FeuilletageConfigValue::float(f, context)
                 } else {
-                    CompoteConfigValue::null(context)
+                    FeuilletageConfigValue::null(context)
                 }
             }
-            serde_yaml::Value::String(s) => CompoteConfigValue::string(s, context),
+            serde_yaml::Value::String(s) => FeuilletageConfigValue::string(s, context),
             serde_yaml::Value::Sequence(seq) => {
-                let arr: Vec<CompoteConfigValue> =
-                    seq.into_iter().map(yaml_value_to_compote_value).collect();
-                CompoteConfigValue::array(arr, context)
+                let arr: Vec<FeuilletageConfigValue> =
+                    seq.into_iter().map(yaml_value_to_feuilletage_value).collect();
+                FeuilletageConfigValue::array(arr, context)
             }
             serde_yaml::Value::Mapping(map) => {
-                let obj: indexmap::IndexMap<String, CompoteConfigValue> = map
+                let obj: indexmap::IndexMap<String, FeuilletageConfigValue> = map
                     .into_iter()
                     .filter_map(|(k, v)| {
                         let key = match k {
                             serde_yaml::Value::String(s) => s,
                             _ => return None,
                         };
-                        Some((key, yaml_value_to_compote_value(v)))
+                        Some((key, yaml_value_to_feuilletage_value(v)))
                     })
                     .collect();
-                CompoteConfigValue::object(obj, context)
+                FeuilletageConfigValue::object(obj, context)
             }
-            serde_yaml::Value::Tagged(_) => CompoteConfigValue::null(context),
+            serde_yaml::Value::Tagged(_) => FeuilletageConfigValue::null(context),
         }
     }
 
     #[test]
     fn test_from_context_value_list_as_enum() {
-        let mut tracker = CompoteErrorTracker::new();
+        let mut tracker = FeuilletageErrorTracker::new();
 
         // Test with array of strings as type
-        let type_value = make_compote_value("[debug, info, warn, error]");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("[debug, info, warn, error]");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             None,
             None,
@@ -2753,12 +2753,12 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_context_value_traditional_enum() {
-        let mut tracker = CompoteErrorTracker::new();
+        let mut tracker = FeuilletageErrorTracker::new();
 
         // Test traditional enum syntax with separate values
-        let type_value = make_compote_value("enum");
-        let values_value = make_compote_value("[one, two, three]");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("enum");
+        let values_value = make_feuilletage_value("[one, two, three]");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             Some(&values_value),
             None,
@@ -2777,11 +2777,11 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_context_value_inline_enum() {
-        let mut tracker = CompoteErrorTracker::new();
+        let mut tracker = FeuilletageErrorTracker::new();
 
         // Test inline enum syntax
-        let type_value = make_compote_value("\"enum(fast, safe, rollback)\"");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("\"enum(fast, safe, rollback)\"");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             None,
             None,
@@ -2800,11 +2800,11 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_context_value_basic_types() {
-        let mut tracker = CompoteErrorTracker::new();
+        let mut tracker = FeuilletageErrorTracker::new();
 
         // Test basic string type
-        let type_value = make_compote_value("str");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("str");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             None,
             None,
@@ -2813,8 +2813,8 @@ mod syntax_opt_arg_type {
         assert_eq!(result, Some(SyntaxOptArgType::String));
 
         // Test integer type
-        let type_value = make_compote_value("int");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("int");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             None,
             None,
@@ -2823,8 +2823,8 @@ mod syntax_opt_arg_type {
         assert_eq!(result, Some(SyntaxOptArgType::Integer));
 
         // Test boolean type
-        let type_value = make_compote_value("bool");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("bool");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             None,
             None,
@@ -2835,11 +2835,11 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_context_value_empty_list() {
-        let mut tracker = CompoteErrorTracker::new();
+        let mut tracker = FeuilletageErrorTracker::new();
 
         // Test with empty array
-        let type_value = make_compote_value("[]");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("[]");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             None,
             None,
@@ -2851,11 +2851,11 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_context_value_single_item_list() {
-        let mut tracker = CompoteErrorTracker::new();
+        let mut tracker = FeuilletageErrorTracker::new();
 
         // Test with single item array
-        let type_value = make_compote_value("[debug]");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("[debug]");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             None,
             None,
@@ -2870,12 +2870,12 @@ mod syntax_opt_arg_type {
 
     #[test]
     fn test_from_context_value_precedence() {
-        let mut tracker = CompoteErrorTracker::new();
+        let mut tracker = FeuilletageErrorTracker::new();
 
         // Test that list syntax takes precedence over values field
-        let type_value = make_compote_value("[debug, info]");
-        let values_value = make_compote_value("[ignored, values]");
-        let result = SyntaxOptArgType::from_compote_config_value(
+        let type_value = make_feuilletage_value("[debug, info]");
+        let values_value = make_feuilletage_value("[ignored, values]");
+        let result = SyntaxOptArgType::from_feuilletage_config_value(
             Some(&type_value),
             Some(&values_value),
             None,

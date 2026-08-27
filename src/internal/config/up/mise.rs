@@ -42,8 +42,8 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::is_executable;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 
-// Compote imports for new config parsing system
-use crate::internal::config::CompoteConfigValue;
+// Feuilletage imports for new config parsing system
+use crate::internal::config::FeuilletageConfigValue;
 use crate::internal::env::cache_home;
 use crate::internal::env::current_dir;
 use crate::internal::env::data_home;
@@ -72,7 +72,7 @@ type PostInstallFunc = fn(
 /// A struct representing the arguments that will be passed to the post-install
 /// functions as they are being called.
 pub struct PostInstallFuncArgs<'a> {
-    pub config_value: Option<CompoteConfigValue>,
+    pub config_value: Option<FeuilletageConfigValue>,
     pub fqtn: &'a FullyQualifiedToolName,
     #[allow(dead_code)]
     pub requested_version: String,
@@ -1078,25 +1078,25 @@ impl FullyQualifiedToolName {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Default, compote::Config)]
-#[compote(scalar_as = "version", skip_serialize)]
+#[derive(Debug, Serialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(scalar_as = "version", skip_serialize)]
 pub struct UpConfigMise {
     /// The name of the tool to install; injected via from_tag at
     /// the UpConfigTool enum level for the Mise fallback variant.
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     pub(crate) requested_tool: String,
 
     /// The fully qualified name of the tool to install
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     resolved_tool: OnceCell<FullyQualifiedToolName>,
 
     /// The URL to use to install the tool; will be set automatically
     /// if needed, either from the override tool url provided by the
     /// caller, or as a param to default to for the tool
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     pub tool_url: Option<String>,
 
     /// The URL passed as parameter to override the location
@@ -1104,27 +1104,27 @@ pub struct UpConfigMise {
     /// to make sure it can be dumped when looking at the
     /// configuration.
     #[serde(rename = "url", default, skip_serializing_if = "Option::is_none")]
-    #[compote(default, rename = "url")]
+    #[feuilletage(default, rename = "url")]
     pub override_tool_url: Option<String>,
 
     /// The version of the tool to install, as specified in the config file.
-    #[compote(default = "\"latest\".to_string()", coerce)]
+    #[feuilletage(default = "\"latest\".to_string()", coerce)]
     pub version: String,
 
     /// The backend to use to install the tool with mise
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub backend: Option<String>,
 
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
-    #[compote(default)]
+    #[feuilletage(default)]
     pub upgrade: bool,
 
     /// A list of directories to install the tool for.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    #[compote(
+    #[feuilletage(
         default,
         allow_single,
         rename = "dir",
@@ -1134,39 +1134,39 @@ pub struct UpConfigMise {
 
     /// A list of functions to run to detect the version of the tool.
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     detect_version_funcs: Vec<DetectVersionFunc>,
 
     /// A list of functions to run after installing a version of the tool.
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     post_install_funcs: Vec<PostInstallFunc>,
 
     /// The actual version of the tool that has to be installed.
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     actual_version: OnceCell<String>,
 
     /// The actual versions of the tool that have been installed.
     /// This is only used when the version is "auto".
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     actual_versions: OnceCell<BTreeMap<String, BTreeSet<String>>>,
 
     /// The configuration value that was used to create this object.
     #[serde(skip)]
-    #[compote(skip)]
-    config_value: Option<CompoteConfigValue>,
+    #[feuilletage(skip)]
+    config_value: Option<FeuilletageConfigValue>,
 
     /// Whether the up operation succeeded. If unset, the operation has not
     /// been attempted yet.
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     up_succeeded: OnceCell<bool>,
 
     /// The tool object representing the dependencies for this mise tool.
     #[serde(skip)]
-    #[compote(skip)]
+    #[feuilletage(skip)]
     deps: OnceCell<Box<UpConfigTool>>,
 }
 
@@ -1203,16 +1203,16 @@ impl UpConfigMise {
         self.post_install_funcs.push(func);
     }
 
-    pub(crate) fn retain_config_value<S: compote::CustomSource, L: compote::CustomLevel>(
+    pub(crate) fn retain_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
         &mut self,
-        value: &compote::ContextValue<S, L>,
+        value: &feuilletage::ContextValue<S, L>,
     ) {
-        let value: compote::Value = value.into();
+        let value: feuilletage::Value = value.into();
         self.config_value = Some(value.into());
     }
 
     #[cfg(test)]
-    pub(crate) fn retained_config_value(&self) -> Option<&CompoteConfigValue> {
+    pub(crate) fn retained_config_value(&self) -> Option<&FeuilletageConfigValue> {
         self.config_value.as_ref()
     }
 
@@ -2349,9 +2349,9 @@ fn detect_version_from_mise(tool_name: String, path: PathBuf) -> Option<String> 
 }
 
 // ============================================================================
-// FromContextValue is now generated by compote::Config derive macro.
-// The #[compote(scalar_as = "version")] attribute handles scalar input
-// (string/int/float → version field), and #[compote(coerce)] on the
+// FromContextValue is now generated by feuilletage::Config derive macro.
+// The #[feuilletage(scalar_as = "version")] attribute handles scalar input
+// (string/int/float → version field), and #[feuilletage(coerce)] on the
 // version field handles int/float → string coercion.
 // ============================================================================
 

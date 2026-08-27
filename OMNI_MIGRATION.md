@@ -1,10 +1,10 @@
-# Omni Config Migration to Compote
+# Omni Config Migration to Feuilletage
 
-This document tracks the migration of omni's configuration parsing from the legacy `ConfigValue` system to native compote.
+This document tracks the migration of omni's configuration parsing from the legacy `ConfigValue` system to native feuilletage.
 
 ## Migration Status
 
-### Completed Conversions (using compote derive macros)
+### Completed Conversions (using feuilletage derive macros)
 - `askpass.rs` - AskPassConfig
 - `cd.rs` - CdConfig
 - `check.rs` - CheckConfig, CheckPattern
@@ -21,7 +21,7 @@ This document tracks the migration of omni's configuration parsing from the lega
 - `cache/*.rs` - Various cache config structs
 - **`omniconfig.rs` - OmniConfig (main config container) - NOW USES DERIVE MACRO**
 
-### Completed Native Compote Conversions (FromConfigValue trait)
+### Completed Native Feuilletage Conversions (FromConfigValue trait)
 - [x] `env.rs` - EnvConfig, EnvOperationConfig, EnvOperationEnum
 - [x] `omniconfig.rs` - OmniConfig (main config container) - **MIGRATED TO DERIVE MACRO**
 - [x] `suggest_clone.rs` - SuggestCloneConfig, SuggestCloneRepositoryConfig, SuggestCloneTypeEnum
@@ -39,15 +39,15 @@ These types have `FromConfigValue` but bridge to existing parsing for complex su
 ## Conversion Notes
 
 ### General Approach
-1. Replace `use crate::internal::config::ConfigValue` with compote types
-2. Replace `ConfigErrorHandler` usage with compote's `ErrorTracker`
+1. Replace `use crate::internal::config::ConfigValue` with feuilletage types
+2. Replace `ConfigErrorHandler` usage with feuilletage's `ErrorTracker`
 3. Implement `FromConfigValue` trait for complex custom parsing
-4. Use `#[derive(compote::Config)]` for simpler structs
+4. Use `#[derive(feuilletage::Config)]` for simpler structs
 5. Maintain serde compatibility for cache serialization
 
 ### Bridge Pattern for Backward Compatibility
 
-For types with complex parsing that implement `compote::FromConfigValue`, we use a bridge method to maintain backward compatibility with the existing code that uses the old `ConfigValue` type:
+For types with complex parsing that implement `feuilletage::FromConfigValue`, we use a bridge method to maintain backward compatibility with the existing code that uses the old `ConfigValue` type:
 
 ```rust
 impl MyConfig {
@@ -56,17 +56,17 @@ impl MyConfig {
         config_value: Option<ConfigValue>,
         _error_handler: &ConfigErrorHandler,
     ) -> Self {
-        // Convert old ConfigValue to compote ConfigValue
-        // Call the compote FromConfigValue implementation
+        // Convert old ConfigValue to feuilletage ConfigValue
+        // Call the feuilletage FromConfigValue implementation
     }
 }
 
-impl compote::FromConfigValue for MyConfig {
+impl feuilletage::FromConfigValue for MyConfig {
     fn from_config_value(
-        value: &compote::ConfigValue,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::ConfigError> {
-        // Native compote implementation
+        value: &feuilletage::ConfigValue,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::ConfigError> {
+        // Native feuilletage implementation
     }
 }
 ```
@@ -74,17 +74,17 @@ impl compote::FromConfigValue for MyConfig {
 ### Conversion Helper Functions
 
 The `omniconfig.rs` module includes helper functions to convert between old and new types:
-- `convert_compote_to_old_config_value()` - Converts `compote::ConfigValue` to old `ConfigValue`
-- `convert_compote_to_config_data()` - Converts compote value to `ConfigData` with proper nesting
+- `convert_feuilletage_to_old_config_value()` - Converts `feuilletage::ConfigValue` to old `ConfigValue`
+- `convert_feuilletage_to_config_data()` - Converts feuilletage value to `ConfigData` with proper nesting
 - `reject_local_scope()` - Filters out Local (Workdir) scope values (for org config)
 
 The `suggest_clone.rs` module includes:
 - `select_local_scope()` - Selects only Local (Workdir) scope values (opposite of reject)
 
 The `env.rs` module includes:
-- `convert_to_compote_value()` - Converts old `ConfigValue` to `compote::ConfigValue`
-- `convert_to_compote_inner_value()` - Converts the inner value
-- `convert_to_compote_context()` - Converts source/scope to compote's `ConfigContext`
+- `convert_to_feuilletage_value()` - Converts old `ConfigValue` to `feuilletage::ConfigValue`
+- `convert_to_feuilletage_inner_value()` - Converts the inner value
+- `convert_to_feuilletage_context()` - Converts source/scope to feuilletage's `ConfigContext`
 
 ### Fully Qualified Syntax for Trait Methods
 
@@ -95,7 +95,7 @@ When a struct has both a manual `from_config_value` method (bridge) and a `FromC
 let result = MyConfig::from_config_value(v, tracker)?;
 
 // Use:
-let result = <MyConfig as CompoteFromConfigValue>::from_config_value(v, tracker)?;
+let result = <MyConfig as FeuilletageFromConfigValue>::from_config_value(v, tracker)?;
 ```
 
 ---
@@ -106,11 +106,11 @@ let result = <MyConfig as CompoteFromConfigValue>::from_config_value(v, tracker)
 Status: **COMPLETED**
 
 **Implementation:**
-- Implemented `compote::FromConfigValue` for `EnvConfig`
+- Implemented `feuilletage::FromConfigValue` for `EnvConfig`
 - Added helper methods on `EnvOperationConfig` for parsing
-- Bridge method converts old `ConfigValue` to compote types
-- Uses compote's `ErrorTracker` for error handling
-- Path resolution uses `compote::ConfigSource::File` for source path
+- Bridge method converts old `ConfigValue` to feuilletage types
+- Uses feuilletage's `ErrorTracker` for error handling
+- Path resolution uses `feuilletage::ConfigSource::File` for source path
 
 **Key features:**
 - Supports both array and table formats at top level
@@ -123,7 +123,7 @@ Status: **COMPLETED**
 Status: **COMPLETED** (manual FromConfigValue, ready for derive macro once CommandDefinition is converted)
 
 **Implementation:**
-- Implemented `compote::FromConfigValue` for `OmniConfig`
+- Implemented `feuilletage::FromConfigValue` for `OmniConfig`
 - Uses fully qualified syntax to call trait implementations
 - All sub-types now have `FromConfigValue` except `CommandDefinition`
 - Handles special cases:
@@ -132,22 +132,22 @@ Status: **COMPLETED** (manual FromConfigValue, ready for derive macro once Comma
   - Scalar fields with lazy_static defaults - can use `default_fn` once converted to derive
 
 **Sub-parsers by implementation type:**
-- **Uses compote FromConfigValue (via derive):** AskPassConfig, CacheConfig, CdConfig, CloneConfig, ConfigCommandsConfig, EnvConfig, GithubConfig, MakefileCommandsConfig, MatchSkipPromptIfConfig, OrgConfig, PathConfig, PathRepoUpdatesConfig, SuggestConfig, SuggestCloneConfig, UpCommandConfig
-- **Uses compote FromConfigValue (native impl):** CheckConfig, PromptsConfig, ShellAliasesConfig, UpConfig
+- **Uses feuilletage FromConfigValue (via derive):** AskPassConfig, CacheConfig, CdConfig, CloneConfig, ConfigCommandsConfig, EnvConfig, GithubConfig, MakefileCommandsConfig, MatchSkipPromptIfConfig, OrgConfig, PathConfig, PathRepoUpdatesConfig, SuggestConfig, SuggestCloneConfig, UpCommandConfig
+- **Uses feuilletage FromConfigValue (native impl):** CheckConfig, PromptsConfig, ShellAliasesConfig, UpConfig
 - **Uses old API (pending conversion):** CommandDefinition
 
 **Ready for derive macro conversion:**
-Once `CommandDefinition` has `FromConfigValue`, `OmniConfig` can be converted to use `#[derive(compote::Config)]` with:
-- `#[compote(mutable_by = ["system", "user"])]` for `org` field
-- `#[compote(default_fn = "get_default_sandbox")]` for `sandbox`
-- `#[compote(default_fn = "get_default_worktree")]` for `worktree`
-- `#[compote(absolute_path)]` for `sandbox` and `worktree` to ensure proper path handling
+Once `CommandDefinition` has `FromConfigValue`, `OmniConfig` can be converted to use `#[derive(feuilletage::Config)]` with:
+- `#[feuilletage(mutable_by = ["system", "user"])]` for `org` field
+- `#[feuilletage(default_fn = "get_default_sandbox")]` for `sandbox`
+- `#[feuilletage(default_fn = "get_default_worktree")]` for `worktree`
+- `#[feuilletage(absolute_path)]` for `sandbox` and `worktree` to ensure proper path handling
 
 ### suggest_clone.rs
 Status: **COMPLETED**
 
 **Implementation:**
-- Implemented `compote::FromConfigValue` for:
+- Implemented `feuilletage::FromConfigValue` for:
   - `SuggestCloneConfig`
   - `SuggestCloneRepositoryConfig`
   - `SuggestCloneTypeEnum`
@@ -175,7 +175,7 @@ Status: **PENDING**
 ## Type Mappings
 
 ### Config Source Mapping
-| Compote | Omni |
+| Feuilletage | Omni |
 |---------|------|
 | `ConfigSource::File(PathBuf)` | `ConfigSource::File(String)` |
 | `ConfigSource::Default` | `ConfigSource::Default` |
@@ -184,7 +184,7 @@ Status: **PENDING**
 | `ConfigSource::Custom(_)` | `ConfigSource::Default` |
 
 ### Config Level/Scope Mapping
-| Compote | Omni |
+| Feuilletage | Omni |
 |---------|------|
 | `ConfigLevel::System` | `ConfigScope::System` |
 | `ConfigLevel::User` | `ConfigScope::User` |
@@ -192,7 +192,7 @@ Status: **PENDING**
 | `ConfigLevel::Custom { .. }` | `ConfigScope::Default` |
 
 ### Value Type Mapping
-| Compote | config_value |
+| Feuilletage | config_value |
 |---------|--------------|
 | `Value::Null` | `None` / `Value::Null` |
 | `Value::Bool(b)` | `Value::Bool(b)` |

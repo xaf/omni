@@ -1,17 +1,17 @@
-//! Compote configuration loader adapter for omni.
+//! Feuilletage configuration loader adapter for omni.
 //!
-//! This module provides an adapter that wraps compote's ConfigLoaderBuilder
+//! This module provides an adapter that wraps feuilletage's ConfigLoaderBuilder
 //! with omni's file discovery logic for system, user, and workdir configuration files.
 
 use std::path::PathBuf;
 
-use compote::de::MutabilityInfo;
-use compote::ConfigLoaderBuilder;
-use compote::Error as ConfigError;
-use compote::ErrorTracker;
-use compote::Format;
-use compote::FromContextValue;
-use compote::Level;
+use feuilletage::de::MutabilityInfo;
+use feuilletage::ConfigLoaderBuilder;
+use feuilletage::Error as ConfigError;
+use feuilletage::ErrorTracker;
+use feuilletage::Format;
+use feuilletage::FromContextValue;
+use feuilletage::Level;
 use itertools::Itertools;
 
 use crate::internal::env::config_home;
@@ -102,19 +102,19 @@ pub fn workdir_config_files(path: &str) -> Vec<String> {
     workdir_files
 }
 
-/// Omni configuration loader wrapping compote's ConfigLoaderBuilder.
+/// Omni configuration loader wrapping feuilletage's ConfigLoaderBuilder.
 ///
-/// Provides omni-specific file discovery logic while using compote for
+/// Provides omni-specific file discovery logic while using feuilletage for
 /// the actual configuration loading, merging, and deserialization.
 ///
 /// # Example
 ///
 /// ```no_run
-/// use compote::FromContextValue;
+/// use feuilletage::FromContextValue;
 ///
-/// #[derive(Debug, compote::Config)]
+/// #[derive(Debug, feuilletage::Config)]
 /// struct MyConfig {
-///     #[compote(default = "default")]
+///     #[feuilletage(default = "default")]
 ///     name: String,
 /// }
 ///
@@ -239,7 +239,7 @@ impl OmniConfigLoader {
         self.builder.deserialize()
     }
 
-    /// Returns the merged configuration as a compote Config.
+    /// Returns the merged configuration as a feuilletage Config.
     ///
     /// This builds the Config without enforcing struct-level `mutable_by` constraints.
     /// Use this when you need access to the raw merged configuration value.
@@ -247,7 +247,7 @@ impl OmniConfigLoader {
     /// # Errors
     ///
     /// Returns an error if building fails.
-    pub fn build(&mut self) -> Result<compote::Config, ConfigError> {
+    pub fn build(&mut self) -> Result<feuilletage::Config, ConfigError> {
         // We need to consume and rebuild the builder since build() consumes self
         let builder = std::mem::take(&mut self.builder);
         builder.build()

@@ -1,23 +1,23 @@
 use serde::Deserialize;
 use serde::Serialize;
-// Note: ShellAliasConfig uses compote::Config which auto-generates Serialize
+// Note: ShellAliasConfig uses feuilletage::Config which auto-generates Serialize
 // ShellAliasesConfig uses manual Serialize for custom array serialization
 
 use crate::internal::cache::utils::Empty;
 
 // ============================================================================
-// NEW IMPLEMENTATION USING COMPOTE
+// NEW IMPLEMENTATION USING FEUILLETAGE
 // ============================================================================
 
 /// ShellAliasesConfig - container for shell aliases.
 ///
-/// Uses compote::Config with transparent to auto-generate FromContextValue.
+/// Uses feuilletage::Config with transparent to auto-generate FromContextValue.
 /// Custom Serialize and Deserialize impls are kept for backwards compatibility
 /// (serializes/deserializes as array directly, not as struct).
-#[derive(Debug, Clone, compote::Config)]
-#[compote(transparent, skip_serialize, skip_deserialize)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(transparent, skip_serialize, skip_deserialize)]
 pub struct ShellAliasesConfig {
-    #[compote(default)]
+    #[feuilletage(default)]
     pub aliases: Vec<ShellAliasConfig>,
 }
 
@@ -27,7 +27,7 @@ impl Empty for ShellAliasesConfig {
     }
 }
 
-impl compote::IsEmpty for ShellAliasesConfig {
+impl feuilletage::IsEmpty for ShellAliasesConfig {
     fn is_empty(&self) -> bool {
         Empty::is_empty(self)
     }
@@ -65,17 +65,17 @@ impl Default for ShellAliasesConfig {
     }
 }
 
-/// ShellAliasConfig using compote's derive macro.
+/// ShellAliasConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromContextValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromContextValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` and `serde::Deserialize` implementations
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct ShellAliasConfig {
-    #[compote(default = "String::new()", skip_if_empty)]
+    #[feuilletage(default = "String::new()", skip_if_empty)]
     pub alias: String,
 
-    #[compote(skip_if_empty)]
+    #[feuilletage(skip_if_empty)]
     pub target: Option<String>,
 }
 

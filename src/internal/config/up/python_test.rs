@@ -199,15 +199,15 @@ build-backend = "setuptools.build_meta"
 }
 
 mod config_parsing {
-    use compote::FromContextValue;
+    use feuilletage::FromContextValue;
 
     use super::*;
 
-    fn parse_python(yaml: &str) -> (UpConfigPython, compote::ErrorTracker) {
-        let context = compote::Context::new(compote::Source::Programmatic, compote::Level::User);
-        let mut config = compote::Config::default();
+    fn parse_python(yaml: &str) -> (UpConfigPython, feuilletage::ErrorTracker) {
+        let context = feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
         config.load_yaml(yaml, context);
-        let mut tracker = compote::ErrorTracker::new();
+        let mut tracker = feuilletage::ErrorTracker::new();
         let python = UpConfigPython::from_context_value(config.root(), &mut tracker).unwrap();
         (python, tracker)
     }
@@ -229,7 +229,7 @@ mod config_parsing {
 
         assert_eq!(python.backend.version, "3.11");
         assert!(matches!(python.params.pip, PipConfig::Disabled));
-        let mut callback_tracker = compote::ErrorTracker::new();
+        let mut callback_tracker = feuilletage::ErrorTracker::new();
         let callback_params = UpConfigPythonParams::from_context_value(
             python.backend.retained_config_value().unwrap(),
             &mut callback_tracker,

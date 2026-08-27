@@ -34,14 +34,14 @@ use crate::internal::user_interface::StringColor;
 const MIN_VERSION_VENV: Version = Version::new(3, 3, 0);
 // const MIN_VERSION_VIRTUALENV: Version = Version::new(2, 6, 0);
 
-#[derive(Debug, Clone, compote::Config)]
-#[compote(untagged, skip_serialize)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize)]
 pub enum PipConfig {
-    #[compote(variant = false)]
+    #[feuilletage(variant = false)]
     Disabled,
-    #[compote(variant = true, variant = "auto")]
+    #[feuilletage(variant = true, variant = "auto")]
     Auto,
-    #[compote(allow_single)]
+    #[feuilletage(allow_single)]
     Files(Vec<String>),
 }
 
@@ -70,10 +70,10 @@ impl Serialize for PipConfig {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Default, compote::Config)]
-#[compote(skip_serialize)]
+#[derive(Debug, Serialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(skip_serialize)]
 pub struct UpConfigPythonParams {
-    #[compote(default)]
+    #[feuilletage(default)]
     #[serde(default, skip_serializing_if = "PipConfig::is_auto")]
     pub pip: PipConfig,
 }
@@ -104,16 +104,16 @@ impl Serialize for UpConfigPython {
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for UpConfigPython
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        errors: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
+        value: &feuilletage::ContextValue<S, L>,
+        errors: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
         // Create backend using FromContextValue, then set the tool name and process it
         let mut backend: UpConfigMise =
-            compote::FromContextValue::from_context_value(value, errors)?;
+            feuilletage::FromContextValue::from_context_value(value, errors)?;
         backend.requested_tool = "python".to_string();
         backend.process_from_tag();
         backend.retain_config_value(value);
@@ -121,8 +121,8 @@ impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValu
         backend.add_post_install_func(setup_python_venv);
         backend.add_post_install_func(setup_python_requirements);
 
-        let params = if matches!(value, compote::ContextValue::Object(_, _)) {
-            <UpConfigPythonParams as compote::FromContextValue<S, L>>::from_context_value(
+        let params = if matches!(value, feuilletage::ContextValue::Object(_, _)) {
+            <UpConfigPythonParams as feuilletage::FromContextValue<S, L>>::from_context_value(
                 value, errors,
             )?
         } else {
@@ -462,8 +462,8 @@ fn setup_python_requirements(
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError> {
     let params = if let Some(config_value) = args.config_value.as_ref() {
-        let mut tracker = compote::ErrorTracker::new();
-        <UpConfigPythonParams as compote::FromContextValue<_, _>>::from_context_value(
+        let mut tracker = feuilletage::ErrorTracker::new();
+        <UpConfigPythonParams as feuilletage::FromContextValue<_, _>>::from_context_value(
             config_value,
             &mut tracker,
         )

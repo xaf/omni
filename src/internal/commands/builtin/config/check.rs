@@ -6,17 +6,17 @@ use std::process::exit;
 
 use itertools::Itertools;
 
-use compote::ConfigWarning;
-use compote::Error as CompoteError;
-use compote::ErrorTracker;
-use compote::Format;
-use compote::FromContextValue;
-use compote::Level;
+use feuilletage::ConfigWarning;
+use feuilletage::Error as FeuilletageError;
+use feuilletage::ErrorTracker;
+use feuilletage::Format;
+use feuilletage::FromContextValue;
+use feuilletage::Level;
 
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::frompath::PathCommand;
 use crate::internal::commands::Command;
-use crate::internal::config::compote_loader::OmniConfigLoader;
+use crate::internal::config::feuilletage_loader::OmniConfigLoader;
 use crate::internal::config::config;
 use crate::internal::config::parser::path_pattern_from_str;
 use crate::internal::config::parser::ConfigError;
@@ -422,7 +422,7 @@ impl ConfigCheckCommand {
                 .collect();
 
             let mut loader = OmniConfigLoader::new_from_files(config_files);
-            let compote_config = match loader.build() {
+            let feuilletage_config = match loader.build() {
                 Ok(config) => config,
                 Err(_) => {
                     // Return early with empty search paths
@@ -431,7 +431,7 @@ impl ConfigCheckCommand {
             };
             let mut tracker = ErrorTracker::new();
             let config: OmniConfig =
-                OmniConfig::from_context_value(compote_config.root(), &mut tracker)
+                OmniConfig::from_context_value(feuilletage_config.root(), &mut tracker)
                     .unwrap_or_default();
 
             // Prepare the path list
@@ -608,7 +608,7 @@ fn deserialize_config_file(
     let mut constraint_loader =
         OmniConfigLoader::new_from_file_with_format(file, Format::Yaml, level);
     let _ = constraint_loader.deserialize::<OmniConfig>();
-    aggregate_compote_mutability_diagnostics(error_handler, &constraint_loader, file);
+    aggregate_feuilletage_mutability_diagnostics(error_handler, &constraint_loader, file);
 
     // Config check validates every supplied value, including values that the
     // source level cannot apply. Mutability violations are reported separately.
@@ -616,19 +616,19 @@ fn deserialize_config_file(
     let result = loader.deserialize::<OmniConfig>();
     let missing_command_runs = missing_command_run_paths(file);
 
-    aggregate_compote_errors_excluding_command_runs(
+    aggregate_feuilletage_errors_excluding_command_runs(
         error_handler,
         loader.errors().errors(),
         file,
         &missing_command_runs,
     );
-    aggregate_compote_warnings(error_handler, loader.errors().warnings(), file);
+    aggregate_feuilletage_warnings(error_handler, loader.errors().warnings(), file);
     aggregate_missing_command_runs(error_handler, file, &missing_command_runs);
 
     match result {
         Ok(config) => Some(config),
         Err(error) => {
-            aggregate_compote_errors_excluding_command_runs(
+            aggregate_feuilletage_errors_excluding_command_runs(
                 error_handler,
                 &[error],
                 file,
@@ -706,9 +706,9 @@ fn aggregate_missing_command_runs(
     }
 }
 
-fn aggregate_compote_errors_excluding_command_runs(
+fn aggregate_feuilletage_errors_excluding_command_runs(
     error_handler: &ConfigErrorHandler,
-    errors: &[CompoteError],
+    errors: &[FeuilletageError],
     fallback_file: &str,
     missing_command_runs: &HashSet<String>,
 ) {
@@ -717,20 +717,20 @@ fn aggregate_compote_errors_excluding_command_runs(
         .filter(|error| !command_run_error_is_replaced(error, missing_command_runs))
         .cloned()
         .collect::<Vec<_>>();
-    aggregate_compote_errors(error_handler, &errors, fallback_file);
+    aggregate_feuilletage_errors(error_handler, &errors, fallback_file);
 }
 
 fn command_run_error_is_replaced(
-    error: &CompoteError,
+    error: &FeuilletageError,
     missing_command_runs: &HashSet<String>,
 ) -> bool {
     match error {
-        CompoteError::MissingField { path } => missing_command_runs.contains(path),
-        CompoteError::InvalidValue { path, message } => {
+        FeuilletageError::MissingField { path } => missing_command_runs.contains(path),
+        FeuilletageError::InvalidValue { path, message } => {
             missing_command_runs.contains(path)
                 && message.starts_with("required field 'run' was not provided")
         }
-        CompoteError::TypeMismatch {
+        FeuilletageError::TypeMismatch {
             path,
             expected,
             actual,
@@ -743,15 +743,15 @@ fn command_run_error_is_replaced(
     }
 }
 
-fn aggregate_compote_mutability_diagnostics(
+fn aggregate_feuilletage_mutability_diagnostics(
     error_handler: &ConfigErrorHandler,
     loader: &OmniConfigLoader,
     file: &str,
 ) {
-    aggregate_compote_warnings(error_handler, loader.errors().warnings(), file);
+    aggregate_feuilletage_warnings(error_handler, loader.errors().warnings(), file);
 
     for error in loader.errors().errors() {
-        if let CompoteError::InvalidValue { path, message } = error {
+        if let FeuilletageError::InvalidValue { path, message } = error {
             if message.contains("can only be set by levels") {
                 error_handler.with_file(file).diagnostic(
                     "C110",
@@ -763,20 +763,20 @@ fn aggregate_compote_mutability_diagnostics(
     }
 }
 
-fn aggregate_compote_errors(
+fn aggregate_feuilletage_errors(
     error_handler: &ConfigErrorHandler,
-    errors: &[CompoteError],
+    errors: &[FeuilletageError],
     fallback_file: &str,
 ) {
     for error in errors {
-        let (file, message) = compote_error_details(error, fallback_file);
+        let (file, message) = feuilletage_error_details(error, fallback_file);
         error_handler
             .with_file(file)
             .diagnostic(error.code(), message, false);
     }
 }
 
-fn aggregate_compote_warnings(
+fn aggregate_feuilletage_warnings(
     error_handler: &ConfigErrorHandler,
     warnings: &[ConfigWarning],
     file: &str,
@@ -793,13 +793,13 @@ fn aggregate_compote_warnings(
     }
 }
 
-fn compote_error_details(error: &CompoteError, fallback_file: &str) -> (String, String) {
+fn feuilletage_error_details(error: &FeuilletageError, fallback_file: &str) -> (String, String) {
     match error {
-        CompoteError::MissingField { path } => (
+        FeuilletageError::MissingField { path } => (
             fallback_file.to_string(),
             format!("missing required field at config path '{path}'"),
         ),
-        CompoteError::TypeMismatch {
+        FeuilletageError::TypeMismatch {
             path,
             expected,
             actual,
@@ -807,25 +807,25 @@ fn compote_error_details(error: &CompoteError, fallback_file: &str) -> (String, 
             fallback_file.to_string(),
             format!("invalid value at config path '{path}': expected {expected}, got {actual}"),
         ),
-        CompoteError::InvalidValue { path, message } => (
+        FeuilletageError::InvalidValue { path, message } => (
             fallback_file.to_string(),
             format!("invalid value at config path '{path}': {message}"),
         ),
-        CompoteError::MergeConflict { path, message } => (
+        FeuilletageError::MergeConflict { path, message } => (
             fallback_file.to_string(),
             format!("merge conflict at config path '{path}': {message}"),
         ),
-        CompoteError::ImmutableOverride { path, source } => (
+        FeuilletageError::ImmutableOverride { path, source } => (
             fallback_file.to_string(),
             format!("source '{source}' cannot override immutable config path '{path}'"),
         ),
-        CompoteError::ParseError { source, message } => (source.clone(), message.clone()),
-        CompoteError::FormatNotSupported { format, message } => (
+        FeuilletageError::ParseError { source, message } => (source.clone(), message.clone()),
+        FeuilletageError::FormatNotSupported { format, message } => (
             fallback_file.to_string(),
             format!("unsupported config format '{format}': {message}"),
         ),
-        CompoteError::IoError { path, message } => (path.clone(), message.clone()),
-        CompoteError::Custom { path, message, .. } => (
+        FeuilletageError::IoError { path, message } => (path.clone(), message.clone()),
+        FeuilletageError::Custom { path, message, .. } => (
             fallback_file.to_string(),
             format!("error at config path '{path}': {message}"),
         ),

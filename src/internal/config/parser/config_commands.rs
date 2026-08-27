@@ -1,18 +1,18 @@
 // ============================================================================
-// NEW IMPLEMENTATION USING COMPOTE
+// NEW IMPLEMENTATION USING FEUILLETAGE
 // ============================================================================
 
-/// ConfigCommandsConfig using compote's derive macro.
+/// ConfigCommandsConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct ConfigCommandsConfig {
-    #[compote(default = "true")]
+    #[feuilletage(default = "true")]
     pub split_on_dash: bool,
 
-    #[compote(default = "true")]
+    #[feuilletage(default = "true")]
     pub split_on_slash: bool,
 }
 

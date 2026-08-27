@@ -80,7 +80,7 @@ impl OmniConfigPerPath {
 
         // Get the config for the path
         if !self.config.contains_key(&key) {
-            let new_config = load_omni_config_with_compote(&key);
+            let new_config = load_omni_config_with_feuilletage(&key);
             self.config.insert(key.clone(), new_config);
         }
 
@@ -88,9 +88,9 @@ impl OmniConfigPerPath {
     }
 }
 
-/// Load omni configuration using the new compote-based OmniConfigLoader.
+/// Load omni configuration using the new feuilletage-based OmniConfigLoader.
 ///
-/// This function provides the new configuration loading path that uses compote's
+/// This function provides the new configuration loading path that uses feuilletage's
 /// ConfigLoaderBuilder with omni's file discovery logic. It serves as a parallel
 /// implementation to the existing `config()` function.
 ///
@@ -105,12 +105,12 @@ impl OmniConfigPerPath {
 /// # Example
 /// ```ignore
 /// // Load global config only
-/// let global = load_omni_config_with_compote("/");
+/// let global = load_omni_config_with_feuilletage("/");
 ///
 /// // Load config with workdir
-/// let local = load_omni_config_with_compote("/path/to/workdir");
+/// let local = load_omni_config_with_feuilletage("/path/to/workdir");
 /// ```
-pub fn load_omni_config_with_compote(path: &str) -> OmniConfig {
+pub fn load_omni_config_with_feuilletage(path: &str) -> OmniConfig {
     let mut loader = if path == "/" {
         OmniConfigLoader::new_global()
     } else {

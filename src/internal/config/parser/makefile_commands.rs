@@ -1,20 +1,20 @@
-/// MakefileCommandsConfig using compote's derive macro.
+/// MakefileCommandsConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
 ///
 /// We still need manual `serde::Deserialize` for compatibility with the existing
 /// codebase that uses serde for some operations (e.g., loading from cache files).
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct MakefileCommandsConfig {
-    #[compote(default = "true")]
+    #[feuilletage(default = "true")]
     pub enabled: bool,
 
-    #[compote(default = "true")]
+    #[feuilletage(default = "true")]
     pub split_on_dash: bool,
 
-    #[compote(default = "true")]
+    #[feuilletage(default = "true")]
     pub split_on_slash: bool,
 }
 

@@ -6,32 +6,32 @@ use crate::internal::config::parser::cache::MiseCacheConfig;
 use crate::internal::config::parser::cache::UpEnvironmentCacheConfig;
 use crate::internal::env::cache_home;
 
-/// CacheConfig using compote's derive macro.
+/// CacheConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct CacheConfig {
-    #[compote(default_fn = "cache_home")]
+    #[feuilletage(default_fn = "cache_home")]
     pub path: String,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub environment: UpEnvironmentCacheConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub github_release: GithubReleaseCacheConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub cargo_install: CargoInstallCacheConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub go_install: GoInstallCacheConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub homebrew: HomebrewCacheConfig,
 
-    #[compote(default)]
+    #[feuilletage(default)]
     pub mise: MiseCacheConfig,
 }
 

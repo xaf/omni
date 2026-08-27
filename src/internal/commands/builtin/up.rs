@@ -38,7 +38,7 @@ use crate::internal::config::up::utils::SyncUpdateOperation;
 use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::CompoteConfigValue;
+use crate::internal::config::FeuilletageConfigValue;
 use crate::internal::config::ConfigLoader;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
@@ -367,7 +367,7 @@ impl UpCommand {
         self.cli_args().clone_suggested.auto_bootstrap()
     }
 
-    fn suggest_config(&self, suggest_config: CompoteConfigValue) {
+    fn suggest_config(&self, suggest_config: FeuilletageConfigValue) {
         if !self.should_suggest_config() && !self.auto_bootstrap_config() {
             return;
         }
@@ -375,12 +375,12 @@ impl UpCommand {
         let mut any_change_to_apply = false;
         let mut any_change_applied = false;
 
-        let result = ConfigLoader::edit_main_user_config_file_compote(|config| {
+        let result = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
             // Clone root for comparison
             let before_root = config.root().clone();
 
             // Create a copy for after
-            let mut after_config = compote::Config::default();
+            let mut after_config = feuilletage::Config::default();
             after_config.merge(before_root.clone());
             after_config.merge(suggest_config.clone());
 
@@ -438,7 +438,7 @@ impl UpCommand {
                         's' => {
                             // Use the split function which returns the changes to apply
                             let changes_to_apply =
-                                self.suggest_config_split_compote(config, &suggest_config);
+                                self.suggest_config_split_feuilletage(config, &suggest_config);
                             if !changes_to_apply.is_empty() {
                                 for change in changes_to_apply {
                                     config.merge(change);
@@ -483,26 +483,26 @@ impl UpCommand {
         }
     }
 
-    /// Helper to split config suggestions using compote's API
-    /// Returns a list of compote ConfigValues to apply
-    fn suggest_config_split_compote(
+    /// Helper to split config suggestions using feuilletage's API
+    /// Returns a list of feuilletage ConfigValues to apply
+    fn suggest_config_split_feuilletage(
         &self,
-        before_config: &compote::Config,
-        suggest_config: &compote::ContextValue,
-    ) -> Vec<compote::ContextValue> {
+        before_config: &feuilletage::Config,
+        suggest_config: &feuilletage::ContextValue,
+    ) -> Vec<feuilletage::ContextValue> {
         let before_yaml = before_config.to_yaml().unwrap_or_default();
 
         let mut choices = vec![];
         let mut split_suggestions = vec![];
 
         // Create a temporary Config from suggest_config to use split_by_key
-        let mut suggest_config_container = compote::Config::default();
+        let mut suggest_config_container = feuilletage::Config::default();
         suggest_config_container.merge(suggest_config.clone());
 
         // Use split_by_key to iterate over each key as a separate Config
         if let Some(parts) = suggest_config_container.split_by_key() {
             for (_key, key_suggest_config) in parts {
-                let mut after_config = compote::Config::default();
+                let mut after_config = feuilletage::Config::default();
                 after_config.merge(before_config.root().clone());
                 after_config.merge(key_suggest_config.root().clone());
 
@@ -1095,7 +1095,7 @@ impl UpCommand {
 
     fn handle_suggestions(
         &self,
-        suggest_config: Option<CompoteConfigValue>,
+        suggest_config: Option<FeuilletageConfigValue>,
         suggest_clone: bool,
         suggest_config_updated: bool,
         suggest_clone_updated: bool,
@@ -1408,7 +1408,7 @@ impl BuiltinCommand for UpCommand {
 
         let mut suggest_config = None;
         let mut suggest_config_updated = false;
-        let suggest_config_value = cfg.suggest_config.compote_config_value();
+        let suggest_config_value = cfg.suggest_config.feuilletage_config_value();
         if self.is_up() && !suggest_config_value.is_null() {
             if self.should_suggest_config() {
                 suggest_config = Some(suggest_config_value);
@@ -1704,7 +1704,7 @@ fn unified_diff(before: &str, after: &str) -> String {
 }
 
 fn fingerprint<T: Serialize>(value: &T) -> u64 {
-    let string = match compote::to_yaml(value) {
+    let string = match feuilletage::to_yaml(value) {
         Ok(string) => string,
         Err(_err) => return 0,
     };

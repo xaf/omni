@@ -1,8 +1,8 @@
 // ============================================================================
-// NEW IMPLEMENTATION USING COMPOTE
+// NEW IMPLEMENTATION USING FEUILLETAGE
 // ============================================================================
 
-/// AskPassConfig using compote's derive macro.
+/// AskPassConfig using feuilletage's derive macro.
 ///
 /// This configuration is restricted to system and user levels only - workdir
 /// (local) level cannot override these settings. This is enforced via
@@ -10,21 +10,21 @@
 ///
 /// Note: The `mutable_by` attribute is defined but currently the enforcement
 /// happens in the `from_context_value` bridge method via `reject_scope`.
-/// Full integration with compote's mutability system would require porting
-/// the config loading layer to use compote's Config type directly.
+/// Full integration with feuilletage's mutability system would require porting
+/// the config loading layer to use feuilletage's Config type directly.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct AskPassConfig {
-    #[compote(default = "true", mutable_by = ["system", "user"])]
+    #[feuilletage(default = "true", mutable_by = ["system", "user"])]
     pub enabled: bool,
 
-    #[compote(default = "true", mutable_by = ["system", "user"])]
+    #[feuilletage(default = "true", mutable_by = ["system", "user"])]
     pub enable_gui: bool,
 
-    #[compote(default = "false", mutable_by = ["system", "user"])]
+    #[feuilletage(default = "false", mutable_by = ["system", "user"])]
     pub prefer_gui: bool,
 }
 

@@ -1,20 +1,20 @@
 use crate::internal::config::parser::MatchSkipPromptIfConfig;
 
 // ============================================================================
-// NEW IMPLEMENTATION USING COMPOTE
+// NEW IMPLEMENTATION USING FEUILLETAGE
 // ============================================================================
 
-/// CdConfig using compote's derive macro.
+/// CdConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromContextValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromContextValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` and `serde::Deserialize` implementations
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct CdConfig {
-    #[compote(default = "true")]
+    #[feuilletage(default = "true")]
     pub fast_search: bool,
 
-    #[compote(default = "0.12")]
+    #[feuilletage(default = "0.12")]
     pub path_match_min_score: f64,
 
     pub path_match_skip_prompt_if: MatchSkipPromptIfConfig,

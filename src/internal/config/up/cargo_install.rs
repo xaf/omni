@@ -65,12 +65,12 @@ pub fn cargo_install_tool_path(crate_name: &str, version: &str) -> PathBuf {
 // 3. Object with "crate" key: {crate: "tool", version: "1.0"} -> single crate
 // 4. Object without "crate" key: {"tool1": "v1", "tool2": {version: "v2"}} -> map-to-vec
 //
-// Uses compote's transparent + allow_single + allow_map to handle all formats.
+// Uses feuilletage's transparent + allow_single + allow_map to handle all formats.
 // ============================================================================
-#[derive(Debug, Clone, Default, compote::Config)]
-#[compote(transparent, skip_serialize)]
+#[derive(Debug, Clone, Default, feuilletage::Config)]
+#[feuilletage(transparent, skip_serialize)]
 pub struct UpConfigCargoInstalls {
-    #[compote(default, allow_single, allow_map(order_by = "crate_name"))]
+    #[feuilletage(default, allow_single, allow_map(order_by = "crate_name"))]
     crates: Vec<UpConfigCargoInstall>,
 }
 
@@ -354,10 +354,10 @@ fn default_exact_from_version(version: &Option<String>) -> bool {
 }
 
 // ============================================================================
-// UpConfigCargoInstall - Using compote derive with post_process
+// UpConfigCargoInstall - Using feuilletage derive with post_process
 // ============================================================================
 //
-// Input formats supported via compote attributes:
+// Input formats supported via feuilletage attributes:
 // - String: "crate@1.0.0" -> {crate_name: "crate", version: "1.0.0"}
 // - allow_map format: {"crate": "1.0.0"} -> {crate_name, version}
 // - Object format: {crate: "...", version: "...", ...}
@@ -367,8 +367,8 @@ fn default_exact_from_version(version: &Option<String>) -> bool {
 // 2. Checking for version conflict (version in both name and field)
 // 3. Setting config_error on parse failure
 // ============================================================================
-#[derive(Debug, Clone, compote::Config)]
-#[compote(
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(
     allow_map(key = crate_name, scalar_as = version),
     scalar_as = "crate_name",
     post_process = "finalize_cargo_install",
@@ -376,11 +376,11 @@ fn default_exact_from_version(version: &Option<String>) -> bool {
 )]
 struct UpConfigCargoInstall {
     /// The name of the crate to install
-    #[compote(rename = "crate")]
+    #[feuilletage(rename = "crate")]
     pub crate_name: String,
 
     /// The version of the crate to install
-    #[compote(default)]
+    #[feuilletage(default)]
     pub version: Option<String>,
 
     /// Whether to install the exact version specified in the `version` field;
@@ -388,53 +388,53 @@ struct UpConfigCargoInstall {
     /// `cargo install` command will be called with the version specified;
     /// if `false`, the latest version that matches the version will be installed.
     /// Defaults to `version.is_some()` (set via default_fn).
-    #[compote(default_fn = "default_exact_from_version(version)")]
+    #[feuilletage(default_fn = "default_exact_from_version(version)")]
     pub exact: bool,
 
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
-    #[compote(default)]
+    #[feuilletage(default)]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
-    #[compote(default)]
+    #[feuilletage(default)]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
-    #[compote(default)]
+    #[feuilletage(default)]
     pub build: bool,
 
     /// The URL of the Crates API; this is only used for testing purposes
-    #[compote(default)]
+    #[feuilletage(default)]
     pub api_url: Option<String>,
 
     /// A list of directories to make the binary available for
-    #[compote(default, rename = "dir", allow_single)]
+    #[feuilletage(default, rename = "dir", allow_single)]
     pub dirs: BTreeSet<String>,
 
     /// In case there was an error while parsing the configuration, this field
     /// will contain the error message
-    #[compote(skip)]
+    #[feuilletage(skip)]
     config_error: Option<String>,
 
     /// The actual version that was installed
-    #[compote(skip)]
+    #[feuilletage(skip)]
     actual_version: OnceCell<String>,
 
     /// Whether this tool was handled during the up operation
-    #[compote(skip)]
+    #[feuilletage(skip)]
     was_handled: OnceCell<CargoInstallHandled>,
 }
 
 /// Post-process function for UpConfigCargoInstall.
 /// Handles crate_name@version splitting, validation, and version conflict detection.
-fn finalize_cargo_install<S: compote::CustomSource, L: compote::CustomLevel>(
+fn finalize_cargo_install<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
     config: &mut UpConfigCargoInstall,
-    _source: &compote::ContextValue<S, L>,
-    error_tracker: &mut compote::ErrorTracker,
-) -> Result<(), compote::Error> {
+    _source: &feuilletage::ContextValue<S, L>,
+    error_tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
     // Handle crate_name@version splitting
     match parse_cargo_crate_name(&config.crate_name) {
         Ok((parsed_name, parsed_version)) => {

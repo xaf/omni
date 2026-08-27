@@ -1,14 +1,14 @@
 use super::*;
 
-// Compote imports for deserialization tests
-use crate::internal::config::{CompoteConfigContext, CompoteConfigLevel, CompoteConfigSource};
+// Feuilletage imports for deserialization tests
+use crate::internal::config::{FeuilletageConfigContext, FeuilletageConfigLevel, FeuilletageConfigSource};
 
-// Helper to deserialize from YAML using compote
-fn deserialize_go_installs_yaml(yaml: &str) -> Result<UpConfigGoInstalls, compote::Error> {
-    let mut config = compote::Config::default();
+// Helper to deserialize from YAML using feuilletage
+fn deserialize_go_installs_yaml(yaml: &str) -> Result<UpConfigGoInstalls, feuilletage::Error> {
+    let mut config = feuilletage::Config::default();
     config.load_yaml(
         yaml,
-        CompoteConfigContext::new(CompoteConfigSource::Programmatic, CompoteConfigLevel::Local),
+        FeuilletageConfigContext::new(FeuilletageConfigSource::Programmatic, FeuilletageConfigLevel::Local),
     );
     config.deserialize::<UpConfigGoInstalls>()
 }

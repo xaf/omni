@@ -39,14 +39,14 @@ impl Default for UpConfigBash {
     }
 }
 
-impl<S: compote::CustomSource, L: compote::CustomLevel> compote::FromContextValue<S, L>
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
     for UpConfigBash
 {
     fn from_context_value(
-        value: &compote::ContextValue<S, L>,
-        tracker: &mut compote::ErrorTracker,
-    ) -> Result<Self, compote::Error> {
-        let mut mise: UpConfigMise = compote::FromContextValue::from_context_value(value, tracker)?;
+        value: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        let mut mise: UpConfigMise = feuilletage::FromContextValue::from_context_value(value, tracker)?;
         mise.tool_url = Some("https://github.com/xaf/asdf-bash".into());
         mise.requested_tool = "bash".to_string();
         mise.process_from_tag();
@@ -61,16 +61,16 @@ impl Serialize for UpConfigBash {
 }
 
 // ============================================================================
-// UpConfigTool enum with compote derive
+// UpConfigTool enum with feuilletage derive
 // ============================================================================
 
 /// UpConfigTool represents a tool that can be upped or downed.
 /// It can be a single tool or a combination of tools.
-#[derive(Debug, Clone, compote::Config)]
-#[compote(external_tag, skip_serialize)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(external_tag, skip_serialize)]
 pub enum UpConfigTool {
     /// And represents a combination of tools that must all be upped.
-    #[compote(rename = "and", variant = "and")]
+    #[feuilletage(rename = "and", variant = "and")]
     And(Vec<UpConfigTool>),
 
     /// Any represents a combination of tools where at least one must
@@ -79,16 +79,16 @@ pub enum UpConfigTool {
     /// the others in the order they are defined. If the selected tool
     /// fails to up, it will try the next one until one is successful
     /// or all have been tried.
-    #[compote(rename = "any", variant = "any")]
+    #[feuilletage(rename = "any", variant = "any")]
     Any(Vec<UpConfigTool>),
 
     // TODO: Apt(UpConfigApt),
     /// Bash represents the bash tool.
-    #[compote(rename = "bash", variant = "bash")]
+    #[feuilletage(rename = "bash", variant = "bash")]
     Bash(UpConfigBash),
 
     /// Bundler represents the bundler tool.
-    #[compote(
+    #[feuilletage(
         rename = "bundler",
         alias = "bundle",
         variant = "bundler",
@@ -98,7 +98,7 @@ pub enum UpConfigTool {
 
     /// CargoInstall represents a tool that can be installed from
     /// a call to `cargo install`.
-    #[compote(
+    #[feuilletage(
         rename = "cargo-install",
         alias = "cargo_install",
         alias = "cargoinstall",
@@ -118,13 +118,13 @@ pub enum UpConfigTool {
 
     /// Custom represents a custom tool, where the user can define
     /// a custom command to run to up/down the tool.
-    #[compote(rename = "custom", variant = "custom")]
+    #[feuilletage(rename = "custom", variant = "custom")]
     Custom(UpConfigCustom),
 
     // TODO: Dnf(UpConfigDnf),
     /// GithubRelease represents a tool that can be installed from
     /// a github release.
-    #[compote(
+    #[feuilletage(
         rename = "github-release",
         alias = "github_release",
         alias = "githubrelease",
@@ -151,12 +151,12 @@ pub enum UpConfigTool {
     GithubRelease(UpConfigGithubReleases),
 
     /// Go represents the golang tool.
-    #[compote(rename = "go", alias = "golang", variant = "go", variant = "golang")]
+    #[feuilletage(rename = "go", alias = "golang", variant = "go", variant = "golang")]
     Go(UpConfigGolang),
 
     /// GoInstall represents a tool that can be installed from
     /// a call to `go install`.
-    #[compote(
+    #[feuilletage(
         rename = "go-install",
         alias = "go_install",
         alias = "goinstall",
@@ -175,7 +175,7 @@ pub enum UpConfigTool {
     GoInstall(UpConfigGoInstalls),
 
     /// Homebrew represents the homebrew tool.
-    #[compote(
+    #[feuilletage(
         rename = "homebrew",
         alias = "brew",
         variant = "homebrew",
@@ -187,16 +187,16 @@ pub enum UpConfigTool {
     // TODO: Kotlin(UpConfigMise), // KOTLIN_HOME
     /// Mise represents any generic mise tool that is not specifically
     /// defined in the other types for special handling.
-    #[compote(fallback, from_tag = "requested_tool")]
+    #[feuilletage(fallback, from_tag = "requested_tool")]
     Mise(UpConfigMise),
 
     /// Nix represents the nix tool, which can be used to install
     /// packages from the nix package manager.
-    #[compote(rename = "nix", variant = "nix")]
+    #[feuilletage(rename = "nix", variant = "nix")]
     Nix(UpConfigNix),
 
     /// Nodejs represents the nodejs tool.
-    #[compote(
+    #[feuilletage(
         rename = "nodejs",
         alias = "node",
         variant = "nodejs",
@@ -207,12 +207,12 @@ pub enum UpConfigTool {
     /// Or represents a combination of tools where at least one must
     /// be upped. It will up the first tool that is available, and
     /// only try the others if the first one fails.
-    #[compote(rename = "or", variant = "or")]
+    #[feuilletage(rename = "or", variant = "or")]
     Or(Vec<UpConfigTool>),
 
     // TODO: Pacman(UpConfigPacman),
     /// Python represents the python tool.
-    #[compote(rename = "python", variant = "python")]
+    #[feuilletage(rename = "python", variant = "python")]
     Python(UpConfigPython),
 }
 

@@ -2,11 +2,11 @@ use serde::Serialize;
 
 use crate::internal::cache::utils::Empty;
 
-// Compote imports - no longer needed, using compote:: directly
+// Feuilletage imports - no longer needed, using feuilletage:: directly
 
-#[derive(Debug, Clone, Default, compote::Config)]
+#[derive(Debug, Clone, Default, feuilletage::Config)]
 pub struct GithubConfig {
-    #[compote(default, rename = "auth", allow_single, skip_if_empty)]
+    #[feuilletage(default, rename = "auth", allow_single, skip_if_empty)]
     auth_list: Vec<GithubAuthConfigWithFilters>,
 }
 
@@ -16,7 +16,7 @@ impl Empty for GithubConfig {
     }
 }
 
-impl compote::IsEmpty for GithubConfig {
+impl feuilletage::IsEmpty for GithubConfig {
     fn is_empty(&self) -> bool {
         Empty::is_empty(self)
     }
@@ -32,13 +32,13 @@ impl GithubConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, compote::Config)]
+#[derive(Debug, Clone, PartialEq, feuilletage::Config)]
 pub struct GithubAuthConfigWithFilters {
-    #[compote(default, skip_if_default)]
+    #[feuilletage(default, skip_if_default)]
     pub repo: StringFilter,
-    #[compote(default, skip_if_default)]
+    #[feuilletage(default, skip_if_default)]
     pub hostname: StringFilter,
-    #[compote(flatten)]
+    #[feuilletage(flatten)]
     pub auth: GithubAuthConfig,
 }
 
@@ -48,31 +48,31 @@ impl GithubAuthConfigWithFilters {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, compote::Config)]
-#[compote(scalar_as = "hostname", skip_serialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, feuilletage::Config)]
+#[feuilletage(scalar_as = "hostname", skip_serialize)]
 pub struct GhCliConfig {
-    #[compote(default)]
+    #[feuilletage(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
-    #[compote(default)]
+    #[feuilletage(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
 
-#[derive(Debug, Serialize, Clone, PartialEq, compote::Config)]
-#[compote(external_tag, skip_serialize)]
+#[derive(Debug, Serialize, Clone, PartialEq, feuilletage::Config)]
+#[feuilletage(external_tag, skip_serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GithubAuthConfig {
-    #[compote(rename = "skip", variant = "skip", variant_value = true)]
+    #[feuilletage(rename = "skip", variant = "skip", variant_value = true)]
     Skip(bool),
 
-    #[compote(rename = "token_env_var", variant = predicate("is_all_caps_string"))]
+    #[feuilletage(rename = "token_env_var", variant = predicate("is_all_caps_string"))]
     TokenEnvVar(String),
 
-    #[compote(rename = "token", variant = any_string)]
+    #[feuilletage(rename = "token", variant = any_string)]
     Token(String),
 
-    #[compote(rename = "gh", variant = "gh", variant_default)]
+    #[feuilletage(rename = "gh", variant = "gh", variant_default)]
     #[serde(rename = "gh")]
     GhCli(GhCliConfig),
 }
@@ -89,18 +89,18 @@ impl GithubAuthConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default, compote::Config)]
-#[compote(external_tag, rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Default, feuilletage::Config)]
+#[feuilletage(external_tag, rename_all = "snake_case")]
 pub enum StringFilter {
     Contains(String),
     StartsWith(String),
     EndsWith(String),
     Regex(String),
-    #[compote(variant = any_string)]
+    #[feuilletage(variant = any_string)]
     Glob(String),
     Exact(String),
     #[default]
-    #[compote(variant = null)]
+    #[feuilletage(variant = null)]
     Any,
 }
 
@@ -151,10 +151,10 @@ impl StringFilter {
 }
 
 // ============================================================================
-// Compote FromContextValue implementations
+// Feuilletage FromContextValue implementations
 // ============================================================================
 //
-// Both StringFilter and GithubAuthConfig now use #[derive(compote::Config)] with
+// Both StringFilter and GithubAuthConfig now use #[derive(feuilletage::Config)] with
 // external_tag, which generates FromContextValue automatically.
 //
 // GithubAuthConfig uses:
@@ -165,10 +165,10 @@ impl StringFilter {
 //   - scalar_as = "hostname" on GhCliConfig: {gh: "host"} -> GhCli { hostname: Some("host") }
 //   - external_tag map dispatch: {token: x}, {token_env_var: x}, {gh: {...}}, {skip: b}
 
-fn is_all_caps_string<S: compote::CustomSource, L: compote::CustomLevel>(
-    value: &compote::ContextValue<S, L>,
+fn is_all_caps_string<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
 ) -> bool {
-    if let compote::ContextValue::String(s, _) = value {
+    if let feuilletage::ContextValue::String(s, _) = value {
         !s.is_empty() && s.chars().all(|c| c.is_uppercase() || c == '_')
     } else {
         false

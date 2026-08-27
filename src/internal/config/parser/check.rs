@@ -22,21 +22,21 @@ use crate::internal::config::parser::github::StringFilter;
 //
 // ============================================================================
 
-fn check_pattern_is_global<S: compote::CustomSource, L: compote::CustomLevel>(
-    ctx: &compote::Context<S, L>,
+fn check_pattern_is_global<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    ctx: &feuilletage::Context<S, L>,
 ) -> bool {
     ctx.level.name() != "local"
 }
 
 /// A check pattern that captures its source context during parsing
-#[derive(Debug, Clone, compote::Config)]
-#[compote(scalar_as = "pattern", skip_serialize, skip_deserialize)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(scalar_as = "pattern", skip_serialize, skip_deserialize)]
 pub struct CheckPattern {
-    #[compote(default)]
+    #[feuilletage(default)]
     pub pattern: String,
-    #[compote(from_context = "source.file_path")]
+    #[feuilletage(from_context = "source.file_path")]
     pub source_path: Option<PathBuf>,
-    #[compote(from_context_fn = "check_pattern_is_global")]
+    #[feuilletage(from_context_fn = "check_pattern_is_global")]
     pub is_global: bool,
 }
 
@@ -81,15 +81,15 @@ impl<'de> Deserialize<'de> for CheckPattern {
     }
 }
 
-#[derive(Debug, Clone, Default, compote::Config)]
+#[derive(Debug, Clone, Default, feuilletage::Config)]
 pub struct CheckConfig {
-    #[compote(default, allow_single, skip_if_empty)]
+    #[feuilletage(default, allow_single, skip_if_empty)]
     patterns: Vec<CheckPattern>,
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub ignore: HashSet<String>,
-    #[compote(default, skip_if_empty)]
+    #[feuilletage(default, skip_if_empty)]
     pub select: HashSet<String>,
-    #[compote(default, allow_list, skip_if_empty)]
+    #[feuilletage(default, allow_list, skip_if_empty)]
     pub tags: HashMap<String, StringFilter>,
 }
 
@@ -99,7 +99,7 @@ impl Empty for CheckConfig {
     }
 }
 
-impl compote::IsEmpty for CheckConfig {
+impl feuilletage::IsEmpty for CheckConfig {
     fn is_empty(&self) -> bool {
         Empty::is_empty(self)
     }

@@ -68,12 +68,12 @@ pub fn go_install_tool_path(package: &str, version: &str) -> PathBuf {
 // 3. Object with "path" key: {path: "tool", version: "1.0"} -> single tool
 // 4. Object without "path" key: {"tool1": "v1", "tool2": {version: "v2"}} -> map-to-vec
 //
-// Uses compote's transparent + allow_single + allow_map to handle all formats.
+// Uses feuilletage's transparent + allow_single + allow_map to handle all formats.
 // ============================================================================
-#[derive(Debug, Clone, Default, compote::Config)]
-#[compote(transparent)]
+#[derive(Debug, Clone, Default, feuilletage::Config)]
+#[feuilletage(transparent)]
 pub struct UpConfigGoInstalls {
-    #[compote(default, allow_single, allow_map(order_by = "path"))]
+    #[feuilletage(default, allow_single, allow_map(order_by = "path"))]
     tools: Vec<UpConfigGoInstall>,
 }
 
@@ -342,10 +342,10 @@ pub enum GoInstallError {
 }
 
 // ============================================================================
-// UpConfigGoInstall - Using compote derive with post_process
+// UpConfigGoInstall - Using feuilletage derive with post_process
 // ============================================================================
 //
-// Input formats supported via compote attributes:
+// Input formats supported via feuilletage attributes:
 // - String: "github.com/foo@v1.0" -> {path: "github.com/foo", version: "v1.0"}
 // - allow_map format: {"github.com/foo": "v1.0"} -> {path, version}
 // - Object format: {path: "...", version: "...", ...}
@@ -354,8 +354,8 @@ pub enum GoInstallError {
 // 1. Splitting path@version into separate path and version fields
 // 2. Validating the import path format
 // ============================================================================
-#[derive(Debug, Clone, compote::Config)]
-#[compote(
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(
     allow_map(key = path, scalar_as = version),
     scalar_as = "path",
     post_process = "finalize_go_install"
@@ -367,7 +367,7 @@ struct UpConfigGoInstall {
 
     /// The version of the tool to install, which will be used after the `@` in the
     /// `go install` command, e.g. `github.com/owner/path@<version>`
-    #[compote(default)]
+    #[feuilletage(default)]
     pub version: Option<String>,
 
     /// Whether to install the exact version specified in the `version` field;
@@ -375,49 +375,49 @@ struct UpConfigGoInstall {
     /// `go install` command will be called with the version specified;
     /// if `false`, the latest version that matches the version will be installed.
     /// Defaults to `false` so version prefixes resolve to the latest match.
-    #[compote(default)]
+    #[feuilletage(default)]
     pub exact: bool,
 
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
-    #[compote(default)]
+    #[feuilletage(default)]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
-    #[compote(default)]
+    #[feuilletage(default)]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
-    #[compote(default)]
+    #[feuilletage(default)]
     pub build: bool,
 
     /// A list of directories to make the binary available for
-    #[compote(default, rename = "dir", allow_single)]
+    #[feuilletage(default, rename = "dir", allow_single)]
     pub dirs: BTreeSet<String>,
 
     /// In case there was an error while parsing the configuration, this field
     /// will contain the error message
-    #[compote(skip)]
+    #[feuilletage(skip)]
     config_error: Option<String>,
 
     /// The actual version that was installed
-    #[compote(skip)]
+    #[feuilletage(skip)]
     actual_version: OnceCell<String>,
 
     /// Whether this tool was handled during the up operation
-    #[compote(skip)]
+    #[feuilletage(skip)]
     was_handled: OnceCell<GoInstallHandled>,
 }
 
 /// Post-process function for UpConfigGoInstall.
 /// Handles path@version splitting and validation.
-fn finalize_go_install<S: compote::CustomSource, L: compote::CustomLevel>(
+fn finalize_go_install<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
     config: &mut UpConfigGoInstall,
-    source: &compote::ContextValue<S, L>,
-    error_tracker: &mut compote::ErrorTracker,
-) -> Result<(), compote::Error> {
+    source: &feuilletage::ContextValue<S, L>,
+    error_tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
     // Handle path@version splitting
     if let Some(at_pos) = config.path.find('@') {
         let (path, ver) = config.path.split_at(at_pos);
@@ -445,7 +445,7 @@ fn finalize_go_install<S: compote::CustomSource, L: compote::CustomLevel>(
         }
 
         config.version = Some(ver.to_string());
-        if !matches!(source, compote::ContextValue::Object(map, _) if map.contains_key("exact")) {
+        if !matches!(source, feuilletage::ContextValue::Object(map, _) if map.contains_key("exact")) {
             config.exact = true;
         }
         config.path = path.to_string();

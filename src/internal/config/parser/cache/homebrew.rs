@@ -1,23 +1,23 @@
-/// HomebrewCacheConfig using compote's derive macro.
+/// HomebrewCacheConfig using feuilletage's derive macro.
 ///
-/// The compote::Config derive macro automatically generates:
-/// - `FromConfigValue` implementation for deserialization from compote's Config
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
-#[derive(Debug, Clone, compote::Config)]
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct HomebrewCacheConfig {
-    #[compote(duration, default = "86400")]
+    #[feuilletage(duration, default = "86400")]
     pub update_expire: u64, // 1 day
 
-    #[compote(duration, default = "86400")]
+    #[feuilletage(duration, default = "86400")]
     pub tap_update_expire: u64, // 1 day
 
-    #[compote(duration, default = "86400")]
+    #[feuilletage(duration, default = "86400")]
     pub install_update_expire: u64, // 1 day
 
-    #[compote(duration, default = "43200")]
+    #[feuilletage(duration, default = "43200")]
     pub install_check_expire: u64, // 12 hours
 
-    #[compote(duration, default = "604800")]
+    #[feuilletage(duration, default = "604800")]
     pub cleanup_after: u64, // 1 week
 }
 

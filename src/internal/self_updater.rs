@@ -373,7 +373,7 @@ impl OmniRelease {
     }
 
     fn edit_config_file_self_update(&self, self_update: bool) -> bool {
-        if let Err(err) = ConfigLoader::edit_main_user_config_file_compote(|config| {
+        if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
             config.at("path_repo_updates.self_update").set(self_update).ok();
             true
         }) {
