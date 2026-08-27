@@ -298,7 +298,9 @@ impl CdCommand {
         };
 
         let current_ref_name = if head.is_branch() {
-            head.shorthand().ok().map(|s| s.to_string())
+            head.shorthand()
+                .ok()
+                .map(|s| s.to_string())
         } else {
             None
         };

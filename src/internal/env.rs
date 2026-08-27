@@ -835,8 +835,8 @@ impl GitRepoEnv {
         }
 
         if let Ok(remotes) = repository.remotes() {
-            for remote_name in remotes.iter() {
-                if let Ok(Some(remote_name)) = remote_name {
+            for remote in remotes.iter() {
+                if let Ok(Some(remote_name)) = remote {
                     if let Ok(remote) = repository.find_remote(remote_name) {
                         if let Ok(url) = remote.url() {
                             git_repo_env.origin = Some(url.to_string());
