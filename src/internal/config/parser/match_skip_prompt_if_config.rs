@@ -35,4 +35,3 @@ impl MatchSkipPromptIfConfig {
     const DEFAULT_FIRST_MIN: f64 = 0.80;
     const DEFAULT_SECOND_MAX: f64 = 0.60;
 }
-

@@ -174,4 +174,3 @@ fn is_all_caps_string<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
         false
     }
 }
-

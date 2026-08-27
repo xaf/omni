@@ -1039,4 +1039,3 @@ impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::Fro
         }
     }
 }
-
