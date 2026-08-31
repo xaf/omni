@@ -18,7 +18,8 @@ use crate::internal::config::FeuilletageConfigContext;
 use crate::internal::config::FeuilletageConfigLevel;
 use crate::internal::config::FeuilletageConfigSource;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "PromptsConfigWire", skip_serialize)]
 pub struct PromptsConfig {
     pub prompts: Vec<PromptConfig>,
 }
@@ -50,7 +51,8 @@ impl PromptsConfig {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "PromptConfigWire", skip_serialize)]
 pub struct PromptConfig {
     pub id: String,
     pub prompt: String,
@@ -85,14 +87,14 @@ impl PromptConfig {
             Err(err) => {
                 return Err(format!(
                     "failed to serialize prompt {} to yaml: {}",
-                    &self.id, err
+                    self.id, err
                 ))
             }
         };
 
         let mut template = Tera::default();
         register_partial_resolve_placeholder(&mut template);
-        let prompt_key = format!("prompt.{}", &self.id);
+        let prompt_key = format!("prompt.{}", self.id);
         if let Err(err) = template.add_raw_template(&prompt_key, yaml.as_str()) {
             return Err(tera_render_error_message(err));
         }
@@ -109,18 +111,22 @@ impl PromptConfig {
                     Err(err) => {
                         return Err(format!(
                             "failed to parse prompt {} as yaml: {}",
-                            &self.id, err
+                            self.id, err
                         ))
                     }
                 };
 
                 // Use feuilletage's FromContextValue implementation
                 let mut tracker = feuilletage::ErrorTracker::new();
-                match <Self as feuilletage::FromContextValue<FeuilletageConfigSource, FeuilletageConfigLevel>>::from_context_value(&config_value, &mut tracker) {
+                match <Self as feuilletage::FromContextValue<
+                    FeuilletageConfigSource,
+                    FeuilletageConfigLevel,
+                >>::from_context_value(&config_value, &mut tracker)
+                {
                     Ok(prompt) => Ok(prompt),
                     Err(err) => Err(format!(
                         "failed to parse prompt {} from rendered template: {}",
-                        &self.id, err
+                        self.id, err
                     )),
                 }
             }
@@ -138,7 +144,8 @@ impl PromptConfig {
     }
 }
 
-#[derive(Default, Debug, Serialize, Clone, Copy)]
+#[derive(Default, Debug, Serialize, Clone, Copy, feuilletage::Config)]
+#[feuilletage(untagged, parse_as = "PromptScopeWire", skip_serialize)]
 pub enum PromptScope {
     #[default]
     #[serde(rename = "repo", alias = "repository")]
@@ -153,7 +160,8 @@ impl PromptScope {
     }
 }
 
-#[derive(Default, Debug, Serialize, Clone)]
+#[derive(Default, Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(untagged, parse_as = "PromptTypeWire", skip_serialize)]
 #[serde(tag = "type")]
 pub enum PromptType {
     #[default]
@@ -518,9 +526,7 @@ impl PromptType {
             }
         };
 
-        if let Err(err) =
-            PromptsCache::get().add_answer(id, scope_org, scope_repo, answer_value)
-        {
+        if let Err(err) = PromptsCache::get().add_answer(id, scope_org, scope_repo, answer_value) {
             omni_warning!(format!("failed to update cache: {}", err));
             false
         } else {
@@ -529,7 +535,8 @@ impl PromptType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(untagged, parse_as = "PromptChoicesWire", skip_serialize)]
 pub enum PromptChoicesConfig {
     ChoicesAsArray(Vec<PromptChoiceConfig>),
     ChoicesAsString(String),
@@ -554,10 +561,11 @@ impl PromptChoicesConfig {
 
                 // Convert to Vec<PromptChoiceConfig> using feuilletage's FromContextValue
                 let mut tracker = feuilletage::ErrorTracker::new();
-                match <Vec<PromptChoiceConfig> as feuilletage::FromContextValue<FeuilletageConfigSource, FeuilletageConfigLevel>>::from_context_value(
-                    &config_value,
-                    &mut tracker,
-                ) {
+                match <Vec<PromptChoiceConfig> as feuilletage::FromContextValue<
+                    FeuilletageConfigSource,
+                    FeuilletageConfigLevel,
+                >>::from_context_value(&config_value, &mut tracker)
+                {
                     Ok(choices) => {
                         if choices.is_empty() {
                             Err("choices template must be a non-empty array".to_string())
@@ -631,10 +639,8 @@ fn json_value_to_feuilletage_value(value: &serde_json::Value) -> FeuilletageValu
         }
         serde_json::Value::String(s) => FeuilletageValue::String(s.clone()),
         serde_json::Value::Array(arr) => {
-            let items: Vec<FeuilletageValue> = arr
-                .iter()
-                .map(json_value_to_feuilletage_value)
-                .collect();
+            let items: Vec<FeuilletageValue> =
+                arr.iter().map(json_value_to_feuilletage_value).collect();
             FeuilletageValue::Array(items)
         }
         serde_json::Value::Object(map) => {
@@ -647,395 +653,557 @@ fn json_value_to_feuilletage_value(value: &serde_json::Value) -> FeuilletageValu
     }
 }
 
-// ============================================================================
-// Feuilletage FromContextValue implementations
-// ============================================================================
-//
-// These manual implementations CANNOT be converted to derive macro due to technical limitations:
-//
-// 1. PromptsConfig - Custom serialization behavior
-//    - Serializes as bare array, not as struct with "prompts" field
-//    - The derive macro always generates struct-style serialization
-//
-// 2. PromptConfig - Complex deserialization requirements
-//    - Requires parent-object extraction pattern (e.g., PromptScope reads "scope" field
-//      from the same object, PromptType reads "type" field from the same object)
-//    - These "sibling field" patterns require custom handling
-//
-// 3. PromptScope - Extracts from parent object's "scope" field
-//    - Not a simple value-matched enum (reads "scope" key from parent table)
-//    - Also applies case-insensitive matching
-//
-// 4. PromptType - Complex internally-tagged enum
-//    - Extracts "type" from parent object and reads sibling fields (choices, min, max)
-//    - Has multiple aliases mapping to same variant (e.g., "choices"/"multichoice"/"multiselect")
-//    - Applies case-insensitive, trimmed matching on type string
-//
-// 5. PromptChoicesConfig - Union type (array or string)
-//    - Can be Vec<PromptChoiceConfig> OR String (template)
-//    - This pattern would need #[feuilletage(untagged)] but serialization is also custom
-//
-// Note: PromptChoiceConfig was converted to use the derive macro with:
-//   - #[feuilletage(scalar_as = "id")] - handles string input
-//   - #[feuilletage(fallback = "choice")] on id - id falls back to choice
-//   - #[feuilletage(fallback = "id")] on choice - choice falls back to id
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    transform = "self::normalize_prompts_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct PromptsConfigWire(Vec<PromptConfig>);
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for PromptsConfig
-{
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Result<Self, feuilletage::Error> {
-        match value {
-            feuilletage::ContextValue::Array(arr, _) => {
-                let mut prompts = Vec::new();
-                for (idx, item) in arr.iter().enumerate() {
-                    tracker.push_index(idx);
-                    match <PromptConfig as feuilletage::FromContextValue<S, L>>::from_context_value(
-                        item, tracker,
-                    ) {
-                        Ok(prompt) => prompts.push(prompt),
-                        Err(e) => tracker.record(e),
-                    }
-                    tracker.pop();
-                }
-                Ok(Self { prompts })
+fn normalize_prompts_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    if value.is_null() {
+        *value = feuilletage::ContextValue::array(Vec::new(), context.clone());
+    }
+    Ok(())
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transform = "self::normalize_prompt_config_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct PromptConfigWire {
+    id: PromptRequiredStringWire,
+    prompt: PromptRequiredStringWire,
+    #[feuilletage(default)]
+    default: Option<FeuilletageValue>,
+    #[feuilletage(default)]
+    scope: PromptScope,
+    #[feuilletage(default, rename = "if")]
+    if_condition: FeuilletageValue,
+    #[feuilletage(flatten)]
+    prompt_type: PromptType,
+}
+
+fn normalize_prompt_config_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    let feuilletage::ContextValue::Object(table, _) = value else {
+        return Ok(());
+    };
+    match table.get_mut("type") {
+        Some(feuilletage::ContextValue::String(value, _)) => {
+            *value = value.trim().to_lowercase();
+            if !is_known_prompt_type(value) {
+                table.shift_remove("type");
             }
-            feuilletage::ContextValue::Null(_) => Ok(Self::default()),
-            _ => Err(feuilletage::Error::TypeMismatch {
-                expected: "array".to_string(),
+        }
+        Some(_) => {
+            table.shift_remove("type");
+        }
+        None => {}
+    }
+    Ok(())
+}
+
+fn is_known_prompt_type(value: &str) -> bool {
+    matches!(
+        value,
+        "text"
+            | "password"
+            | "confirm"
+            | "boolean"
+            | "choice"
+            | "select"
+            | "choices"
+            | "multichoice"
+            | "multiselect"
+            | "int"
+            | "float"
+    )
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(transparent, skip_serialize, skip_deserialize)]
+struct PromptRequiredStringWire(FeuilletageValue);
+
+fn required_prompt_string(
+    value: FeuilletageValue,
+    field: &str,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<String, feuilletage::Error> {
+    tracker.push_field(field);
+    let result = match value {
+        FeuilletageValue::String(value) => {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                Err(feuilletage::Error::InvalidValue {
+                    message: format!("{field} cannot be empty"),
+                    path: tracker.current_path(),
+                })
+            } else {
+                Ok(value)
+            }
+        }
+        value => Err(feuilletage::Error::TypeMismatch {
+            expected: "string".to_string(),
+            actual: value.type_name().to_string(),
+            path: tracker.current_path(),
+        }),
+    };
+    tracker.pop();
+    result
+}
+
+fn record_prompt_type_diagnostic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) {
+    let feuilletage::ContextValue::Object(table, _) = original else {
+        return;
+    };
+    match table.get("type") {
+        None => {}
+        Some(feuilletage::ContextValue::String(value, _)) => {
+            let value = value.trim().to_lowercase();
+            if value.is_empty() {
+                tracker.push_field("type");
+                tracker.record(feuilletage::Error::InvalidValue {
+                    message: "type cannot be empty".to_string(),
+                    path: tracker.current_path(),
+                });
+                tracker.pop();
+            } else if !is_known_prompt_type(&value) {
+                tracker.push_field("type");
+                tracker.record(feuilletage::Error::InvalidValue {
+                    message: format!(
+                        "invalid type '{}': expected text, password, confirm, choice, multichoice, int, or float",
+                        value
+                    ),
+                    path: tracker.current_path(),
+                });
+                tracker.pop();
+            }
+        }
+        Some(value) => {
+            tracker.push_field("type");
+            tracker.record(feuilletage::Error::TypeMismatch {
+                expected: "string".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),
-            }),
+            });
+            tracker.pop();
         }
     }
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for PromptConfig
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "normalize_prompt_scope_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct PromptScopeWire(String);
+
+fn normalize_prompt_scope_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    parsed: &mut PromptScopeWire,
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if !matches!(original, feuilletage::ContextValue::String(_, _)) {
+        return Err(feuilletage::Error::TypeMismatch {
+            expected: "string".to_string(),
+            actual: original.type_name().to_string(),
+            path: tracker.current_path(),
+        });
+    }
+    parsed.0 = parsed.0.trim().to_lowercase();
+    Ok(())
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(tag = "type", skip_serialize, skip_deserialize)]
+enum PromptTypeWire {
+    #[feuilletage(rename = "text", fallback)]
+    Text,
+    #[feuilletage(rename = "password")]
+    Password,
+    #[feuilletage(rename = "confirm", aliases = ["boolean"])]
+    Confirm,
+    #[feuilletage(rename = "choice", aliases = ["select"])]
+    Choice { choices: PromptChoicesConfig },
+    #[feuilletage(
+        rename = "multichoice",
+        aliases = ["choices", "multiselect"]
+    )]
+    MultiChoice { choices: PromptChoicesConfig },
+    #[feuilletage(rename = "int")]
+    Int {
+        #[feuilletage(default)]
+        min: FeuilletageValue,
+        #[feuilletage(default)]
+        max: FeuilletageValue,
+    },
+    #[feuilletage(rename = "float")]
+    Float {
+        #[feuilletage(default)]
+        min: FeuilletageValue,
+        #[feuilletage(default)]
+        max: FeuilletageValue,
+    },
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    transform = "self::normalize_prompt_choices_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct PromptChoicesWire(Vec<PromptChoiceConfig>);
+
+fn normalize_prompt_choices_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    match value {
+        feuilletage::ContextValue::Array(_, _) => Ok(()),
+        feuilletage::ContextValue::String(_, _) => {
+            *value = feuilletage::ContextValue::array(Vec::new(), context.clone());
+            Ok(())
+        }
+        _ => {
+            *value = feuilletage::ContextValue::array(Vec::new(), context.clone());
+            Ok(())
+        }
+    }
+}
+
+// The public types retain their custom serde shapes while these projections define parsing.
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptsConfigWire, S, L> for PromptsConfig
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        parsed: PromptsConfigWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        _tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        Ok(Self { prompts: parsed.0 })
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptConfigWire, S, L> for PromptConfig
+{
+    fn from_parsed(
+        parsed: PromptConfigWire,
+        original: &feuilletage::ContextValue<S, L>,
         tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        let table = match value {
-            feuilletage::ContextValue::Object(map, _) => map,
-            _ => {
-                return Err(feuilletage::Error::TypeMismatch {
-                    expected: "table".to_string(),
-                    actual: value.type_name().to_string(),
-                    path: tracker.current_path(),
-                });
-            }
+        let id = required_prompt_string(parsed.id.0, "id", tracker)?;
+        let prompt = required_prompt_string(parsed.prompt.0, "prompt", tracker)?;
+        record_prompt_type_diagnostic(original, tracker);
+        let if_condition = match parsed.if_condition {
+            FeuilletageValue::String(value) => Some(value),
+            FeuilletageValue::Bool(value) => Some(value.to_string()),
+            FeuilletageValue::Int(value) => Some(value.to_string()),
+            _ => None,
         };
-
-        // Required: id
-        let id = if let Some(v) = table.get("id") {
-            tracker.push_field("id");
-            let result = match v {
-                feuilletage::ContextValue::String(s, _) => {
-                    let trimmed = s.trim().to_string();
-                    if trimmed.is_empty() {
-                        Err(feuilletage::Error::InvalidValue {
-                            message: "id cannot be empty".to_string(),
-                            path: tracker.current_path(),
-                        })
-                    } else {
-                        Ok(trimmed)
-                    }
-                }
-                _ => Err(feuilletage::Error::TypeMismatch {
-                    expected: "string".to_string(),
-                    actual: v.type_name().to_string(),
-                    path: tracker.current_path(),
-                }),
-            };
-            tracker.pop();
-            result?
-        } else {
-            tracker.push_field("id");
-            let path = tracker.current_path();
-            tracker.pop();
-            return Err(feuilletage::Error::MissingField { path });
-        };
-
-        // Required: prompt
-        let prompt = if let Some(v) = table.get("prompt") {
-            tracker.push_field("prompt");
-            let result = match v {
-                feuilletage::ContextValue::String(s, _) => {
-                    let trimmed = s.trim().to_string();
-                    if trimmed.is_empty() {
-                        Err(feuilletage::Error::InvalidValue {
-                            message: "prompt cannot be empty".to_string(),
-                            path: tracker.current_path(),
-                        })
-                    } else {
-                        Ok(trimmed)
-                    }
-                }
-                _ => Err(feuilletage::Error::TypeMismatch {
-                    expected: "string".to_string(),
-                    actual: v.type_name().to_string(),
-                    path: tracker.current_path(),
-                }),
-            };
-            tracker.pop();
-            result?
-        } else {
-            tracker.push_field("prompt");
-            let path = tracker.current_path();
-            tracker.pop();
-            return Err(feuilletage::Error::MissingField { path });
-        };
-
-        // Optional: type (defaults to text)
-        let prompt_type =
-            <PromptType as feuilletage::FromContextValue<S, L>>::from_context_value(value, tracker)?;
-
-        // Optional: default
-        let default = if let Some(v) = table.get("default") {
-            FeuilletageValue::from(v)
-        } else {
-            FeuilletageValue::Null
-        };
-
-        // Optional: scope
-        let scope =
-            <PromptScope as feuilletage::FromContextValue<S, L>>::from_context_value(value, tracker)?;
-
-        // Optional: if
-        let if_condition = if let Some(v) = table.get("if") {
-            match v {
-                feuilletage::ContextValue::String(s, _) => Some(s.clone()),
-                feuilletage::ContextValue::Bool(b, _) => Some(b.to_string()),
-                feuilletage::ContextValue::Int(i, _) => Some(i.to_string()),
-                _ => None,
-            }
-        } else {
-            None
-        };
+        let has_default = matches!(
+            original,
+            feuilletage::ContextValue::Object(table, _) if table.contains_key("default")
+        );
 
         Ok(Self {
             id,
             prompt,
-            default,
-            prompt_type,
-            scope,
+            default: if has_default {
+                parsed.default.unwrap_or(FeuilletageValue::Null)
+            } else {
+                FeuilletageValue::Null
+            },
+            prompt_type: parsed.prompt_type,
+            scope: parsed.scope,
             if_condition,
         })
     }
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for PromptScope
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptScopeWire, S, L> for PromptScope
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        parsed: PromptScopeWire,
+        _original: &feuilletage::ContextValue<S, L>,
         tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        let table = match value {
-            feuilletage::ContextValue::Object(map, _) => map,
-            _ => return Ok(Self::default()),
-        };
-
-        let scope_value = match table.get("scope") {
-            Some(v) => v,
-            None => return Ok(Self::default()),
-        };
-
-        match scope_value {
-            feuilletage::ContextValue::String(s, _) => {
-                let scope = s.trim().to_lowercase();
-                match scope.as_str() {
-                    "repo" | "repository" => Ok(Self::Repository),
-                    "org" | "organization" => Ok(Self::Organization),
-                    _ => {
-                        tracker.push_field("scope");
-                        tracker.record(feuilletage::Error::InvalidValue {
-                            message: format!(
-                                "invalid scope '{}': expected 'repo' or 'org'",
-                                scope
-                            ),
-                            path: tracker.current_path(),
-                        });
-                        tracker.pop();
-                        Ok(Self::default())
-                    }
-                }
-            }
-            _ => {
-                tracker.push_field("scope");
-                tracker.record(feuilletage::Error::TypeMismatch {
-                    expected: "string".to_string(),
-                    actual: scope_value.type_name().to_string(),
-                    path: tracker.current_path(),
-                });
-                tracker.pop();
-                Ok(Self::default())
-            }
-        }
-    }
-}
-
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for PromptType
-{
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Result<Self, feuilletage::Error> {
-        let table = match value {
-            feuilletage::ContextValue::Object(map, _) => map,
-            _ => return Ok(Self::default()),
-        };
-
-        let type_value = match table.get("type") {
-            Some(v) => v,
-            None => return Ok(Self::default()),
-        };
-
-        let type_str = match type_value {
-            feuilletage::ContextValue::String(s, _) => s.trim().to_lowercase(),
-            _ => {
-                tracker.push_field("type");
-                tracker.record(feuilletage::Error::TypeMismatch {
-                    expected: "string".to_string(),
-                    actual: type_value.type_name().to_string(),
-                    path: tracker.current_path(),
-                });
-                tracker.pop();
-                return Ok(Self::default());
-            }
-        };
-
-        if type_str.is_empty() {
-            tracker.push_field("type");
-            tracker.record(feuilletage::Error::InvalidValue {
-                message: "type cannot be empty".to_string(),
+        match parsed.0.as_str() {
+            "repo" | "repository" => Ok(Self::Repository),
+            "org" | "organization" => Ok(Self::Organization),
+            scope => Err(feuilletage::Error::InvalidValue {
+                message: format!("invalid scope '{scope}': expected 'repo' or 'org'"),
                 path: tracker.current_path(),
-            });
-            tracker.pop();
-            return Ok(Self::default());
-        }
-
-        match type_str.as_str() {
-            "text" => Ok(Self::Text),
-            "password" => Ok(Self::Password),
-            "confirm" | "boolean" => Ok(Self::Confirm),
-            "choice" | "select" | "choices" | "multichoice" | "multiselect" => {
-                if let Some(choices_value) = table.get("choices") {
-                    tracker.push_field("choices");
-                    let choices = <PromptChoicesConfig as feuilletage::FromContextValue<S, L>>::from_context_value(
-                        choices_value,
-                        tracker,
-                    )?;
-                    tracker.pop();
-
-                    match type_str.as_str() {
-                        "choice" | "select" => Ok(Self::Choice { choices }),
-                        _ => Ok(Self::MultiChoice { choices }),
-                    }
-                } else {
-                    tracker.push_field("choices");
-                    let path = tracker.current_path();
-                    tracker.pop();
-                    Err(feuilletage::Error::MissingField { path })
-                }
-            }
-            "int" => {
-                let min = if let Some(v) = table.get("min") {
-                    match v {
-                        feuilletage::ContextValue::Int(i, _) => Some(*i),
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                let max = if let Some(v) = table.get("max") {
-                    match v {
-                        feuilletage::ContextValue::Int(i, _) => Some(*i),
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                Ok(Self::Int { min, max })
-            }
-            "float" => {
-                let min = if let Some(v) = table.get("min") {
-                    match v {
-                        feuilletage::ContextValue::Float(f, _) => Some(*f),
-                        feuilletage::ContextValue::Int(i, _) => Some(*i as f64),
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                let max = if let Some(v) = table.get("max") {
-                    match v {
-                        feuilletage::ContextValue::Float(f, _) => Some(*f),
-                        feuilletage::ContextValue::Int(i, _) => Some(*i as f64),
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                Ok(Self::Float { min, max })
-            }
-            _ => {
-                tracker.push_field("type");
-                tracker.record(feuilletage::Error::InvalidValue {
-                    message: format!(
-                        "invalid type '{}': expected text, password, confirm, choice, multichoice, int, or float",
-                        type_str
-                    ),
-                    path: tracker.current_path(),
-                });
-                tracker.pop();
-                Ok(Self::default())
-            }
+            }),
         }
     }
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for PromptChoicesConfig
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptTypeWire, S, L> for PromptType
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        parsed: PromptTypeWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        _tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        Ok(match parsed {
+            PromptTypeWire::Text => Self::Text,
+            PromptTypeWire::Password => Self::Password,
+            PromptTypeWire::Confirm => Self::Confirm,
+            PromptTypeWire::Choice { choices } => Self::Choice { choices },
+            PromptTypeWire::MultiChoice { choices } => Self::MultiChoice { choices },
+            PromptTypeWire::Int { min, max } => Self::Int {
+                min: match min {
+                    FeuilletageValue::Int(value) => Some(value),
+                    _ => None,
+                },
+                max: match max {
+                    FeuilletageValue::Int(value) => Some(value),
+                    _ => None,
+                },
+            },
+            PromptTypeWire::Float { min, max } => Self::Float {
+                min: match min {
+                    FeuilletageValue::Float(value) => Some(value),
+                    FeuilletageValue::Int(value) => Some(value as f64),
+                    _ => None,
+                },
+                max: match max {
+                    FeuilletageValue::Float(value) => Some(value),
+                    FeuilletageValue::Int(value) => Some(value as f64),
+                    _ => None,
+                },
+            },
+        })
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptChoicesWire, S, L> for PromptChoicesConfig
+{
+    fn from_parsed(
+        parsed: PromptChoicesWire,
+        original: &feuilletage::ContextValue<S, L>,
         tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        match value {
-            feuilletage::ContextValue::Array(arr, _) => {
-                let mut choices = Vec::new();
-                for (idx, item) in arr.iter().enumerate() {
-                    tracker.push_index(idx);
-                    match <PromptChoiceConfig as feuilletage::FromContextValue<S, L>>::from_context_value(
-                        item, tracker,
-                    ) {
-                        Ok(choice) => choices.push(choice),
-                        Err(e) => tracker.record(e),
-                    }
-                    tracker.pop();
-                }
-
-                if choices.is_empty() {
+        match original {
+            feuilletage::ContextValue::Array(_, _) => {
+                if parsed.0.is_empty() {
                     Err(feuilletage::Error::InvalidValue {
                         message: "choices cannot be empty".to_string(),
                         path: tracker.current_path(),
                     })
                 } else {
-                    Ok(Self::ChoicesAsArray(choices))
+                    Ok(Self::ChoicesAsArray(parsed.0))
                 }
             }
-            feuilletage::ContextValue::String(s, _) => Ok(Self::ChoicesAsString(s.clone())),
-            _ => Err(feuilletage::Error::TypeMismatch {
+            feuilletage::ContextValue::String(template, _) => {
+                Ok(Self::ChoicesAsString(template.clone()))
+            }
+            value => Err(feuilletage::Error::TypeMismatch {
                 expected: "array or template string".to_string(),
                 actual: value.type_name().to_string(),
                 path: tracker.current_path(),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_prompts(yaml: &str) -> (PromptsConfig, Vec<feuilletage::Error>) {
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(
+            yaml,
+            FeuilletageConfigContext::new(
+                FeuilletageConfigSource::Programmatic,
+                FeuilletageConfigLevel::Local,
+            ),
+        );
+        let prompts = config.deserialize::<PromptsConfig>().unwrap();
+        (prompts, config.get_errors().to_vec())
+    }
+
+    #[test]
+    fn prompt_projection_preserves_aliases_bounds_and_coercions() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: " integer "
+  prompt: " Number "
+  type: " INT "
+  min: 1
+  max: 3
+  scope: repository
+  if: true
+- id: select
+  prompt: Pick
+  type: select
+  choices: [one, { id: two, choice: Two }]
+"#,
+        );
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(config.prompts.len(), 2);
+        assert_eq!(config.prompts[0].id, "integer");
+        assert_eq!(config.prompts[0].prompt, "Number");
+        assert!(matches!(config.prompts[0].scope, PromptScope::Repository));
+        assert_eq!(config.prompts[0].if_condition.as_deref(), Some("true"));
+        assert!(matches!(
+            config.prompts[0].prompt_type,
+            PromptType::Int {
+                min: Some(1),
+                max: Some(3)
+            }
+        ));
+        assert!(matches!(
+            &config.prompts[1].prompt_type,
+            PromptType::Choice {
+                choices: PromptChoicesConfig::ChoicesAsArray(choices)
+            } if choices.len() == 2 && choices[0].id == "one" && choices[1].choice == "Two"
+        ));
+    }
+
+    #[test]
+    fn prompt_projection_recovers_from_invalid_array_entries() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: false
+  prompt: Invalid
+- id: valid
+  prompt: Valid
+"#,
+        );
+
+        assert_eq!(config.prompts.len(), 1, "{errors:?}");
+        assert_eq!(config.prompts[0].id, "valid");
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].location(), "0.id");
+    }
+
+    #[test]
+    fn prompt_projection_defaults_invalid_scope_and_type() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: scope
+  prompt: Scope
+  scope: elsewhere
+- id: type
+  prompt: Type
+  type: unknown
+- id: empty-type
+  prompt: Empty type
+  type: ""
+- id: non-string-type
+  prompt: Non-string type
+  type: false
+"#,
+        );
+
+        assert_eq!(config.prompts.len(), 4, "{errors:?}");
+        assert!(matches!(config.prompts[0].scope, PromptScope::Repository));
+        assert!(matches!(config.prompts[1].prompt_type, PromptType::Text));
+        assert!(matches!(config.prompts[2].prompt_type, PromptType::Text));
+        assert!(matches!(config.prompts[3].prompt_type, PromptType::Text));
+        assert_eq!(errors.len(), 4, "{errors:?}");
+        assert_eq!(errors[0].location(), "0.scope");
+        assert_eq!(errors[1].location(), "1.type");
+        assert_eq!(errors[2].location(), "2.type");
+        assert_eq!(errors[3].location(), "3.type");
+    }
+
+    #[test]
+    fn prompt_projection_preserves_serialized_shape() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: choice
+  prompt: Pick
+  type: choice
+  choices: [one]
+"#,
+        );
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            serde_json::to_value(config).unwrap(),
+            serde_json::json!([{
+                "id": "choice",
+                "prompt": "Pick",
+                "type": "choice",
+                "choices": [{"id": "one", "choice": "one"}]
+            }])
+        );
+    }
+
+    #[test]
+    fn prompt_projection_accepts_null_as_an_empty_prompt_list() {
+        let (config, errors) = parse_prompts("null");
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(config.prompts.is_empty());
+    }
+
+    #[test]
+    fn prompt_projection_only_parses_choices_for_choice_types() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: text
+  prompt: Text
+  type: text
+  choices: false
+- id: choice
+  prompt: Choice
+  type: choice
+  choices: false
+"#,
+        );
+
+        assert_eq!(config.prompts.len(), 1);
+        assert_eq!(config.prompts[0].id, "text");
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].location(), "1.choices");
+    }
+
+    #[test]
+    fn prompt_projection_keeps_valid_choices_when_siblings_are_invalid() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: choice
+  prompt: Choice
+  type: choice
+  choices: [valid, { other: false }]
+"#,
+        );
+
+        assert_eq!(config.prompts.len(), 1);
+        assert!(matches!(
+            &config.prompts[0].prompt_type,
+            PromptType::Choice {
+                choices: PromptChoicesConfig::ChoicesAsArray(choices)
+            } if choices.len() == 1 && choices[0].id == "valid"
+        ));
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert_eq!(errors[0].location(), "0.choices.1", "{errors:?}");
+        assert_eq!(errors[1].location(), "0.choices.1");
     }
 }

@@ -53,6 +53,7 @@ use crate::internal::config::parser::PathEntryConfig;
 /// let pkg_source = OmniSource::Package(pkg);
 /// ```
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Default)]
 pub enum OmniSource {
     /// Loaded from a file
     File(PathBuf),
@@ -61,16 +62,12 @@ pub enum OmniSource {
     /// Programmatically set
     Programmatic,
     /// Default value
+    #[default]
     Default,
     /// Source is a package with associated metadata
     Package(PathEntryConfig),
 }
 
-impl Default for OmniSource {
-    fn default() -> Self {
-        OmniSource::Default
-    }
-}
 
 impl feuilletage::CustomSource for OmniSource {
     fn display_name(&self) -> String {
@@ -150,9 +147,6 @@ pub type FeuilletageConfigValue = ContextValue;
 /// Alias for ErrorTracker matching existing code patterns.
 pub type FeuilletageErrorTracker = feuilletage::ErrorTracker;
 
-/// Alias for FromContextValue matching existing code patterns.
-/// Note: FromContextValue is a trait, so we just re-export it.
-pub use feuilletage::FromContextValue as FeuilletageFromConfigValue;
 
 // =============================================================================
 // Re-export feuilletage types that don't need generic parameters

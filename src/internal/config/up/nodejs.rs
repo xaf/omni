@@ -60,10 +60,8 @@ impl UpConfigNodejsParams {
 /// - A mise backend for tool version management
 /// - Node.js specific params (install_engines, install_packages)
 ///
-/// Note: This struct requires a manual FromContextValue implementation because
-/// the backend is created using UpConfigMise's FromContextValue with a specific
-/// tool name, which cannot be expressed with derive macro attributes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "UpConfigMise", skip_serialize, skip_deserialize)]
 pub struct UpConfigNodejs {
     pub backend: UpConfigMise,
     pub params: UpConfigNodejsParams,
@@ -106,28 +104,26 @@ impl UpConfigNodejs {
     }
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for UpConfigNodejs
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<UpConfigMise, S, L> for UpConfigNodejs
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        mut backend: UpConfigMise,
+        original: &feuilletage::ContextValue<S, L>,
         errors: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        // Create backend using FromContextValue, then set the tool name and process it
-        let mut backend: UpConfigMise =
-            feuilletage::FromContextValue::from_context_value(value, errors)?;
         backend.requested_tool = "node".to_string();
         backend.process_from_tag();
-        backend.retain_config_value(value);
+        backend.retain_config_value(original);
 
         backend.add_detect_version_func(detect_version_from_package_json);
         backend.add_detect_version_func(detect_version_from_nvmrc);
         backend.add_post_install_func(remove_mise_reshim_from_bin);
         backend.add_post_install_func(setup_individual_npm_prefix);
 
-        let params = if matches!(value, feuilletage::ContextValue::Object(_, _)) {
+        let params = if matches!(original, feuilletage::ContextValue::Object(_, _)) {
             <UpConfigNodejsParams as feuilletage::FromContextValue<S, L>>::from_context_value(
-                value, errors,
+                original, errors,
             )?
         } else {
             UpConfigNodejsParams::default()
@@ -496,7 +492,8 @@ mod tests {
     use super::*;
 
     fn parse_nodejs(yaml: &str) -> (UpConfigNodejs, feuilletage::ErrorTracker) {
-        let context = feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
         let mut config = feuilletage::Config::default();
         config.load_yaml(yaml, context);
         let mut tracker = feuilletage::ErrorTracker::new();
@@ -539,5 +536,17 @@ mod tests {
             "{:#?}",
             callback_tracker.errors()
         );
+    }
+
+    #[test]
+    fn serialization_still_flattens_backend_and_node_params() {
+        let (nodejs, _) = parse_nodejs("version: 20\nupgrade: true\ninstall_engines: false\n");
+        let value = serde_json::to_value(&nodejs).unwrap();
+
+        assert_eq!(value["version"], "20");
+        assert_eq!(value["upgrade"], true);
+        assert_eq!(value["install_engines"], false);
+        assert!(value.get("backend").is_none());
+        assert!(value.get("params").is_none());
     }
 }

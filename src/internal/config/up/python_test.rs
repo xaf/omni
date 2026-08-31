@@ -204,7 +204,8 @@ mod config_parsing {
     use super::*;
 
     fn parse_python(yaml: &str) -> (UpConfigPython, feuilletage::ErrorTracker) {
-        let context = feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
         let mut config = feuilletage::Config::default();
         config.load_yaml(yaml, context);
         let mut tracker = feuilletage::ErrorTracker::new();
@@ -242,5 +243,18 @@ mod config_parsing {
             "{:#?}",
             callback_tracker.errors()
         );
+    }
+
+    #[test]
+    fn serialization_still_flattens_backend_and_python_params() {
+        let (python, _) =
+            parse_python("version: 3.11\nupgrade: true\npip: [requirements-dev.txt]\n");
+        let value = serde_json::to_value(&python).unwrap();
+
+        assert_eq!(value["version"], "3.11");
+        assert_eq!(value["upgrade"], true);
+        assert_eq!(value["pip"], serde_json::json!(["requirements-dev.txt"]));
+        assert!(value.get("backend").is_none());
+        assert!(value.get("params").is_none());
     }
 }

@@ -30,7 +30,164 @@ use crate::omni_warning;
 static LOCAL_TAP: &str = "omni/local";
 static BREW_UPDATED: OnceCell<bool> = OnceCell::new();
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged)]
+enum HomebrewStringWire {
+    String(String),
+}
+
+impl HomebrewStringWire {
+    fn into_inner(self) -> String {
+        match self {
+            Self::String(value) => value,
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged)]
+enum HomebrewBoolWire {
+    Bool(bool),
+}
+
+impl HomebrewBoolWire {
+    fn into_inner(self) -> bool {
+        match self {
+            Self::Bool(value) => value,
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged)]
+enum HomebrewInstallOptionsWire {
+    Detailed {
+        #[feuilletage(default)]
+        version: Option<HomebrewStringWire>,
+        #[feuilletage(default)]
+        upgrade: Option<HomebrewBoolWire>,
+    },
+    Version(HomebrewStringWire),
+}
+
+impl HomebrewInstallOptionsWire {
+    fn into_parts(self) -> (Option<String>, bool) {
+        match self {
+            Self::Detailed { version, upgrade } => (
+                version.map(HomebrewStringWire::into_inner),
+                upgrade.map(HomebrewBoolWire::into_inner).unwrap_or(false),
+            ),
+            Self::Version(version) => (Some(version.into_inner()), false),
+        }
+    }
+}
+
+fn homebrew_install_options_into_parts(
+    options: Option<HomebrewInstallOptionsWire>,
+) -> (Option<String>, bool) {
+    options
+        .map(HomebrewInstallOptionsWire::into_parts)
+        .unwrap_or((None, false))
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged)]
+enum HomebrewInstallWire {
+    Formula {
+        formula: HomebrewStringWire,
+        #[feuilletage(default)]
+        version: Option<HomebrewStringWire>,
+        #[feuilletage(default)]
+        upgrade: Option<HomebrewBoolWire>,
+    },
+    Cask {
+        cask: HomebrewStringWire,
+        #[feuilletage(default)]
+        version: Option<HomebrewStringWire>,
+        #[feuilletage(default)]
+        upgrade: Option<HomebrewBoolWire>,
+    },
+    Named(HashMap<String, Option<HomebrewInstallOptionsWire>>),
+    Name(HomebrewStringWire),
+}
+
+impl HomebrewInstallWire {
+    fn into_install(self) -> Option<HomebrewInstall> {
+        let (install_type, name, version, upgrade) = match self {
+            Self::Formula {
+                formula,
+                version,
+                upgrade,
+            } => (
+                HomebrewInstallType::Formula,
+                formula.into_inner(),
+                version.map(HomebrewStringWire::into_inner),
+                upgrade.map(HomebrewBoolWire::into_inner).unwrap_or(false),
+            ),
+            Self::Cask {
+                cask,
+                version,
+                upgrade,
+            } => (
+                HomebrewInstallType::Cask,
+                cask.into_inner(),
+                version.map(HomebrewStringWire::into_inner),
+                upgrade.map(HomebrewBoolWire::into_inner).unwrap_or(false),
+            ),
+            Self::Named(mut install) if install.len() == 1 => {
+                let (name, options) = install.drain().next().unwrap();
+                let (version, upgrade) = homebrew_install_options_into_parts(options);
+                (HomebrewInstallType::Formula, name, version, upgrade)
+            }
+            Self::Named(_) => return None,
+            Self::Name(name) => (HomebrewInstallType::Formula, name.into_inner(), None, false),
+        };
+
+        Some(HomebrewInstall {
+            install_type,
+            name,
+            version,
+            upgrade,
+            was_handled: OnceCell::new(),
+        })
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(allow_map(key = "repo", scalar_as = "url"), scalar_as = "repo")]
+struct HomebrewTapWire {
+    repo: HomebrewStringWire,
+    #[feuilletage(default)]
+    url: Option<HomebrewStringWire>,
+    #[feuilletage(default)]
+    upgrade: Option<HomebrewBoolWire>,
+}
+
+impl HomebrewTapWire {
+    fn into_tap(self) -> HomebrewTap {
+        HomebrewTap {
+            name: self.repo.into_inner(),
+            url: self.url.map(HomebrewStringWire::into_inner),
+            upgrade: self
+                .upgrade
+                .map(HomebrewBoolWire::into_inner)
+                .unwrap_or(false),
+            was_handled: OnceCell::new(),
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(scalar_as = "install", array_as = "install")]
+struct HomebrewConfigWire {
+    #[feuilletage(default, allow_single)]
+    install: Vec<HomebrewInstallWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    tap: Vec<HomebrewTapWire>,
+}
+
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "HomebrewConfigWire", skip_serialize, skip_deserialize)]
 pub struct UpConfigHomebrew {
     #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
     pub install: Vec<HomebrewInstall>,
@@ -332,42 +489,25 @@ impl UpConfigHomebrew {
     }
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for UpConfigHomebrew
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<HomebrewConfigWire, S, L> for UpConfigHomebrew
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
-        error_tracker: &mut feuilletage::ErrorTracker,
+    fn from_parsed(
+        parsed: HomebrewConfigWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        _error_tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        // Extract install array
-        let install = if let feuilletage::ContextValue::Object(map, _) = value {
-            if let Some(install_value) = map.get("install") {
-                HomebrewInstall::parse_from_context_value(install_value, error_tracker)
-                    .unwrap_or_default()
-            } else {
-                // Try parsing the whole value as install array
-                HomebrewInstall::parse_from_context_value(value, error_tracker)
-                    .unwrap_or_default()
-            }
-        } else {
-            // If not an object, try parsing as install array
-            HomebrewInstall::parse_from_context_value(value, error_tracker)
-                .unwrap_or_default()
-        };
+        let install: Vec<HomebrewInstall> = parsed
+            .install
+            .into_iter()
+            .filter_map(HomebrewInstallWire::into_install)
+            .collect();
+        let tap = parsed
+            .tap
+            .into_iter()
+            .map(HomebrewTapWire::into_tap)
+            .collect();
 
-        // Extract tap array
-        let tap = if let feuilletage::ContextValue::Object(map, _) = value {
-            if let Some(tap_value) = map.get("tap") {
-                HomebrewTap::parse_from_context_value(tap_value, &install, error_tracker)
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
-
-        // Add implicit taps from install names
         let tap = HomebrewTap::add_implicit_taps(tap, &install);
 
         Ok(UpConfigHomebrew { install, tap })
@@ -687,139 +827,6 @@ impl HomebrewTap {
             }
         }
         taps
-    }
-
-    fn parse_from_context_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        installs: &[HomebrewInstall],
-        error_tracker: &mut feuilletage::ErrorTracker,
-    ) -> Result<Vec<Self>, feuilletage::Error> {
-        #[allow(clippy::mutable_key_type)]
-        let mut taps = BTreeSet::new();
-
-        // Parse taps from the value
-        taps.extend(Self::feuilletage_parse_taps_generic(value, error_tracker).unwrap_or_default());
-
-        // Add implicit taps from install names
-        taps = Self::add_implicit_taps_set(taps, installs);
-
-        Ok(taps.into_iter().collect())
-    }
-
-    fn feuilletage_parse_taps_generic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        error_tracker: &mut feuilletage::ErrorTracker,
-    ) -> Result<Vec<Self>, feuilletage::Error> {
-        let mut parsed_taps = Vec::new();
-
-        match value {
-            feuilletage::ContextValue::Array(arr, _) => {
-                for item in arr.iter() {
-                    if let Some(tap) = Self::feuilletage_parse_tap_generic(None, item, error_tracker) {
-                        parsed_taps.push(tap);
-                    }
-                }
-            }
-            feuilletage::ContextValue::Object(map, _) => {
-                for (tap_name, tap_value) in map {
-                    parsed_taps.push(Self::feuilletage_parse_config_generic(
-                        tap_name.clone(),
-                        tap_value,
-                        error_tracker,
-                    ));
-                }
-            }
-            feuilletage::ContextValue::String(s, _) => {
-                parsed_taps.push(Self {
-                    name: s.clone(),
-                    url: None,
-                    upgrade: false,
-                    was_handled: OnceCell::new(),
-                });
-            }
-            _ => {}
-        }
-
-        Ok(parsed_taps)
-    }
-
-    fn feuilletage_parse_tap_generic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        name: Option<String>,
-        value: &feuilletage::ContextValue<S, L>,
-        error_tracker: &mut feuilletage::ErrorTracker,
-    ) -> Option<Self> {
-        if let Some(name) = name {
-            return Some(Self::feuilletage_parse_config_generic(name, value, error_tracker));
-        }
-
-        match value {
-            feuilletage::ContextValue::String(s, _) => Some(Self {
-                name: s.clone(),
-                url: None,
-                upgrade: false,
-                was_handled: OnceCell::new(),
-            }),
-            feuilletage::ContextValue::Object(map, _) => {
-                if let Some(repo_value) = map.get("repo") {
-                    if let feuilletage::ContextValue::String(repo_name, _) = repo_value {
-                        return Some(Self::feuilletage_parse_config_generic(
-                            repo_name.clone(),
-                            value,
-                            error_tracker,
-                        ));
-                    }
-                    return None;
-                }
-
-                if map.len() == 1 {
-                    let (name, config_value) = map.iter().next().unwrap();
-                    return Some(Self::feuilletage_parse_config_generic(
-                        name.clone(),
-                        config_value,
-                        error_tracker,
-                    ));
-                }
-
-                None
-            }
-            _ => None,
-        }
-    }
-
-    fn feuilletage_parse_config_generic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        name: String,
-        value: &feuilletage::ContextValue<S, L>,
-        _error_tracker: &mut feuilletage::ErrorTracker,
-    ) -> Self {
-        let mut url = None;
-        let mut upgrade = false;
-
-        match value {
-            feuilletage::ContextValue::String(s, _) => {
-                url = Some(s.clone());
-            }
-            feuilletage::ContextValue::Object(map, _) => {
-                if let Some(url_value) = map.get("url") {
-                    if let feuilletage::ContextValue::String(s, _) = url_value {
-                        url = Some(s.clone());
-                    }
-                }
-
-                if let Some(upgrade_value) = map.get("upgrade") {
-                    if let feuilletage::ContextValue::Bool(b, _) = upgrade_value {
-                        upgrade = *b;
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        Self {
-            name,
-            url,
-            upgrade,
-            was_handled: OnceCell::new(),
-        }
     }
 }
 
@@ -1588,119 +1595,122 @@ impl HomebrewInstall {
             None => HomebrewHandled::Unhandled,
         }
     }
+}
 
-    fn parse_from_context_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        error_tracker: &mut feuilletage::ErrorTracker,
-    ) -> Result<Vec<Self>, feuilletage::Error> {
-        let mut installs = Vec::new();
+#[cfg(test)]
+mod feuilletage_projection_tests {
+    use feuilletage::FromContextValue;
 
-        // Try to extract from "install" key if value is an object
-        let formulae_value = if let feuilletage::ContextValue::Object(map, _) = value {
-            if let Some(install_value) = map.get("install") {
-                install_value
-            } else {
-                value
-            }
-        } else {
-            value
-        };
+    use super::*;
 
-        // Parse the formulae
-        installs.extend(Self::feuilletage_parse_formulae_generic(formulae_value, error_tracker).unwrap_or_default());
-
-        Ok(installs)
+    fn parse(yaml: &str) -> (UpConfigHomebrew, feuilletage::ErrorTracker) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let parsed = UpConfigHomebrew::from_context_value(config.root(), &mut tracker).unwrap();
+        (parsed, tracker)
     }
 
-    fn feuilletage_parse_formulae_generic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        _error_tracker: &mut feuilletage::ErrorTracker,
-    ) -> Result<Vec<Self>, feuilletage::Error> {
-        let mut installs = Vec::new();
+    #[test]
+    fn preserves_compact_and_structured_install_forms() {
+        let (compact, compact_tracker) = parse("ripgrep\n");
+        let (structured, structured_tracker) = parse(
+            "install:\n  - jq\n  - ripgrep: 14.1.1\n  - cask: visual-studio-code\n    upgrade: true\n",
+        );
 
-        match value {
-            feuilletage::ContextValue::Array(arr, _) => {
-                for item in arr {
-                    let mut install_type = HomebrewInstallType::Formula;
-                    let mut version = None;
-                    let mut name = None;
-                    let mut upgrade = false;
+        assert_eq!(compact.install.len(), 1);
+        assert_eq!(compact.install[0].name, "ripgrep");
+        assert_eq!(structured.install.len(), 3);
+        assert_eq!(structured.install[0].name, "jq");
+        assert_eq!(structured.install[1].version.as_deref(), Some("14.1.1"));
+        assert_eq!(
+            structured.install[2].install_type,
+            HomebrewInstallType::Cask
+        );
+        assert!(structured.install[2].upgrade);
+        assert!(compact_tracker.errors().is_empty());
+        assert!(structured_tracker.errors().is_empty());
+    }
 
-                    match item {
-                        feuilletage::ContextValue::Object(map, _) => {
-                            // Check for formula/cask key
-                            if let Some(formula_value) = map.get("formula") {
-                                if let feuilletage::ContextValue::String(s, _) = formula_value {
-                                    name = Some(s.clone());
-                                }
-                            } else if let Some(cask_value) = map.get("cask") {
-                                if let feuilletage::ContextValue::String(s, _) = cask_value {
-                                    install_type = HomebrewInstallType::Cask;
-                                    name = Some(s.clone());
-                                }
-                            } else if map.len() == 1 {
-                                // Single key-value pair: key is name, value is config
-                                let (key, rest_value) = map.iter().next().unwrap();
-                                name = Some(key.clone());
+    #[test]
+    fn keeps_valid_entries_and_fresh_callback_state_when_siblings_are_invalid() {
+        let (homebrew, tracker) = parse(
+            "install:\n  - valid-formula\n  - 42\n  - formula: another-formula\n  - cask: 99\ntap:\n  - valid/tap\n  - false\n",
+        );
 
-                                // Parse the rest of config
-                                match rest_value {
-                                    feuilletage::ContextValue::Object(rest_map, _) => {
-                                        if let Some(upgrade_value) = rest_map.get("upgrade") {
-                                            if let feuilletage::ContextValue::Bool(b, _) = upgrade_value {
-                                                upgrade = *b;
-                                            }
-                                        }
+        assert_eq!(
+            homebrew
+                .install
+                .iter()
+                .map(|install| install.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["valid-formula", "another-formula"]
+        );
+        assert_eq!(
+            homebrew
+                .tap
+                .iter()
+                .map(|tap| tap.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["valid/tap"]
+        );
+        assert!(homebrew
+            .install
+            .iter()
+            .all(|install| install.handling() == HomebrewHandled::Unhandled));
+        assert!(homebrew
+            .tap
+            .iter()
+            .all(|tap| tap.handling() == HomebrewHandled::Unhandled));
+        assert!(!tracker.errors().is_empty());
+    }
 
-                                        if let Some(version_value) = rest_map.get("version") {
-                                            if let feuilletage::ContextValue::String(s, _) = version_value {
-                                                version = Some(s.clone());
-                                            }
-                                        }
-                                    }
-                                    feuilletage::ContextValue::String(s, _) => {
-                                        version = Some(s.clone());
-                                    }
-                                    _ => {}
-                                }
-                            }
+    #[test]
+    fn preserves_tap_shorthand_and_structured_forms() {
+        let (homebrew, tracker) = parse(
+            "tap:\n  - simple/tap\n  - scalar/tap: https://example.test/scalar.git\n  - repo: structured/tap\n    url: https://example.test/structured.git\n    upgrade: true\n  - empty/tap:\n",
+        );
 
-                            // Extract upgrade and version from top-level if present
-                            if let Some(upgrade_value) = map.get("upgrade") {
-                                if let feuilletage::ContextValue::Bool(b, _) = upgrade_value {
-                                    upgrade = *b;
-                                }
-                            }
+        assert_eq!(
+            homebrew
+                .tap
+                .iter()
+                .map(|tap| (tap.name.as_str(), tap.url.as_deref(), tap.upgrade))
+                .collect::<Vec<_>>(),
+            vec![
+                ("empty/tap", None, false),
+                ("scalar/tap", Some("https://example.test/scalar.git"), false),
+                ("simple/tap", None, false),
+                (
+                    "structured/tap",
+                    Some("https://example.test/structured.git"),
+                    true,
+                ),
+            ]
+        );
+        assert!(tracker.errors().is_empty());
+    }
 
-                            if let Some(version_value) = map.get("version") {
-                                if let feuilletage::ContextValue::String(s, _) = version_value {
-                                    version = Some(s.clone());
-                                }
-                            }
-                        }
-                        feuilletage::ContextValue::String(s, _) => {
-                            name = Some(s.clone());
-                        }
-                        _ => {}
-                    }
+    #[test]
+    fn adds_implicit_taps_without_changing_serialization() {
+        let (homebrew, tracker) = parse(
+            "install:\n  - owner/repository/formula\ntap:\n  explicit/tap:\n    url: https://example.test/tap.git\n    upgrade: true\n",
+        );
 
-                    if let Some(name) = name {
-                        installs.push(Self {
-                            install_type,
-                            name,
-                            version,
-                            upgrade,
-                            was_handled: OnceCell::new(),
-                        });
-                    }
-                }
-            }
-            feuilletage::ContextValue::String(s, _) => {
-                installs.push(Self::new_formula(s));
-            }
-            _ => {}
-        }
-
-        Ok(installs)
+        assert_eq!(
+            homebrew
+                .tap
+                .iter()
+                .map(|tap| tap.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["explicit/tap", "owner/repository"]
+        );
+        assert_eq!(
+            serde_yaml::to_string(&homebrew).unwrap(),
+            "install:\n- owner/repository/formula\ntap:\n- name: explicit/tap\n  url: https://example.test/tap.git\n  upgrade: true\n- name: owner/repository\n"
+        );
+        assert!(tracker.errors().is_empty());
     }
 }

@@ -28,7 +28,13 @@ use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 // ============================================================================
 
 /// Wrapper around UpConfigMise that sets the bash-specific tool_url.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "finalize_up_config_bash",
+    skip_serialize,
+    skip_deserialize
+)]
 pub struct UpConfigBash(pub UpConfigMise);
 
 impl Default for UpConfigBash {
@@ -39,19 +45,15 @@ impl Default for UpConfigBash {
     }
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for UpConfigBash
-{
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Result<Self, feuilletage::Error> {
-        let mut mise: UpConfigMise = feuilletage::FromContextValue::from_context_value(value, tracker)?;
-        mise.tool_url = Some("https://github.com/xaf/asdf-bash".into());
-        mise.requested_tool = "bash".to_string();
-        mise.process_from_tag();
-        Ok(UpConfigBash(mise))
-    }
+fn finalize_up_config_bash<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    config: &mut UpConfigBash,
+    _value: &feuilletage::ContextValue<S, L>,
+    _tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    config.0.tool_url = Some("https://github.com/xaf/asdf-bash".into());
+    config.0.requested_tool = "bash".to_string();
+    config.0.process_from_tag();
+    Ok(())
 }
 
 impl Serialize for UpConfigBash {
@@ -538,4 +540,49 @@ fn ordered_configs(configs: &[UpConfigTool]) -> Vec<&UpConfigTool> {
         .iter()
         .sorted_by(|a, b| a.sort_value().cmp(&b.sort_value()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use feuilletage::FromContextValue;
+
+    use super::*;
+
+    fn parse_bash(yaml: &str) -> (UpConfigBash, feuilletage::ErrorTracker) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let bash = UpConfigBash::from_context_value(config.root(), &mut tracker).unwrap();
+        (bash, tracker)
+    }
+
+    #[test]
+    fn bash_scalar_and_object_forms_apply_backend_identity() {
+        for (yaml, version) in [
+            ("5.2", "5.2"),
+            ("version: latest\nupgrade: true\n", "latest"),
+        ] {
+            let (bash, tracker) = parse_bash(yaml);
+
+            assert_eq!(bash.0.requested_tool, "bash");
+            assert_eq!(bash.0.version, version);
+            assert_eq!(
+                bash.0.tool_url.as_deref(),
+                Some("https://github.com/xaf/asdf-bash")
+            );
+            assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+        }
+    }
+
+    #[test]
+    fn bash_serialization_remains_transparent() {
+        let (bash, _) = parse_bash("version: 5.2\nupgrade: true\n");
+        let value = serde_json::to_value(&bash).unwrap();
+
+        assert_eq!(value["version"], "5.2");
+        assert_eq!(value["upgrade"], true);
+        assert!(value.get("0").is_none());
+    }
 }

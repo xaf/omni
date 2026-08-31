@@ -36,20 +36,17 @@ const MIN_VERSION_VENV: Version = Version::new(3, 3, 0);
 
 #[derive(Debug, Clone, feuilletage::Config)]
 #[feuilletage(untagged, skip_serialize)]
+#[derive(Default)]
 pub enum PipConfig {
     #[feuilletage(variant = false)]
     Disabled,
     #[feuilletage(variant = true, variant = "auto")]
+    #[default]
     Auto,
     #[feuilletage(allow_single)]
     Files(Vec<String>),
 }
 
-impl Default for PipConfig {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl PipConfig {
     fn is_auto(&self) -> bool {
@@ -78,7 +75,8 @@ pub struct UpConfigPythonParams {
     pub pip: PipConfig,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "UpConfigMise", skip_serialize, skip_deserialize)]
 pub struct UpConfigPython {
     pub backend: UpConfigMise,
     pub params: UpConfigPythonParams,
@@ -104,26 +102,24 @@ impl Serialize for UpConfigPython {
     }
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for UpConfigPython
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<UpConfigMise, S, L> for UpConfigPython
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        mut backend: UpConfigMise,
+        original: &feuilletage::ContextValue<S, L>,
         errors: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        // Create backend using FromContextValue, then set the tool name and process it
-        let mut backend: UpConfigMise =
-            feuilletage::FromContextValue::from_context_value(value, errors)?;
         backend.requested_tool = "python".to_string();
         backend.process_from_tag();
-        backend.retain_config_value(value);
+        backend.retain_config_value(original);
         backend.add_detect_version_func(detect_version_from_pyproject_toml);
         backend.add_post_install_func(setup_python_venv);
         backend.add_post_install_func(setup_python_requirements);
 
-        let params = if matches!(value, feuilletage::ContextValue::Object(_, _)) {
+        let params = if matches!(original, feuilletage::ContextValue::Object(_, _)) {
             <UpConfigPythonParams as feuilletage::FromContextValue<S, L>>::from_context_value(
-                value, errors,
+                original, errors,
             )?
         } else {
             UpConfigPythonParams::default()

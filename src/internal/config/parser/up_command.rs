@@ -82,6 +82,7 @@ impl Default for UpCommandConfig {
 /// All fields are restricted to system and user levels only (mutable_by = ["system", "user"]).
 #[derive(Debug, Clone, feuilletage::Config)]
 #[feuilletage(mutable_by = ["system", "user"])]
+#[derive(Default)]
 pub(crate) struct UpCommandOperationConfig {
     #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub allowed: Vec<String>,
@@ -102,18 +103,6 @@ pub(crate) struct UpCommandOperationConfig {
     pub github_release: UpCommandOperationGithubReleaseConfig,
 }
 
-impl Default for UpCommandOperationConfig {
-    fn default() -> Self {
-        Self {
-            allowed: Vec::new(),
-            sources: Vec::new(),
-            mise: UpCommandOperationMiseConfig::default(),
-            cargo_install: UpCommandOperationCargoInstallConfig::default(),
-            go_install: UpCommandOperationGoInstallConfig::default(),
-            github_release: UpCommandOperationGithubReleaseConfig::default(),
-        }
-    }
-}
 
 impl UpCommandOperationConfig {
     pub fn is_operation_allowed(&self, operation: &str) -> bool {
@@ -157,6 +146,7 @@ impl feuilletage::IsEmpty for UpCommandOperationConfig {
 /// Contains HashMap<String, String> for default_plugin_sources which is now supported by feuilletage.
 #[derive(Debug, Clone, feuilletage::Config)]
 #[feuilletage(mutable_by = ["system", "user"])]
+#[derive(Default)]
 pub(crate) struct UpCommandOperationMiseConfig {
     #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub backends: Vec<String>,
@@ -168,15 +158,6 @@ pub(crate) struct UpCommandOperationMiseConfig {
     pub default_plugin_sources: HashMap<String, String>,
 }
 
-impl Default for UpCommandOperationMiseConfig {
-    fn default() -> Self {
-        Self {
-            backends: Vec::new(),
-            sources: Vec::new(),
-            default_plugin_sources: HashMap::new(),
-        }
-    }
-}
 
 impl feuilletage::IsEmpty for UpCommandOperationMiseConfig {
     fn is_empty(&self) -> bool {
@@ -191,16 +172,12 @@ impl feuilletage::IsEmpty for UpCommandOperationMiseConfig {
 /// All fields are restricted to system and user levels only (mutable_by = ["system", "user"]).
 #[derive(Debug, Clone, feuilletage::Config)]
 #[feuilletage(mutable_by = ["system", "user"])]
+#[derive(Default)]
 pub(crate) struct UpCommandOperationCargoInstallConfig {
     #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub crates: Vec<String>,
 }
 
-impl Default for UpCommandOperationCargoInstallConfig {
-    fn default() -> Self {
-        Self { crates: Vec::new() }
-    }
-}
 
 impl feuilletage::IsEmpty for UpCommandOperationCargoInstallConfig {
     fn is_empty(&self) -> bool {
@@ -213,18 +190,12 @@ impl feuilletage::IsEmpty for UpCommandOperationCargoInstallConfig {
 /// All fields are restricted to system and user levels only (mutable_by = ["system", "user"]).
 #[derive(Debug, Clone, feuilletage::Config)]
 #[feuilletage(mutable_by = ["system", "user"])]
+#[derive(Default)]
 pub struct UpCommandOperationGoInstallConfig {
     #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub sources: Vec<String>,
 }
 
-impl Default for UpCommandOperationGoInstallConfig {
-    fn default() -> Self {
-        Self {
-            sources: Vec::new(),
-        }
-    }
-}
 
 impl feuilletage::IsEmpty for UpCommandOperationGoInstallConfig {
     fn is_empty(&self) -> bool {
@@ -237,18 +208,12 @@ impl feuilletage::IsEmpty for UpCommandOperationGoInstallConfig {
 /// All fields are restricted to system and user levels only (mutable_by = ["system", "user"]).
 #[derive(Debug, Clone, feuilletage::Config)]
 #[feuilletage(mutable_by = ["system", "user"])]
+#[derive(Default)]
 pub struct UpCommandOperationGithubReleaseConfig {
     #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub repositories: Vec<String>,
 }
 
-impl Default for UpCommandOperationGithubReleaseConfig {
-    fn default() -> Self {
-        Self {
-            repositories: Vec::new(),
-        }
-    }
-}
 
 impl feuilletage::IsEmpty for UpCommandOperationGithubReleaseConfig {
     fn is_empty(&self) -> bool {

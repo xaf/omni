@@ -19,6 +19,7 @@ use crate::internal::git::package_root_path;
 /// We still need manual `serde::Deserialize` for compatibility with the existing
 /// codebase that uses serde for some operations.
 #[derive(Debug, Clone, feuilletage::Config)]
+#[derive(Default)]
 pub struct PathConfig {
     #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub append: Vec<PathEntryConfig>,
@@ -27,15 +28,6 @@ pub struct PathConfig {
     pub prepend: Vec<PathEntryConfig>,
 }
 
-
-impl Default for PathConfig {
-    fn default() -> Self {
-        Self {
-            append: Vec::new(),
-            prepend: Vec::new(),
-        }
-    }
-}
 
 /// PathEntryConfig using feuilletage's derive macro.
 ///
@@ -49,6 +41,7 @@ impl Default for PathConfig {
 /// Note: The `full_path` field is computed and uses `#[feuilletage(skip)]` to exclude
 /// it from both serialization and deserialization.
 #[derive(Debug, Clone, PartialEq, feuilletage::Config)]
+#[derive(Default)]
 pub struct PathEntryConfig {
     #[feuilletage(default = "String::new()")]
     pub path: String,
@@ -233,16 +226,6 @@ impl PathEntryConfig {
                     .error(ConfigErrorKind::InvalidValueType);
                 None
             }
-        }
-    }
-}
-
-impl Default for PathEntryConfig {
-    fn default() -> Self {
-        Self {
-            path: String::new(),
-            package: None,
-            full_path: String::new(),
         }
     }
 }

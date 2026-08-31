@@ -1,17 +1,128 @@
 use super::*;
 
+mod asset_name_matcher_from_context_value {
+    use feuilletage::FromContextValue;
+
+    use super::*;
+
+    fn parse(
+        yaml: &str,
+    ) -> (
+        Result<AssetNameMatcher, feuilletage::Error>,
+        feuilletage::ErrorTracker,
+    ) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let result = AssetNameMatcher::from_context_value(config.root(), &mut tracker);
+        (result, tracker)
+    }
+
+    #[test]
+    fn accepts_string_array_and_object_forms() {
+        let (string, tracker) = parse("|-\n  *.tar.gz\n  *.zip\n");
+        let string = string.unwrap();
+        assert_eq!(string.patterns, vec!["*.tar.gz", "*.zip"]);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+
+        let (array, tracker) = parse("['*.tar.gz', 42, '  ', '*.zip']");
+        let array = array.unwrap();
+        assert_eq!(array.patterns, vec!["*.tar.gz", "*.zip"]);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+
+        let yaml = format!(
+            "os: {}\narch: {}\npatterns: |-\n  *.tar.gz\n  *.zip\n",
+            current_os(),
+            current_arch()
+        );
+        let (object, tracker) = parse(&yaml);
+        let object = object.unwrap();
+        assert!(object.enabled());
+        assert_eq!(object.patterns, vec!["*.tar.gz", "*.zip"]);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+
+        let (object_array, tracker) = parse("patterns: ['*.tar.gz', '  ', '*.zip']\n");
+        let object_array = object_array.unwrap();
+        assert_eq!(object_array.patterns, vec!["*.tar.gz", "*.zip"]);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn os_and_arch_mismatches_disable_matcher() {
+        for yaml in [
+            "os: definitely-not-this-os\npatterns: '*'\n",
+            "arch: definitely-not-this-arch\npatterns: '*'\n",
+        ] {
+            let (matcher, tracker) = parse(yaml);
+            let matcher = matcher.unwrap();
+            assert!(!matcher.enabled());
+            assert!(!matcher.matches("anything"));
+            assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+        }
+    }
+
+    #[test]
+    fn preserves_serialized_shape_without_runtime_state() {
+        let yaml = format!(
+            "os: definitely-not-this-os\narch: {}\npatterns: |\n  *.tar.gz\n  *.zip\n",
+            current_arch(),
+        );
+        let (matcher, tracker) = parse(&yaml);
+        let matcher = matcher.unwrap();
+        assert!(!matcher.enabled());
+
+        assert_eq!(
+            serde_json::to_value(matcher).unwrap(),
+            serde_json::json!({
+                "os": "definitely-not-this-os",
+                "arch": current_arch(),
+                "patterns": ["*.tar.gz", "*.zip"]
+            })
+        );
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn preserves_top_level_and_nested_diagnostics() {
+        let (invalid, tracker) = parse("true");
+        assert!(matches!(
+            invalid,
+            Err(feuilletage::Error::TypeMismatch {
+                expected,
+                actual,
+                ..
+            }) if expected == "string, array, or object" && actual == "bool"
+        ));
+        assert_eq!(tracker.errors().len(), 1);
+
+        let (invalid, tracker) = parse("patterns: true\n");
+        assert!(matches!(
+            invalid,
+            Err(feuilletage::Error::TypeMismatch { .. })
+        ));
+        let diagnostics = format!("{:#?}", tracker.errors());
+        assert!(diagnostics.contains("patterns"), "{diagnostics}");
+        assert!(diagnostics.contains("string or array"), "{diagnostics}");
+    }
+}
+
 mod multi_from_context_value {
     use super::*;
-    use feuilletage::Config as FeuilletageConfig;
     use crate::internal::config::FeuilletageConfigContext;
+    use crate::internal::config::FeuilletageConfigLevel;
+    use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
     use crate::internal::config::FeuilletageErrorTracker;
     use crate::internal::config::FeuilletageFromConfigValue;
-    use crate::internal::config::FeuilletageConfigLevel;
-    use crate::internal::config::FeuilletageConfigSource;
+    use feuilletage::Config as FeuilletageConfig;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
-        let ctx = FeuilletageConfigContext::new(FeuilletageConfigSource::Programmatic, FeuilletageConfigLevel::User);
+        let ctx = FeuilletageConfigContext::new(
+            FeuilletageConfigSource::Programmatic,
+            FeuilletageConfigLevel::User,
+        );
         let mut config = FeuilletageConfig::default();
         config.load_yaml(yaml, ctx);
         config.root().clone()
@@ -152,16 +263,19 @@ mod multi_from_context_value {
 
 mod single_from_context_value {
     use super::*;
-    use feuilletage::Config as FeuilletageConfig;
     use crate::internal::config::FeuilletageConfigContext;
+    use crate::internal::config::FeuilletageConfigLevel;
+    use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
     use crate::internal::config::FeuilletageErrorTracker;
     use crate::internal::config::FeuilletageFromConfigValue;
-    use crate::internal::config::FeuilletageConfigLevel;
-    use crate::internal::config::FeuilletageConfigSource;
+    use feuilletage::Config as FeuilletageConfig;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
-        let ctx = FeuilletageConfigContext::new(FeuilletageConfigSource::Programmatic, FeuilletageConfigLevel::User);
+        let ctx = FeuilletageConfigContext::new(
+            FeuilletageConfigSource::Programmatic,
+            FeuilletageConfigLevel::User,
+        );
         let mut config = FeuilletageConfig::default();
         config.load_yaml(yaml, ctx);
         config.root().clone()
@@ -884,18 +998,21 @@ mod immutable_filtering {
     use super::*;
     use crate::internal::cache::github_release::GithubReleasesSelector;
     use crate::internal::cache::github_release::{GithubReleaseVersion, GithubReleases};
-    use crate::internal::testutils::run_with_env;
-    use feuilletage::Config as FeuilletageConfig;
     use crate::internal::config::FeuilletageConfigContext;
+    use crate::internal::config::FeuilletageConfigLevel;
+    use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
     use crate::internal::config::FeuilletageErrorTracker;
     use crate::internal::config::FeuilletageFromConfigValue;
-    use crate::internal::config::FeuilletageConfigLevel;
-    use crate::internal::config::FeuilletageConfigSource;
+    use crate::internal::testutils::run_with_env;
+    use feuilletage::Config as FeuilletageConfig;
     use time::OffsetDateTime;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
-        let ctx = FeuilletageConfigContext::new(FeuilletageConfigSource::Programmatic, FeuilletageConfigLevel::User);
+        let ctx = FeuilletageConfigContext::new(
+            FeuilletageConfigSource::Programmatic,
+            FeuilletageConfigLevel::User,
+        );
         let mut config = FeuilletageConfig::default();
         config.load_yaml(yaml, ctx);
         config.root().clone()
@@ -1003,11 +1120,12 @@ mod immutable_filtering {
             let yaml2 = r#"{"repository": "owner/repo"}"#;
             let config_value2 = parse_yaml(yaml2);
             let mut tracker2 = FeuilletageErrorTracker::new();
-            let config2 = <UpConfigGithubRelease as FeuilletageFromConfigValue>::from_context_value(
-                &config_value2,
-                &mut tracker2,
-            )
-            .unwrap();
+            let config2 =
+                <UpConfigGithubRelease as FeuilletageFromConfigValue>::from_context_value(
+                    &config_value2,
+                    &mut tracker2,
+                )
+                .unwrap();
             assert_eq!(config2.repository, "owner/repo");
             assert!(!config2.immutable);
         });

@@ -16,11 +16,11 @@ use crate::internal::cache::utils::Empty;
 /// (serializes/deserializes as array directly, not as struct).
 #[derive(Debug, Clone, feuilletage::Config)]
 #[feuilletage(transparent, skip_serialize, skip_deserialize)]
+#[derive(Default)]
 pub struct ShellAliasesConfig {
     #[feuilletage(default)]
     pub aliases: Vec<ShellAliasConfig>,
 }
-
 impl Empty for ShellAliasesConfig {
     fn is_empty(&self) -> bool {
         self.aliases.is_empty()
@@ -57,13 +57,6 @@ impl<'de> Deserialize<'de> for ShellAliasesConfig {
     }
 }
 
-impl Default for ShellAliasesConfig {
-    fn default() -> Self {
-        Self {
-            aliases: Vec::new(),
-        }
-    }
-}
 
 /// ShellAliasConfig using feuilletage's derive macro.
 ///
@@ -71,19 +64,11 @@ impl Default for ShellAliasesConfig {
 /// - `FromContextValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` and `serde::Deserialize` implementations
 #[derive(Debug, Clone, feuilletage::Config)]
+#[derive(Default)]
 pub struct ShellAliasConfig {
     #[feuilletage(default = "String::new()", skip_if_empty)]
     pub alias: String,
 
     #[feuilletage(skip_if_empty)]
     pub target: Option<String>,
-}
-
-impl Default for ShellAliasConfig {
-    fn default() -> Self {
-        Self {
-            alias: String::new(),
-            target: None,
-        }
-    }
 }

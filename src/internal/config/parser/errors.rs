@@ -15,7 +15,9 @@ use crate::internal::user_interface::colors::StringColor;
 /// This is used to store context information for error messages.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
+#[derive(Default)]
 pub enum Value {
+    #[default]
     Null,
     Bool(bool),
     Integer(i64),
@@ -50,11 +52,6 @@ impl Value {
     }
 }
 
-impl Default for Value {
-    fn default() -> Self {
-        Value::Null
-    }
-}
 
 impl Eq for Value {}
 

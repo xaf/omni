@@ -12,7 +12,8 @@ use crate::internal::commands::utils::abs_path_from_path;
 // EnvConfig - top-level wrapper
 // ============================================================================
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "EnvConfigWire", skip_serialize, skip_deserialize)]
 pub struct EnvConfig {
     pub operations: Vec<EnvOperationConfig>,
 }
@@ -56,27 +57,19 @@ impl feuilletage::IsEmpty for EnvConfig {
     }
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for EnvConfig
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<EnvConfigWire, S, L> for EnvConfig
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
-        tracker: &mut feuilletage::ErrorTracker,
+    fn from_parsed(
+        parsed: EnvConfigWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        _tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        if matches!(value, feuilletage::ContextValue::Null(_)) {
-            return Ok(Self::default());
-        }
-
-        // Apply the transform to normalize the input
-        let mut transformed = value.clone();
-        env_entries_transform(&mut transformed)?;
-
-        // Parse as Vec<EnvVarConfig>
-        let entries: Vec<EnvVarConfig> =
-            feuilletage::FromContextValue::from_context_value(&transformed, tracker)?;
-
-        // Flatten to operations
-        let operations = entries.iter().flat_map(|e| e.to_operations()).collect();
+        let operations = parsed
+            .0
+            .iter()
+            .flat_map(EnvVarConfig::to_operations)
+            .collect();
 
         Ok(Self { operations })
     }
@@ -121,73 +114,186 @@ impl Serialize for EnvOperationConfig {
 }
 
 // ============================================================================
-// EnvOpValue - value+type pair with manual FromContextValue
+// EnvOpValue - value+type pair
 // ============================================================================
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, feuilletage::Config)]
+#[feuilletage(parse_as = "EnvOpValueWire", skip_serialize, skip_deserialize)]
 struct EnvOpValue {
     value: Option<String>,
     value_type: String,
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for EnvOpValue
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<EnvOpValueWire, S, L> for EnvOpValue
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        parsed: EnvOpValueWire,
+        _original: &feuilletage::ContextValue<S, L>,
         tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        match value {
-            feuilletage::ContextValue::Null(_) => Ok(EnvOpValue {
-                value: None,
-                value_type: "text".to_string(),
-            }),
-            feuilletage::ContextValue::Object(table, _) => {
-                let parsed_value = if let Some(value_cv) = table.get("value") {
-                    match value_cv {
-                        feuilletage::ContextValue::Null(_) => None,
-                        _ => Some(coerce_to_string(value_cv, tracker)?),
-                    }
+        let (value, value_type) = match parsed {
+            EnvOpValueWire::Fields(fields) => (
+                fields.value.into_string(),
+                if fields.type_was_null {
+                    return Err(env_value_type_mismatch(tracker, "null"));
                 } else {
-                    None
-                };
-                let vtype = if let Some(type_cv) = table.get("type") {
-                    match type_cv {
-                        feuilletage::ContextValue::String(s, _) if s == "text" || s == "path" => {
-                            s.clone()
-                        }
-                        feuilletage::ContextValue::String(s, _) => {
-                            return Err(feuilletage::Error::InvalidValue {
-                                path: tracker.current_path(),
-                                message: format!("type must be 'text' or 'path', got '{}'", s),
-                            });
-                        }
-                        _ => {
-                            return Err(feuilletage::Error::TypeMismatch {
-                                path: tracker.current_path(),
-                                expected: "string".to_string(),
-                                actual: type_cv.type_name().to_string(),
-                            });
-                        }
-                    }
-                } else {
-                    "text".to_string()
-                };
-                Ok(EnvOpValue {
-                    value: parsed_value,
-                    value_type: vtype,
-                })
+                    fields.value_type.into_string(tracker)?
+                },
+            ),
+            EnvOpValueWire::Scalar(value) => (value.into_string(), "text".to_string()),
+            EnvOpValueWire::InvalidArray => {
+                return Err(feuilletage::Error::TypeMismatch {
+                    path: tracker.current_path(),
+                    expected: "scalar value".to_string(),
+                    actual: "array".to_string(),
+                });
             }
-            // Scalar value -> coerce to string
-            _ => {
-                let s = coerce_to_string(value, tracker)?;
-                Ok(EnvOpValue {
-                    value: Some(s),
-                    value_type: "text".to_string(),
-                })
-            }
+        };
+
+        Ok(Self { value, value_type })
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum EnvOpValueWire {
+    Fields(EnvOpValueFieldsWire),
+    Scalar(EnvScalarWire),
+    #[feuilletage(variant = predicate("env_value_is_array"))]
+    InvalidArray,
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transform = "self::normalize_env_op_value_fields_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct EnvOpValueFieldsWire {
+    #[feuilletage(default)]
+    value: EnvScalarWire,
+    #[feuilletage(default, rename = "type")]
+    value_type: EnvValueTypeWire,
+    #[feuilletage(default, rename = "__omni_env_type_was_null")]
+    type_was_null: bool,
+}
+
+fn normalize_env_op_value_fields_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    let feuilletage::ContextValue::Object(fields, _) = value else {
+        return Ok(());
+    };
+
+    fields.shift_remove("__omni_env_type_was_null");
+    let Some(feuilletage::ContextValue::Null(context)) = fields.get("type") else {
+        return Ok(());
+    };
+    let context = context.clone();
+    fields.shift_remove("type");
+    fields.insert(
+        "__omni_env_type_was_null".to_string(),
+        feuilletage::ContextValue::bool(true, context),
+    );
+    Ok(())
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[derive(Default)]
+enum EnvScalarWire {
+    #[feuilletage(variant = null)]
+    #[default]
+    Null,
+    #[feuilletage(variant = any_bool)]
+    Bool(bool),
+    #[feuilletage(variant = any_int)]
+    Int(i64),
+    #[feuilletage(variant = any_float)]
+    Float(f64),
+    #[feuilletage(variant = any_string)]
+    String(String),
+}
+
+
+impl EnvScalarWire {
+    fn into_string(self) -> Option<String> {
+        match self {
+            Self::Null => None,
+            Self::Bool(value) => Some(value.to_string()),
+            Self::Int(value) => Some(value.to_string()),
+            Self::Float(value) => Some(value.to_string()),
+            Self::String(value) => Some(value),
         }
     }
+}
+
+#[derive(Debug, Default, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum EnvValueTypeWire {
+    #[default]
+    #[feuilletage(variant = "text")]
+    Text,
+    #[feuilletage(variant = "path")]
+    Path,
+    #[feuilletage(variant = any_string)]
+    InvalidString(String),
+    #[feuilletage(variant = any_bool)]
+    InvalidBool,
+    #[feuilletage(variant = any_int)]
+    InvalidInt,
+    #[feuilletage(variant = any_float)]
+    InvalidFloat,
+    #[feuilletage(variant = predicate("env_value_is_array"))]
+    InvalidArray,
+    #[feuilletage(variant = predicate("env_value_is_object"))]
+    InvalidObject,
+}
+
+impl EnvValueTypeWire {
+    fn into_string(
+        self,
+        tracker: &feuilletage::ErrorTracker,
+    ) -> Result<String, feuilletage::Error> {
+        match self {
+            Self::Text => Ok("text".to_string()),
+            Self::Path => Ok("path".to_string()),
+            Self::InvalidString(value) => Err(feuilletage::Error::InvalidValue {
+                path: tracker.current_path(),
+                message: format!("type must be 'text' or 'path', got '{}'", value),
+            }),
+            Self::InvalidBool => Err(env_value_type_mismatch(tracker, "bool")),
+            Self::InvalidInt => Err(env_value_type_mismatch(tracker, "int")),
+            Self::InvalidFloat => Err(env_value_type_mismatch(tracker, "float")),
+            Self::InvalidArray => Err(env_value_type_mismatch(tracker, "array")),
+            Self::InvalidObject => Err(env_value_type_mismatch(tracker, "object")),
+        }
+    }
+}
+
+fn env_value_type_mismatch(
+    tracker: &feuilletage::ErrorTracker,
+    actual: &str,
+) -> feuilletage::Error {
+    feuilletage::Error::TypeMismatch {
+        path: tracker.current_path(),
+        expected: "string".to_string(),
+        actual: actual.to_string(),
+    }
+}
+
+fn env_value_is_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+) -> bool {
+    matches!(value, feuilletage::ContextValue::Array(_, _))
+}
+
+fn env_value_is_object<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+) -> bool {
+    matches!(value, feuilletage::ContextValue::Object(_, _))
 }
 
 // ============================================================================
@@ -275,7 +381,9 @@ impl EnvVarConfig {
         value.map(|v| {
             if value_type == "path" {
                 if let Some(ref source_path) = self.source_path {
-                    let parent = source_path.parent().map(|p| p.to_string_lossy().to_string());
+                    let parent = source_path
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string());
                     abs_path_from_path(v, parent.as_deref())
                         .to_string_lossy()
                         .to_string()
@@ -293,6 +401,15 @@ impl EnvVarConfig {
 // Transform: normalizes input for Vec<EnvVarConfig> parsing
 // ============================================================================
 
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    transform = "self::env_entries_transform",
+    skip_serialize,
+    skip_deserialize
+)]
+struct EnvConfigWire(Vec<EnvVarConfig>);
+
 /// Operation keys recognized in env var config objects.
 const OPERATION_KEYS: &[&str] = &["set", "prepend", "append", "remove", "prefix", "suffix"];
 
@@ -301,13 +418,19 @@ const OPERATION_KEYS: &[&str] = &["set", "prepend", "append", "remove", "prefix"
 /// - If input is Object: convert to sorted array of single-key objects
 /// - For each array element that is a single-key object `{KEY: value}`:
 ///   - Extract key -> inject as `name` field
-///   - If value is null: create `{name: KEY, set: [{value: null}]}`
+///   - If value is null: create `{name: KEY, set: [null]}`
 ///   - If value is scalar: create `{name: KEY, set: value}`
 ///   - If value is object with op keys: merge and wrap null op values
 ///   - If value is object without op keys: merge as value/type fields
 fn env_entries_transform<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
     value: &mut feuilletage::ContextValue<S, L>,
+    context: &feuilletage::Context<S, L>,
 ) -> Result<(), feuilletage::Error> {
+    if value.is_null() {
+        *value = feuilletage::ContextValue::array(Vec::new(), context.clone());
+        return Ok(());
+    }
+
     // Step 1: If input is an Object, convert to sorted array of single-key objects
     if matches!(value, feuilletage::ContextValue::Object(_, _)) {
         // Clone the value to avoid borrow conflict (read from clone, write to original)
@@ -360,10 +483,11 @@ fn normalize_env_entry<S: feuilletage::CustomSource, L: feuilletage::CustomLevel
 
     match var_value {
         feuilletage::ContextValue::Null(_) => {
-            // null -> unset: wrap as {set: [{value: null}]} to prevent feuilletage
-            // from treating null as "missing field" (which would use default)
-            let null_wrapped = wrap_null_value(ctx);
-            let set_array = feuilletage::ContextValue::array(vec![null_wrapped], ctx.clone());
+            // Keep the operation field non-null so its default does not discard the unset.
+            let set_array = feuilletage::ContextValue::array(
+                vec![feuilletage::ContextValue::null(ctx.clone())],
+                ctx.clone(),
+            );
             obj.insert("set".to_string(), set_array);
         }
         feuilletage::ContextValue::Object(inner_table, _) => {
@@ -376,11 +500,12 @@ fn normalize_env_entry<S: feuilletage::CustomSource, L: feuilletage::CustomLevel
                 for (k, v) in inner_table {
                     if OPERATION_KEYS.contains(&k.as_str()) {
                         if matches!(v, feuilletage::ContextValue::Null(_)) {
-                            // Wrap null operation value to preserve it
-                            let null_wrapped = wrap_null_value(ctx);
                             obj.insert(
                                 k.clone(),
-                                feuilletage::ContextValue::array(vec![null_wrapped], ctx.clone()),
+                                feuilletage::ContextValue::array(
+                                    vec![feuilletage::ContextValue::null(ctx.clone())],
+                                    ctx.clone(),
+                                ),
                             );
                         } else {
                             obj.insert(k.clone(), v.clone());
@@ -403,39 +528,6 @@ fn normalize_env_entry<S: feuilletage::CustomSource, L: feuilletage::CustomLevel
     }
 
     obj
-}
-
-/// Create a `{value: null}` ContextValue object to wrap null values.
-fn wrap_null_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-    ctx: &feuilletage::Context<S, L>,
-) -> feuilletage::ContextValue<S, L> {
-    let mut wrapped = indexmap::IndexMap::new();
-    wrapped.insert(
-        "value".to_string(),
-        feuilletage::ContextValue::null(ctx.clone()),
-    );
-    feuilletage::ContextValue::object(wrapped, ctx.clone())
-}
-
-// ============================================================================
-// Helper: coerce ContextValue to String
-// ============================================================================
-
-fn coerce_to_string<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-    value: &feuilletage::ContextValue<S, L>,
-    tracker: &mut feuilletage::ErrorTracker,
-) -> Result<String, feuilletage::Error> {
-    match value {
-        feuilletage::ContextValue::String(s, _) => Ok(s.clone()),
-        feuilletage::ContextValue::Int(i, _) => Ok(i.to_string()),
-        feuilletage::ContextValue::Float(f, _) => Ok(f.to_string()),
-        feuilletage::ContextValue::Bool(b, _) => Ok(b.to_string()),
-        _ => Err(feuilletage::Error::TypeMismatch {
-            path: tracker.current_path(),
-            expected: "scalar value".to_string(),
-            actual: value.type_name().to_string(),
-        }),
-    }
 }
 
 // ============================================================================
@@ -492,5 +584,217 @@ impl EnvOperationEnum {
 
     pub fn is_default(other: &EnvOperationEnum) -> bool {
         *other == EnvOperationEnum::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use feuilletage::FromContextValue;
+
+    use super::*;
+
+    fn parse_env_with_source(
+        yaml: &str,
+        source: feuilletage::Source,
+    ) -> (
+        Result<EnvConfig, feuilletage::Error>,
+        feuilletage::ErrorTracker,
+    ) {
+        let context = feuilletage::Context::new(source, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let result = EnvConfig::from_context_value(config.root(), &mut tracker);
+        (result, tracker)
+    }
+
+    #[test]
+    fn preserves_null_scalar_and_object_values() {
+        let (env, tracker) = parse_env_with_source(
+            "UNSET: null\nINT: 42\nBOOL: true\nOBJECT:\n  value: 3.5\n  type: text\n",
+            feuilletage::Source::Programmatic,
+        );
+        let env = env.unwrap();
+
+        let values = env
+            .operations
+            .iter()
+            .map(|op| (op.name.as_str(), op.value.as_deref()))
+            .collect::<HashMap<_, _>>();
+        assert_eq!(values["UNSET"], None);
+        assert_eq!(values["INT"], Some("42"));
+        assert_eq!(values["BOOL"], Some("true"));
+        assert_eq!(values["OBJECT"], Some("3.5"));
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn preserves_array_form_and_one_to_many_scalar_coercions() {
+        let (env, tracker) = parse_env_with_source(
+            "- SECOND:\n    append:\n      - null\n      - true\n      - 42\n      - 3.5\n      - text\n- FIRST: first\n",
+            feuilletage::Source::Programmatic,
+        );
+        let env = env.unwrap();
+
+        assert_eq!(
+            env.operations
+                .iter()
+                .map(|op| (op.name.as_str(), op.operation, op.value.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("SECOND", EnvOperationEnum::Append, None),
+                ("SECOND", EnvOperationEnum::Append, Some("true")),
+                ("SECOND", EnvOperationEnum::Append, Some("42")),
+                ("SECOND", EnvOperationEnum::Append, Some("3.5")),
+                ("SECOND", EnvOperationEnum::Append, Some("text")),
+                ("FIRST", EnvOperationEnum::Set, Some("first")),
+            ]
+        );
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn accepts_null_top_level_as_empty_env() {
+        let (env, tracker) = parse_env_with_source("null\n", feuilletage::Source::Programmatic);
+
+        assert!(env.unwrap().operations.is_empty());
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn resolves_path_values_relative_to_source_file() {
+        let source = PathBuf::from("/tmp/omni-config/config.yaml");
+        let (env, tracker) = parse_env_with_source(
+            "DATA:\n  prepend:\n    value: ./data\n    type: path\n",
+            feuilletage::Source::File(source),
+        );
+        let env = env.unwrap();
+
+        assert_eq!(env.operations.len(), 1);
+        assert_eq!(env.operations[0].operation, EnvOperationEnum::Prepend);
+        assert_eq!(
+            env.operations[0].value.as_deref(),
+            Some("/tmp/omni-config/data")
+        );
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn preserves_invalid_type_diagnostics() {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml("value: ok\ntype: binary\n", context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let env = EnvOpValue::from_context_value(config.root(), &mut tracker);
+
+        assert!(matches!(
+            env,
+            Err(feuilletage::Error::InvalidValue { message, .. })
+                if message == "type must be 'text' or 'path', got 'binary'"
+        ));
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn preserves_non_string_type_diagnostics() {
+        for (value_type, actual) in [
+            ("true", "bool"),
+            ("42", "int"),
+            ("3.5", "float"),
+            ("null", "null"),
+            ("[]", "array"),
+            ("{}", "object"),
+        ] {
+            let context = feuilletage::Context::new(
+                feuilletage::Source::Programmatic,
+                feuilletage::Level::User,
+            );
+            let mut config = feuilletage::Config::default();
+            config.load_yaml(&format!("value: ok\ntype: {value_type}\n"), context);
+            let mut tracker = feuilletage::ErrorTracker::new();
+            let env = EnvOpValue::from_context_value(config.root(), &mut tracker);
+
+            assert!(
+                matches!(
+                    &env,
+                    Err(feuilletage::Error::TypeMismatch {
+                        expected,
+                        actual: error_actual,
+                        ..
+                    }) if expected == "string" && error_actual == actual
+                ),
+                "type {value_type} should report {actual}, got {env:?}"
+            );
+            assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+        }
+    }
+
+    #[test]
+    fn rejects_non_scalar_operation_values() {
+        for value in ["[]", "{nested: value}"] {
+            let context = feuilletage::Context::new(
+                feuilletage::Source::Programmatic,
+                feuilletage::Level::User,
+            );
+            let mut config = feuilletage::Config::default();
+            config.load_yaml(&format!("value: {value}\n"), context);
+            let mut tracker = feuilletage::ErrorTracker::new();
+
+            assert!(
+                EnvOpValue::from_context_value(config.root(), &mut tracker).is_err(),
+                "operation value {value} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_operation_precedence_and_order() {
+        let (env, tracker) = parse_env_with_source(
+            "ORDERED:\n  remove: remove\n  prepend: prepend\n  append: append\n  prefix: prefix\n  suffix: suffix\nSET_WINS:\n  set: selected\n  append: ignored\n",
+            feuilletage::Source::Programmatic,
+        );
+        let env = env.unwrap();
+
+        assert_eq!(
+            env.operations
+                .iter()
+                .map(|op| (op.name.as_str(), op.operation, op.value.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("ORDERED", EnvOperationEnum::Remove, Some("remove")),
+                ("ORDERED", EnvOperationEnum::Prepend, Some("prepend")),
+                ("ORDERED", EnvOperationEnum::Append, Some("append")),
+                ("ORDERED", EnvOperationEnum::Prefix, Some("prefix")),
+                ("ORDERED", EnvOperationEnum::Suffix, Some("suffix")),
+                ("SET_WINS", EnvOperationEnum::Set, Some("selected")),
+            ]
+        );
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn serialization_remains_null_or_an_operation_array() {
+        assert_eq!(
+            serde_json::to_value(EnvConfig::default()).unwrap(),
+            serde_json::Value::Null
+        );
+
+        let (env, tracker) = parse_env_with_source(
+            "PATH:\n  prepend: ./bin\nUNSET: null\n",
+            feuilletage::Source::Programmatic,
+        );
+        let serialized = serde_json::to_value(env.unwrap()).unwrap();
+
+        assert_eq!(
+            serialized,
+            serde_json::json!([
+                {"PATH": {"prepend": "./bin"}},
+                {"UNSET": null}
+            ])
+        );
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
     }
 }

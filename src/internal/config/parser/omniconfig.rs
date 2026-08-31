@@ -229,3 +229,55 @@ impl Default for OmniConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::Builder;
+
+    use super::*;
+    use crate::internal::cache::utils::Empty;
+    use crate::internal::config::Level;
+    use crate::internal::config::OmniConfigLoader;
+
+    fn config_file(contents: &str) -> tempfile::NamedTempFile {
+        let file = Builder::new().suffix(".yaml").tempfile().unwrap();
+        fs::write(file.path(), contents).unwrap();
+        file
+    }
+
+    #[test]
+    fn suggestion_fields_ignore_non_local_configuration() {
+        let file = config_file(
+            "suggest_clone:\n  - user-repository\nsuggest_config:\n  commands:\n    hello: echo hi\n",
+        );
+        let path = file.path().to_string_lossy();
+        let mut loader = OmniConfigLoader::new_from_file(&path, Level::User);
+
+        let config = loader.deserialize::<OmniConfig>().unwrap();
+
+        assert!(Empty::is_empty(&config.suggest_clone));
+        assert!(Empty::is_empty(&config.suggest_config));
+    }
+
+    #[test]
+    fn suggestion_fields_accept_local_configuration() {
+        let file = config_file(
+            "suggest_clone:\n  - local-repository\nsuggest_config:\n  commands:\n    hello: echo hi\n",
+        );
+        let path = file.path().to_string_lossy();
+        let mut loader = OmniConfigLoader::new_from_file(&path, Level::Local);
+
+        let config = loader.deserialize::<OmniConfig>().unwrap();
+
+        assert!(!Empty::is_empty(&config.suggest_clone));
+        assert!(!Empty::is_empty(&config.suggest_config));
+        assert!(config
+            .suggest_config
+            .feuilletage_config_value()
+            .as_object()
+            .unwrap()
+            .contains_key("commands"));
+    }
+}

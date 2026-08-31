@@ -120,7 +120,11 @@ struct ReleaseMetadata {
 #[derive(Debug, Clone, Default, feuilletage::Config)]
 #[feuilletage(transparent, skip_serialize, post_process = "reorder_gh_releases")]
 pub struct UpConfigGithubReleases {
-    #[feuilletage(default, allow_single, allow_map(key = "repository", scalar_as = "version"))]
+    #[feuilletage(
+        default,
+        allow_single,
+        allow_map(key = "repository", scalar_as = "version")
+    )]
     releases: Vec<UpConfigGithubRelease>,
 }
 
@@ -418,25 +422,6 @@ impl UpConfigGithubReleases {
     }
 }
 
-// Helper functions for feuilletage parsing
-
-fn feuilletage_get_optional_string<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-    map: &indexmap::IndexMap<String, feuilletage::ContextValue<S, L>>,
-    key: &str,
-    tracker: &mut feuilletage::ErrorTracker,
-) -> Option<String> {
-    map.get(key).and_then(|v| {
-        if let feuilletage::ContextValue::String(s, _) = v {
-            Some(s.clone())
-        } else {
-            tracker.push_field(key);
-            tracker.record_type_mismatch("string", v.type_name());
-            tracker.pop();
-            None
-        }
-    })
-}
-
 /// Pre-deserialization transform for repository field.
 /// Converts `{owner: "x", name: "y"}` objects into `"x/y"` strings.
 /// Passes through string values unchanged.
@@ -480,12 +465,15 @@ pub enum GithubReleaseHandled {
 #[feuilletage(
     scalar_as = "repository",
     skip_serialize,
-    allow_map(key = "repository", scalar_as = "version"),
+    allow_map(key = "repository", scalar_as = "version")
 )]
 pub struct UpConfigGithubRelease {
     /// The repository to install the tool from, should
     /// be in the format `owner/repo`
-    #[feuilletage(alias = "repo", transform = "crate::internal::config::up::github_release::transform_repository")]
+    #[feuilletage(
+        alias = "repo",
+        transform = "crate::internal::config::up::github_release::transform_repository"
+    )]
     pub repository: String,
 
     /// The version of the tool to install
@@ -2334,7 +2322,102 @@ impl GithubReleaseChecksumAlgorithm {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "validate_asset_name_pattern_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct AssetNamePatternWire(String);
+
+fn validate_asset_name_pattern_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    _parsed: &mut AssetNamePatternWire,
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if matches!(original, feuilletage::ContextValue::String(_, _)) {
+        return Ok(());
+    }
+
+    tracker.record_type_mismatch("string", original.type_name());
+    Err(feuilletage::Error::TypeMismatch {
+        path: tracker.current_path(),
+        expected: "string".to_string(),
+        actual: original.type_name().to_string(),
+    })
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[allow(dead_code)]
+enum AssetNamePatternArrayElementWire {
+    String(AssetNamePatternWire),
+    InvalidBool(bool),
+    InvalidInt(i64),
+    InvalidFloat(f64),
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[allow(dead_code)]
+enum AssetNamePatternsWire {
+    String(AssetNamePatternWire),
+    StringArray(Vec<AssetNamePatternArrayElementWire>),
+    InvalidBool(bool),
+    InvalidInt(i64),
+    InvalidFloat(f64),
+}
+
+impl AssetNamePatternsWire {
+    fn into_patterns(self) -> Result<Vec<String>, &'static str> {
+        match self {
+            Self::String(pattern) => Ok(AssetNameMatcher::patterns_from_string(&pattern.0)),
+            Self::StringArray(patterns) => Ok(patterns
+                .into_iter()
+                .filter_map(|pattern| match pattern {
+                    AssetNamePatternArrayElementWire::String(pattern) => {
+                        Some(pattern.0.trim().to_string())
+                    }
+                    _ => None,
+                })
+                .filter(|pattern| !pattern.is_empty())
+                .collect()),
+            Self::InvalidBool(_) => Err("bool"),
+            Self::InvalidInt(_) => Err("int"),
+            Self::InvalidFloat(_) => Err("float"),
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[allow(dead_code)]
+enum AssetNameOptionalStringWire {
+    String(AssetNamePatternWire),
+    InvalidBool(bool),
+    InvalidInt(i64),
+    InvalidFloat(f64),
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[allow(dead_code)]
+enum AssetNameMatcherWire {
+    String(AssetNamePatternWire),
+    StringArray(Vec<AssetNamePatternArrayElementWire>),
+    Object {
+        os: Option<AssetNameOptionalStringWire>,
+        arch: Option<AssetNameOptionalStringWire>,
+        patterns: Option<AssetNamePatternsWire>,
+    },
+    InvalidBool(bool),
+    InvalidInt(i64),
+    InvalidFloat(f64),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(parse_as = "AssetNameMatcherWire", skip_serialize, skip_deserialize)]
 pub struct AssetNameMatcher {
     /// This matcher will only match if the current OS matches the given OS.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2349,18 +2432,85 @@ pub struct AssetNameMatcher {
     disabled: bool,
 }
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for AssetNameMatcher
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<AssetNameMatcherWire, S, L> for AssetNameMatcher
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        parsed: AssetNameMatcherWire,
+        _original: &feuilletage::ContextValue<S, L>,
         tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        Self::from_context_value_unit(value, tracker).ok_or_else(|| feuilletage::Error::TypeMismatch {
-            path: tracker.current_path(),
-            expected: "string, array, or object".to_string(),
-            actual: value.type_name().to_string(),
-        })
+        let type_mismatch =
+            |actual: &str, tracker: &feuilletage::ErrorTracker| feuilletage::Error::TypeMismatch {
+                path: tracker.current_path(),
+                expected: "string, array, or object".to_string(),
+                actual: actual.to_string(),
+            };
+
+        match parsed {
+            AssetNameMatcherWire::String(pattern) => Ok(Self {
+                patterns: Self::patterns_from_string(&pattern.0),
+                ..Self::default()
+            }),
+            AssetNameMatcherWire::StringArray(patterns) => Ok(Self {
+                patterns: patterns
+                    .into_iter()
+                    .filter_map(|pattern| match pattern {
+                        AssetNamePatternArrayElementWire::String(pattern) => {
+                            Some(pattern.0.trim().to_string())
+                        }
+                        _ => None,
+                    })
+                    .filter(|pattern| !pattern.is_empty())
+                    .collect(),
+                ..Self::default()
+            }),
+            AssetNameMatcherWire::Object { os, arch, patterns } => {
+                let os = Self::optional_string_from_wire(os, "os", tracker);
+                let arch = Self::optional_string_from_wire(arch, "arch", tracker);
+                let Some(patterns) = patterns else {
+                    tracker.push_field("patterns");
+                    tracker.record_invalid_value("missing key");
+                    tracker.pop();
+                    return Err(type_mismatch("object", tracker));
+                };
+                let patterns = match patterns.into_patterns() {
+                    Ok(patterns) => patterns,
+                    Err(actual) => {
+                        tracker.push_field("patterns");
+                        tracker.record_type_mismatch("string or array", actual);
+                        tracker.pop();
+                        return Err(type_mismatch("object", tracker));
+                    }
+                };
+
+                let disabled = os
+                    .as_ref()
+                    .is_some_and(|os| !os.eq_ignore_ascii_case(&current_os()))
+                    || arch
+                        .as_ref()
+                        .is_some_and(|arch| !arch.eq_ignore_ascii_case(&current_arch()));
+
+                Ok(Self {
+                    os,
+                    arch,
+                    patterns,
+                    disabled,
+                })
+            }
+            AssetNameMatcherWire::InvalidBool(_) => {
+                tracker.record_type_mismatch("string, array, or object", "bool");
+                Err(type_mismatch("bool", tracker))
+            }
+            AssetNameMatcherWire::InvalidInt(_) => {
+                tracker.record_type_mismatch("string, array, or object", "int");
+                Err(type_mismatch("int", tracker))
+            }
+            AssetNameMatcherWire::InvalidFloat(_) => {
+                tracker.record_type_mismatch("string, array, or object", "float");
+                Err(type_mismatch("float", tracker))
+            }
+        }
     }
 }
 
@@ -2371,6 +2521,35 @@ impl AssetNameMatcher {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect()
+    }
+
+    fn optional_string_from_wire(
+        value: Option<AssetNameOptionalStringWire>,
+        field: &str,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Option<String> {
+        match value {
+            None => None,
+            Some(AssetNameOptionalStringWire::String(value)) => Some(value.0),
+            Some(AssetNameOptionalStringWire::InvalidBool(_)) => {
+                tracker.push_field(field);
+                tracker.record_type_mismatch("string", "bool");
+                tracker.pop();
+                None
+            }
+            Some(AssetNameOptionalStringWire::InvalidInt(_)) => {
+                tracker.push_field(field);
+                tracker.record_type_mismatch("string", "int");
+                tracker.pop();
+                None
+            }
+            Some(AssetNameOptionalStringWire::InvalidFloat(_)) => {
+                tracker.push_field(field);
+                tracker.record_type_mismatch("string", "float");
+                tracker.pop();
+                None
+            }
+        }
     }
 
     pub fn enabled(&self) -> bool {
@@ -2397,125 +2576,6 @@ impl AssetNameMatcher {
         }
 
         check_allowed(asset_name, &self.patterns)
-    }
-
-    pub fn from_context_value_multi<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Vec<Self> {
-        // Handle string case
-        if let feuilletage::ContextValue::String(s, _) = value {
-            return vec![Self {
-                patterns: Self::patterns_from_string(s),
-                ..Self::default()
-            }];
-        }
-
-        // Handle array case
-        if let feuilletage::ContextValue::Array(arr, _) = value {
-            let mut results = Vec::new();
-            for (idx, elem) in arr.iter().enumerate() {
-                tracker.push_index(idx);
-                if let Some(matcher) = Self::from_context_value_unit(elem, tracker) {
-                    results.push(matcher);
-                }
-                tracker.pop();
-            }
-            return results;
-        }
-
-        tracker.record_type_mismatch("string or array", value.type_name());
-        vec![]
-    }
-
-    fn from_context_value_unit<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Option<Self> {
-        // Handle string case
-        if let feuilletage::ContextValue::String(s, _) = value {
-            return Some(Self {
-                patterns: Self::patterns_from_string(s),
-                ..Self::default()
-            });
-        }
-
-        // Handle array case - patterns as array of strings
-        if let feuilletage::ContextValue::Array(arr, _) = value {
-            return Some(Self {
-                patterns: Self::context_value_patterns_from_array(arr),
-                ..Self::default()
-            });
-        }
-
-        // Handle object case with os, arch, and patterns
-        if let feuilletage::ContextValue::Object(map, _) = value {
-            let os = feuilletage_get_optional_string(map, "os", tracker);
-            let arch = feuilletage_get_optional_string(map, "arch", tracker);
-
-            let patterns = if let Some(patterns_val) = map.get("patterns") {
-                if let feuilletage::ContextValue::String(s, _) = patterns_val {
-                    Self::patterns_from_string(s)
-                } else if let feuilletage::ContextValue::Array(arr, _) = patterns_val {
-                    Self::context_value_patterns_from_array(arr)
-                } else {
-                    tracker.push_field("patterns");
-                    tracker.record_type_mismatch("string or array", patterns_val.type_name());
-                    tracker.pop();
-                    return None;
-                }
-            } else {
-                tracker.push_field("patterns");
-                tracker.record_invalid_value("missing key");
-                tracker.pop();
-                return None;
-            };
-
-            let mut disabled = false;
-
-            // If 'os' is set, we can ignore this filter if the current OS
-            // does not match the given OS
-            if let Some(ref os) = os {
-                if os.to_lowercase() != current_os().to_lowercase() {
-                    disabled = true;
-                }
-            }
-
-            // If 'arch' is set, we can ignore this filter if the current
-            // architecture does not match the given architecture
-            if let Some(ref arch) = arch {
-                if arch.to_lowercase() != current_arch().to_lowercase() {
-                    disabled = true;
-                }
-            }
-
-            return Some(Self {
-                os,
-                arch,
-                patterns,
-                disabled,
-            });
-        }
-
-        tracker.record_type_mismatch("string, array, or object", value.type_name());
-        None
-    }
-
-    fn context_value_patterns_from_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        array: &[feuilletage::ContextValue<S, L>],
-    ) -> Vec<String> {
-        array
-            .iter()
-            .filter_map(|value| {
-                if let feuilletage::ContextValue::String(s, _) = value {
-                    Some(s.clone())
-                } else {
-                    None
-                }
-            })
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .collect()
     }
 }
 

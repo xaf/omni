@@ -512,11 +512,7 @@ impl<'de> PathCommandFileDetails {
                                             Some(i.to_string())
                                         } else if let Some(u) = n.as_u64() {
                                             Some(u.to_string())
-                                        } else if let Some(f) = n.as_f64() {
-                                            Some(f.to_string())
-                                        } else {
-                                            None
-                                        }
+                                        } else { n.as_f64().map(|f| f.to_string()) }
                                     } else if let serde_yaml::Value::Bool(b) = entry {
                                         Some(b.to_string())
                                     } else {
@@ -610,11 +606,7 @@ fn yaml_as_bool_forced(value: &serde_yaml::Value) -> Option<bool> {
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Some(i != 0)
-            } else if let Some(f) = n.as_f64() {
-                Some(f != 0.0)
-            } else {
-                None
-            }
+            } else { n.as_f64().map(|f| f != 0.0) }
         }
         _ => None,
     }

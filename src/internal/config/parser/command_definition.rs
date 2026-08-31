@@ -17,6 +17,7 @@ use crate::internal::config::parser::ParseArgsErrorKind;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::Level;
 use crate::internal::config::OmniSource;
+use crate::internal::config::Value as FeuilletageValue;
 use crate::internal::user_interface::colors::StringColor;
 use crate::internal::ORG_LOADER;
 
@@ -58,7 +59,8 @@ pub struct CommandDefinition {
     pub scope: Level,
 }
 
-#[derive(Debug, Serialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Clone, PartialEq, Default, feuilletage::Config)]
+#[feuilletage(parse_as = "CommandSyntaxWire", skip_serialize, skip_deserialize)]
 pub struct CommandSyntax {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<String>,
@@ -86,13 +88,11 @@ impl CommandSyntax {
         // Convert serde_yaml::Value to feuilletage ConfigValue
         let feuilletage_value = yaml_value_to_feuilletage_value(value);
         let mut tracker = FeuilletageErrorTracker::new();
-        if let Some(command_syntax) =
-            CommandSyntax::from_feuilletage_config_value(&feuilletage_value, &mut tracker)
-        {
-            Ok(command_syntax)
-        } else {
-            Err(serde::de::Error::custom("invalid command syntax"))
-        }
+        <Self as feuilletage::FromContextValue>::from_context_value(
+            &feuilletage_value,
+            &mut tracker,
+        )
+        .map_err(|_| serde::de::Error::custom("invalid command syntax"))
     }
 
     /// The 'leftovers' parameter is used to capture all the remaining arguments
@@ -1953,6 +1953,10 @@ impl SyntaxOptArgType {
     }
 }
 
+#[cfg(test)]
+#[path = "command_definition_test.rs"]
+mod tests;
+
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SyntaxGroup {
     pub name: String,
@@ -2076,22 +2080,531 @@ fn command_def_scope_from_context<S: feuilletage::CustomSource, L: feuilletage::
     }
 }
 
-/// Bridge: allow feuilletage derive to deserialize CommandSyntax via existing
-/// `from_feuilletage_config_value` method.
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for CommandSyntax
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    scalar_as = "usage",
+    array_as = "parameters",
+    skip_serialize,
+    skip_deserialize
+)]
+struct CommandSyntaxWire {
+    #[feuilletage(default)]
+    usage: Option<StringOrIntWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    parameters: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    arguments: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    argument: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    options: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    option: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    optional: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_map)]
+    groups: Vec<SyntaxGroupWire>,
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transform = "self::normalize_syntax_opt_arg_shape",
+    scalar_as = "name",
+    allow_map(key = "name", scalar_as = "desc"),
+    post_process = "normalize_syntax_opt_arg_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct SyntaxOptArgWire {
+    name: StrictStringWire,
+    #[feuilletage(default)]
+    dest: Option<String>,
+    #[feuilletage(default)]
+    desc: Option<String>,
+    #[feuilletage(default)]
+    required: Option<StrictBoolWire>,
+    #[feuilletage(default, allow_single)]
+    placeholders: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    placeholder: Vec<String>,
+    #[feuilletage(default, rename = "type")]
+    arg_type: Option<SyntaxOptArgTypeWire>,
+    #[feuilletage(default)]
+    values: Option<SyntaxStringListWire>,
+    #[feuilletage(default)]
+    default: Option<String>,
+    #[feuilletage(default)]
+    default_missing_value: Option<String>,
+    #[feuilletage(default)]
+    num_values: Option<StringOrIntWire>,
+    #[feuilletage(default, rename = "delimiter")]
+    value_delimiter: Option<String>,
+    #[feuilletage(default, rename = "last")]
+    last_arg_double_hyphen: StrictBoolWire,
+    #[feuilletage(default)]
+    leftovers: Option<StrictBoolWire>,
+    #[feuilletage(default)]
+    allow_hyphen_values: StrictBoolWire,
+    #[feuilletage(default)]
+    allow_negative_numbers: StrictBoolWire,
+    #[feuilletage(default)]
+    group_occurrences: StrictBoolWire,
+    #[feuilletage(default, allow_single)]
+    requires: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    conflicts_with: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    required_without: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    required_without_all: Vec<String>,
+    #[feuilletage(default)]
+    required_if_eq: HashMap<String, String>,
+    #[feuilletage(default)]
+    required_if_eq_all: HashMap<String, String>,
+    #[feuilletage(default, allow_single)]
+    aliases: Vec<String>,
+    #[feuilletage(default, rename = "__syntax_details_object")]
+    details_object: bool,
+    #[feuilletage(skip)]
+    parsed_arg_type: SyntaxOptArgType,
+    #[feuilletage(skip)]
+    parsed_num_values: Option<SyntaxOptArgNumValues>,
+    #[feuilletage(skip)]
+    parsed_value_delimiter: Option<char>,
+}
+
+fn normalize_syntax_opt_arg_shape<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    let feuilletage::ContextValue::Object(fields, object_context) = value else {
+        return Ok(());
+    };
+    let object_context = object_context.clone();
+
+    if fields.contains_key("name") {
+        let context = fields
+            .values()
+            .next()
+            .expect("an object containing name is non-empty")
+            .context()
+            .clone();
+        fields.insert(
+            "__syntax_details_object".to_string(),
+            feuilletage::ContextValue::bool(true, context),
+        );
+        return Ok(());
+    }
+
+    if fields.len() != 1 {
+        return Ok(());
+    }
+
+    let (_, details) = fields.iter_mut().next().expect("single-entry object");
+    match details {
+        feuilletage::ContextValue::Object(details, _) => {
+            let context = details
+                .values()
+                .next()
+                .map(feuilletage::ContextValue::context)
+                .cloned()
+                .unwrap_or_else(|| object_context.clone());
+            details.insert(
+                "__syntax_details_object".to_string(),
+                feuilletage::ContextValue::bool(true, context),
+            );
+        }
+        feuilletage::ContextValue::Int(_, context)
+        | feuilletage::ContextValue::Float(_, context)
+        | feuilletage::ContextValue::Bool(_, context) => {
+            *details = feuilletage::ContextValue::null(context.clone());
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum StrictStringWire {
+    #[feuilletage(variant = any_string)]
+    Value(String),
+    #[feuilletage(variant = any_bool)]
+    InvalidBool,
+    #[feuilletage(variant = any_int)]
+    InvalidInt,
+    #[feuilletage(variant = any_float)]
+    InvalidFloat,
+    #[feuilletage(variant = predicate("syntax_value_is_array"))]
+    InvalidArray,
+    #[feuilletage(variant = predicate("syntax_value_is_object"))]
+    InvalidObject,
+    #[feuilletage(variant = null)]
+    InvalidNull,
+}
+
+impl StrictStringWire {
+    fn into_string(
+        self,
+        tracker: &feuilletage::ErrorTracker,
+    ) -> Result<String, feuilletage::Error> {
+        match self {
+            Self::Value(value) => Ok(value),
+            Self::InvalidBool => Err(syntax_string_type_mismatch(tracker, "bool")),
+            Self::InvalidInt => Err(syntax_string_type_mismatch(tracker, "int")),
+            Self::InvalidFloat => Err(syntax_string_type_mismatch(tracker, "float")),
+            Self::InvalidArray => Err(syntax_string_type_mismatch(tracker, "array")),
+            Self::InvalidObject => Err(syntax_string_type_mismatch(tracker, "object")),
+            Self::InvalidNull => Err(syntax_string_type_mismatch(tracker, "null")),
+        }
+    }
+}
+
+fn syntax_string_type_mismatch(
+    tracker: &feuilletage::ErrorTracker,
+    actual: &str,
+) -> feuilletage::Error {
+    feuilletage::Error::TypeMismatch {
+        path: tracker.current_path(),
+        expected: "string".to_string(),
+        actual: actual.to_string(),
+    }
+}
+
+fn syntax_value_is_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+) -> bool {
+    matches!(value, feuilletage::ContextValue::Array(_, _))
+}
+
+fn syntax_value_is_object<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+) -> bool {
+    matches!(value, feuilletage::ContextValue::Object(_, _))
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "validate_strict_bool_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct StrictBoolWire(FeuilletageValue);
+
+impl Default for StrictBoolWire {
+    fn default() -> Self {
+        Self(FeuilletageValue::Bool(false))
+    }
+}
+
+impl StrictBoolWire {
+    fn value(&self) -> bool {
+        match &self.0 {
+            FeuilletageValue::Bool(value) => *value,
+            _ => false,
+        }
+    }
+}
+
+fn validate_strict_bool_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    _parsed: &mut StrictBoolWire,
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if matches!(original, feuilletage::ContextValue::Bool(_, _)) {
+        Ok(())
+    } else {
+        Err(feuilletage::Error::TypeMismatch {
+            path: tracker.current_path(),
+            expected: "boolean".to_string(),
+            actual: original.type_name().to_string(),
+        })
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "validate_string_or_int_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct StringOrIntWire(String);
+
+fn validate_string_or_int_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    _parsed: &mut StringOrIntWire,
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if matches!(
+        original,
+        feuilletage::ContextValue::String(_, _) | feuilletage::ContextValue::Int(_, _)
+    ) {
+        Ok(())
+    } else {
+        Err(feuilletage::Error::TypeMismatch {
+            path: tracker.current_path(),
+            expected: "string".to_string(),
+            actual: original.type_name().to_string(),
+        })
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum SyntaxOptArgTypeWire {
+    Values(Vec<String>),
+    Name(StringOrIntWire),
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum SyntaxStringListWire {
+    Values(Vec<String>),
+    #[feuilletage(variant = any_string)]
+    Value(String),
+}
+
+impl SyntaxStringListWire {
+    fn into_vec(self, delimiter: Option<char>) -> Vec<String> {
+        match self {
+            Self::Values(values) => values,
+            Self::Value(value) => delimiter
+                .map(|delimiter| value.split(delimiter).map(str::to_string).collect())
+                .unwrap_or_else(|| vec![value]),
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(allow_map(key = "name"), skip_serialize, skip_deserialize)]
+struct SyntaxGroupWire {
+    name: StringOrIntWire,
+    #[feuilletage(default, allow_single)]
+    parameters: Vec<String>,
+    #[feuilletage(default)]
+    multiple: StrictBoolWire,
+    #[feuilletage(default)]
+    required: StrictBoolWire,
+    #[feuilletage(default, allow_single)]
+    requires: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    conflicts_with: Vec<String>,
+}
+
+fn normalize_syntax_opt_arg_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    parsed: &mut SyntaxOptArgWire,
+    _original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    tracker.push_field("name");
+    let name =
+        std::mem::replace(&mut parsed.name, StrictStringWire::InvalidNull).into_string(tracker);
+    tracker.pop();
+    parsed.name = StrictStringWire::Value(name?);
+
+    parsed.parsed_value_delimiter = parsed.value_delimiter.as_ref().and_then(|delimiter| {
+        delimiter.chars().next().or_else(|| {
+            tracker.push_field("delimiter");
+            tracker.record(feuilletage::Error::InvalidValue {
+                path: tracker.current_path(),
+                message: "delimiter must be non-empty".to_string(),
+            });
+            tracker.pop();
+            None
+        })
+    });
+
+    parsed.parsed_arg_type = match parsed.arg_type.as_ref() {
+        Some(SyntaxOptArgTypeWire::Values(values)) => SyntaxOptArgType::Enum(values.clone()),
+        Some(SyntaxOptArgTypeWire::Name(value)) => {
+            tracker.push_field("type");
+            let arg_type = SyntaxOptArgType::from_str_feuilletage(&value.0, tracker);
+            tracker.pop();
+            match arg_type {
+                Some(SyntaxOptArgType::Enum(values)) if values.is_empty() => parsed
+                    .values
+                    .take()
+                    .map(|values| {
+                        SyntaxOptArgType::Enum(values.into_vec(parsed.parsed_value_delimiter))
+                    })
+                    .unwrap_or(SyntaxOptArgType::String),
+                Some(arg_type) => arg_type,
+                None => SyntaxOptArgType::String,
+            }
+        }
+        None => SyntaxOptArgType::String,
+    };
+
+    parsed.parsed_num_values = parsed.num_values.as_ref().and_then(|value| {
+        tracker.push_field("num_values");
+        let num_values = SyntaxOptArgNumValues::from_str_feuilletage(&value.0, tracker);
+        tracker.pop();
+        num_values
+    });
+
+    Ok(())
+}
+
+impl SyntaxOptArgWire {
+    fn into_domain(
+        self,
+        required_default: Option<bool>,
+        _tracker: &mut feuilletage::ErrorTracker,
+    ) -> SyntaxOptArg {
+        let (mut names, inferred_type, inferred_placeholders, inferred_leftovers) =
+            parse_arg_name(match &self.name {
+                StrictStringWire::Value(name) => name,
+                _ => unreachable!("parameter name was validated during wire parsing"),
+            });
+        names.extend(self.aliases);
+
+        let placeholders = if self.placeholders.is_empty() {
+            if self.placeholder.is_empty() {
+                inferred_placeholders
+            } else {
+                self.placeholder
+            }
+        } else {
+            self.placeholders
+        };
+
+        let arg_type = self
+            .arg_type
+            .map_or(inferred_type, |_| self.parsed_arg_type);
+
+        SyntaxOptArg {
+            names,
+            dest: self.dest,
+            desc: self.desc,
+            required: self
+                .required
+                .map(|required| required.value())
+                .or(required_default)
+                .unwrap_or(false),
+            placeholders,
+            arg_type,
+            default: self.default,
+            default_missing_value: self.default_missing_value,
+            num_values: self.parsed_num_values,
+            value_delimiter: self.parsed_value_delimiter,
+            last_arg_double_hyphen: self.last_arg_double_hyphen.value(),
+            leftovers: self
+                .leftovers
+                .map(|leftovers| leftovers.value())
+                .unwrap_or_else(|| {
+                    if self.details_object {
+                        false
+                    } else {
+                        inferred_leftovers
+                    }
+                }),
+            allow_hyphen_values: self.allow_hyphen_values.value(),
+            allow_negative_numbers: self.allow_negative_numbers.value(),
+            group_occurrences: self.group_occurrences.value(),
+            requires: self.requires,
+            conflicts_with: self.conflicts_with,
+            required_without: self.required_without,
+            required_without_all: self.required_without_all,
+            required_if_eq: self.required_if_eq,
+            required_if_eq_all: self.required_if_eq_all,
+        }
+    }
+}
+
+impl SyntaxGroupWire {
+    fn into_domain(self, tracker: &mut feuilletage::ErrorTracker) -> Option<SyntaxGroup> {
+        if self.parameters.is_empty() {
+            tracker.push_field("parameters");
+            tracker.record(feuilletage::Error::MissingField {
+                path: tracker.current_path(),
+            });
+            tracker.pop();
+            return None;
+        }
+
+        Some(SyntaxGroup {
+            name: self.name.0,
+            parameters: self.parameters,
+            multiple: self.multiple.value(),
+            required: self.required.value(),
+            requires: self.requires,
+            conflicts_with: self.conflicts_with,
+        })
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<CommandSyntaxWire, S, L> for CommandSyntax
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        parsed: CommandSyntaxWire,
+        original: &feuilletage::ContextValue<S, L>,
         tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
-        match CommandSyntax::from_feuilletage_config_value(value, tracker) {
-            Some(syntax) => Ok(syntax),
-            None => Err(feuilletage::Error::TypeMismatch {
+        let mut parameters = Vec::new();
+        parameters.extend(
+            parsed
+                .parameters
+                .into_iter()
+                .map(|parameter| parameter.into_domain(None, tracker)),
+        );
+        parameters.extend(
+            parsed
+                .arguments
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(true), tracker)),
+        );
+        parameters.extend(
+            parsed
+                .argument
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(true), tracker)),
+        );
+        parameters.extend(
+            parsed
+                .options
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(false), tracker)),
+        );
+        parameters.extend(
+            parsed
+                .option
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(false), tracker)),
+        );
+        parameters.extend(
+            parsed
+                .optional
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(false), tracker)),
+        );
+
+        let mut groups = Vec::new();
+        tracker.push_field("groups");
+        for (index, group) in parsed.groups.into_iter().enumerate() {
+            tracker.push_index(index);
+            if let Some(group) = group.into_domain(tracker) {
+                groups.push(group);
+            }
+            tracker.pop();
+        }
+        tracker.pop();
+
+        if parameters.is_empty() && groups.is_empty() && parsed.usage.is_none() {
+            Err(feuilletage::Error::TypeMismatch {
                 path: tracker.current_path(),
                 expected: "command syntax (array or object)".to_string(),
-                actual: value.type_name().to_string(),
-            }),
+                actual: original.type_name().to_string(),
+            })
+        } else {
+            Ok(Self {
+                usage: parsed.usage.map(|usage| usage.0),
+                parameters,
+                groups,
+            })
         }
     }
 }
@@ -2102,7 +2615,8 @@ impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::Fro
 
 /// Convert a serde_yaml::Value to feuilletage ConfigValue
 fn yaml_value_to_feuilletage_value(value: serde_yaml::Value) -> FeuilletageConfigValue {
-    let context = feuilletage::Context::new(feuilletage::Source::Default, feuilletage::Level::System);
+    let context =
+        feuilletage::Context::new(feuilletage::Source::Default, feuilletage::Level::System);
     match value {
         serde_yaml::Value::Null => FeuilletageConfigValue::null(context),
         serde_yaml::Value::Bool(b) => FeuilletageConfigValue::bool(b, context),
@@ -2117,8 +2631,10 @@ fn yaml_value_to_feuilletage_value(value: serde_yaml::Value) -> FeuilletageConfi
         }
         serde_yaml::Value::String(s) => FeuilletageConfigValue::string(s, context),
         serde_yaml::Value::Sequence(seq) => {
-            let arr: Vec<FeuilletageConfigValue> =
-                seq.into_iter().map(yaml_value_to_feuilletage_value).collect();
+            let arr: Vec<FeuilletageConfigValue> = seq
+                .into_iter()
+                .map(yaml_value_to_feuilletage_value)
+                .collect();
             FeuilletageConfigValue::array(arr, context)
         }
         serde_yaml::Value::Mapping(map) => {
@@ -2138,557 +2654,11 @@ fn yaml_value_to_feuilletage_value(value: serde_yaml::Value) -> FeuilletageConfi
     }
 }
 
-/// Get a string value from a feuilletage object, returning None if not present
-fn feuilletage_get_str_or_none<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-    table: &indexmap::IndexMap<String, feuilletage::ContextValue<S, L>>,
-    key: &str,
-    tracker: &mut feuilletage::ErrorTracker,
-) -> Option<String> {
-    let value = table.get(key)?;
-    match value {
-        feuilletage::ContextValue::String(s, _) => Some(s.clone()),
-        feuilletage::ContextValue::Int(i, _) => Some(i.to_string()),
-        feuilletage::ContextValue::Float(f, _) => Some(f.to_string()),
-        feuilletage::ContextValue::Bool(b, _) => Some(b.to_string()),
-        feuilletage::ContextValue::Null(_) => None,
-        _ => {
-            tracker.push_field(key);
-            tracker.record(feuilletage::Error::TypeMismatch {
-                path: tracker.current_path(),
-                expected: "string".to_string(),
-                actual: value.type_name().to_string(),
-            });
-            tracker.pop();
-            None
-        }
-    }
-}
-
-/// Get a boolean value from a feuilletage object with a default
-fn feuilletage_get_bool_or_default<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-    table: &indexmap::IndexMap<String, feuilletage::ContextValue<S, L>>,
-    key: &str,
-    default: bool,
-    tracker: &mut feuilletage::ErrorTracker,
-) -> bool {
-    let Some(value) = table.get(key) else {
-        return default;
-    };
-    match value {
-        feuilletage::ContextValue::Bool(b, _) => *b,
-        feuilletage::ContextValue::Null(_) => default,
-        _ => {
-            tracker.push_field(key);
-            tracker.record(feuilletage::Error::TypeMismatch {
-                path: tracker.current_path(),
-                expected: "boolean".to_string(),
-                actual: value.type_name().to_string(),
-            });
-            tracker.pop();
-            default
-        }
-    }
-}
-
-/// Get an array of strings from a feuilletage object
-fn feuilletage_get_str_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-    table: &indexmap::IndexMap<String, feuilletage::ContextValue<S, L>>,
-    key: &str,
-    tracker: &mut feuilletage::ErrorTracker,
-) -> Vec<String> {
-    let Some(value) = table.get(key) else {
-        return Vec::new();
-    };
-
-    tracker.push_field(key);
-    let result = feuilletage_value_to_str_array(value, tracker);
-    tracker.pop();
-    result
-}
-
-/// Convert a feuilletage value to an array of strings
-fn feuilletage_value_to_str_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-    value: &feuilletage::ContextValue<S, L>,
-    tracker: &mut feuilletage::ErrorTracker,
-) -> Vec<String> {
-    match value {
-        feuilletage::ContextValue::Array(arr, _) => {
-            let mut result = Vec::new();
-            for (idx, item) in arr.iter().enumerate() {
-                match item {
-                    feuilletage::ContextValue::String(s, _) => result.push(s.clone()),
-                    feuilletage::ContextValue::Int(i, _) => result.push(i.to_string()),
-                    feuilletage::ContextValue::Float(f, _) => result.push(f.to_string()),
-                    feuilletage::ContextValue::Bool(b, _) => result.push(b.to_string()),
-                    _ => {
-                        tracker.push_index(idx);
-                        tracker.record(feuilletage::Error::TypeMismatch {
-                            path: tracker.current_path(),
-                            expected: "string".to_string(),
-                            actual: item.type_name().to_string(),
-                        });
-                        tracker.pop();
-                    }
-                }
-            }
-            result
-        }
-        feuilletage::ContextValue::String(s, _) => vec![s.clone()],
-        feuilletage::ContextValue::Null(_) => Vec::new(),
-        _ => {
-            tracker.record(feuilletage::Error::TypeMismatch {
-                path: tracker.current_path(),
-                expected: "array or string".to_string(),
-                actual: value.type_name().to_string(),
-            });
-            Vec::new()
-        }
-    }
-}
-
-// ============================================================================
-// Feuilletage parsing for CommandSyntax
-// ============================================================================
-
-impl CommandSyntax {
-    fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Option<Self> {
-        let mut usage = None;
-        let mut parameters = vec![];
-        let mut groups = vec![];
-
-        match value {
-            feuilletage::ContextValue::Array(array, _) => {
-                for (idx, item) in array.iter().enumerate() {
-                    tracker.push_index(idx);
-                    if let Some(param) =
-                        SyntaxOptArg::from_feuilletage_config_value(item, None, tracker)
-                    {
-                        parameters.push(param);
-                    }
-                    tracker.pop();
-                }
-            }
-            feuilletage::ContextValue::Object(table, _) => {
-                let keys = [
-                    ("parameters", None),
-                    ("arguments", Some(true)),
-                    ("argument", Some(true)),
-                    ("options", Some(false)),
-                    ("option", Some(false)),
-                    ("optional", Some(false)),
-                ];
-
-                for (key, required) in keys {
-                    if let Some(param_value) = table.get(key) {
-                        tracker.push_field(key);
-                        match param_value {
-                            feuilletage::ContextValue::Array(arr, _) => {
-                                for (idx, item) in arr.iter().enumerate() {
-                                    tracker.push_index(idx);
-                                    if let Some(param) = SyntaxOptArg::from_feuilletage_config_value(
-                                        item, required, tracker,
-                                    ) {
-                                        parameters.push(param);
-                                    }
-                                    tracker.pop();
-                                }
-                            }
-                            _ => {
-                                if let Some(param) = SyntaxOptArg::from_feuilletage_config_value(
-                                    param_value,
-                                    required,
-                                    tracker,
-                                ) {
-                                    parameters.push(param);
-                                }
-                            }
-                        }
-                        tracker.pop();
-                    }
-                }
-
-                if let Some(groups_value) = table.get("groups") {
-                    tracker.push_field("groups");
-                    groups = SyntaxGroup::from_feuilletage_config_value_multi(groups_value, tracker);
-                    tracker.pop();
-                }
-
-                if let Some(usage_value) = table.get("usage") {
-                    tracker.push_field("usage");
-                    match usage_value {
-                        feuilletage::ContextValue::String(s, _) => usage = Some(s.clone()),
-                        feuilletage::ContextValue::Int(i, _) => usage = Some(i.to_string()),
-                        _ => {
-                            tracker.record(feuilletage::Error::TypeMismatch {
-                                path: tracker.current_path(),
-                                expected: "string".to_string(),
-                                actual: usage_value.type_name().to_string(),
-                            });
-                        }
-                    }
-                    tracker.pop();
-                }
-            }
-            feuilletage::ContextValue::String(s, _) => {
-                usage = Some(s.clone());
-            }
-            feuilletage::ContextValue::Int(i, _) => {
-                usage = Some(i.to_string());
-            }
-            feuilletage::ContextValue::Null(_) => return None,
-            _ => {
-                tracker.record(feuilletage::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "array, object, or string".to_string(),
-                    actual: value.type_name().to_string(),
-                });
-                return None;
-            }
-        }
-
-        if parameters.is_empty() && groups.is_empty() && usage.is_none() {
-            return None;
-        }
-
-        Some(Self {
-            usage,
-            parameters,
-            groups,
-        })
-    }
-}
-
-// ============================================================================
-// Feuilletage parsing for SyntaxOptArg
-// ============================================================================
-
-impl SyntaxOptArg {
-    fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        required: Option<bool>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Option<Self> {
-        let mut names;
-        let mut arg_type;
-        let mut placeholders;
-        let mut leftovers;
-
-        let mut desc = None;
-        let mut dest = None;
-        let mut required = required;
-        let mut default = None;
-        let mut default_missing_value = None;
-        let mut num_values = None;
-        let mut value_delimiter = None;
-        let mut last_arg_double_hyphen = false;
-        let mut allow_hyphen_values = false;
-        let mut allow_negative_numbers = false;
-        let mut group_occurrences = false;
-        let mut requires = vec![];
-        let mut conflicts_with = vec![];
-        let mut required_without = vec![];
-        let mut required_without_all = vec![];
-        let mut required_if_eq = HashMap::new();
-        let mut required_if_eq_all = HashMap::new();
-
-        match value {
-            feuilletage::ContextValue::Object(table, _) => {
-                let value_for_details: Option<&feuilletage::ContextValue<S, L>>;
-
-                if let Some(name_value) = table.get("name") {
-                    match name_value {
-                        feuilletage::ContextValue::String(s, _) => {
-                            (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
-                            value_for_details = Some(value);
-                        }
-                        _ => {
-                            tracker.push_field("name");
-                            tracker.record(feuilletage::Error::TypeMismatch {
-                                path: tracker.current_path(),
-                                expected: "string".to_string(),
-                                actual: name_value.type_name().to_string(),
-                            });
-                            tracker.pop();
-                            return None;
-                        }
-                    }
-                } else if table.len() == 1 {
-                    let (key, val) = table.iter().next()?;
-                    (names, arg_type, placeholders, leftovers) = parse_arg_name(key);
-                    value_for_details = Some(val);
-                } else {
-                    tracker.push_field("name");
-                    tracker.record(feuilletage::Error::MissingField {
-                        path: tracker.current_path(),
-                    });
-                    tracker.pop();
-                    return None;
-                }
-
-                if let Some(details) = value_for_details {
-                    match details {
-                        feuilletage::ContextValue::String(s, _) => {
-                            desc = Some(s.clone());
-                        }
-                        feuilletage::ContextValue::Object(details_table, _) => {
-                            desc = feuilletage_get_str_or_none(details_table, "desc", tracker);
-                            dest = feuilletage_get_str_or_none(details_table, "dest", tracker);
-
-                            if required.is_none() {
-                                required = Some(feuilletage_get_bool_or_default(
-                                    details_table,
-                                    "required",
-                                    false,
-                                    tracker,
-                                ));
-                            }
-
-                            // Try to load placeholders
-                            for key in &["placeholders", "placeholder"] {
-                                let ph = feuilletage_get_str_array(details_table, key, tracker);
-                                if !ph.is_empty() {
-                                    placeholders = ph;
-                                    break;
-                                }
-                            }
-
-                            default = feuilletage_get_str_or_none(details_table, "default", tracker);
-                            default_missing_value = feuilletage_get_str_or_none(
-                                details_table,
-                                "default_missing_value",
-                                tracker,
-                            );
-
-                            num_values = SyntaxOptArgNumValues::from_feuilletage_config_value(
-                                details_table.get("num_values"),
-                                tracker,
-                            );
-
-                            value_delimiter =
-                                feuilletage_get_str_or_none(details_table, "delimiter", tracker)
-                                    .and_then(|v| {
-                                        v.chars().next().or_else(|| {
-                                            tracker.push_field("delimiter");
-                                            tracker.record(feuilletage::Error::InvalidValue {
-                                                path: tracker.current_path(),
-                                                message: "delimiter must be non-empty".to_string(),
-                                            });
-                                            tracker.pop();
-                                            None
-                                        })
-                                    });
-
-                            last_arg_double_hyphen =
-                                feuilletage_get_bool_or_default(details_table, "last", false, tracker);
-                            leftovers = feuilletage_get_bool_or_default(
-                                details_table,
-                                "leftovers",
-                                false,
-                                tracker,
-                            );
-                            allow_hyphen_values = feuilletage_get_bool_or_default(
-                                details_table,
-                                "allow_hyphen_values",
-                                false,
-                                tracker,
-                            );
-                            allow_negative_numbers = feuilletage_get_bool_or_default(
-                                details_table,
-                                "allow_negative_numbers",
-                                false,
-                                tracker,
-                            );
-                            group_occurrences = feuilletage_get_bool_or_default(
-                                details_table,
-                                "group_occurrences",
-                                false,
-                                tracker,
-                            );
-
-                            arg_type = SyntaxOptArgType::from_feuilletage_config_value(
-                                details_table.get("type"),
-                                details_table.get("values"),
-                                value_delimiter,
-                                tracker,
-                            )
-                            .unwrap_or(SyntaxOptArgType::String);
-
-                            requires = feuilletage_get_str_array(details_table, "requires", tracker);
-                            conflicts_with =
-                                feuilletage_get_str_array(details_table, "conflicts_with", tracker);
-                            required_without =
-                                feuilletage_get_str_array(details_table, "required_without", tracker);
-                            required_without_all = feuilletage_get_str_array(
-                                details_table,
-                                "required_without_all",
-                                tracker,
-                            );
-
-                            if let Some(req_if_eq_value) = details_table.get("required_if_eq") {
-                                tracker.push_field("required_if_eq");
-                                match req_if_eq_value {
-                                    feuilletage::ContextValue::Object(map, _) => {
-                                        for (k, v) in map {
-                                            match v {
-                                                feuilletage::ContextValue::String(s, _) => {
-                                                    required_if_eq.insert(k.clone(), s.clone());
-                                                }
-                                                feuilletage::ContextValue::Int(i, _) => {
-                                                    required_if_eq.insert(k.clone(), i.to_string());
-                                                }
-                                                feuilletage::ContextValue::Float(f, _) => {
-                                                    required_if_eq.insert(k.clone(), f.to_string());
-                                                }
-                                                feuilletage::ContextValue::Bool(b, _) => {
-                                                    required_if_eq.insert(k.clone(), b.to_string());
-                                                }
-                                                _ => {
-                                                    tracker.push_field(k);
-                                                    tracker.record(feuilletage::Error::TypeMismatch {
-                                                        path: tracker.current_path(),
-                                                        expected: "string".to_string(),
-                                                        actual: v.type_name().to_string(),
-                                                    });
-                                                    tracker.pop();
-                                                }
-                                            }
-                                        }
-                                    }
-                                    _ => {
-                                        tracker.record(feuilletage::Error::TypeMismatch {
-                                            path: tracker.current_path(),
-                                            expected: "object".to_string(),
-                                            actual: req_if_eq_value.type_name().to_string(),
-                                        });
-                                    }
-                                }
-                                tracker.pop();
-                            }
-
-                            if let Some(req_if_eq_all_value) =
-                                details_table.get("required_if_eq_all")
-                            {
-                                tracker.push_field("required_if_eq_all");
-                                match req_if_eq_all_value {
-                                    feuilletage::ContextValue::Object(map, _) => {
-                                        for (k, v) in map {
-                                            match v {
-                                                feuilletage::ContextValue::String(s, _) => {
-                                                    required_if_eq_all.insert(k.clone(), s.clone());
-                                                }
-                                                feuilletage::ContextValue::Int(i, _) => {
-                                                    required_if_eq_all
-                                                        .insert(k.clone(), i.to_string());
-                                                }
-                                                feuilletage::ContextValue::Float(f, _) => {
-                                                    required_if_eq_all
-                                                        .insert(k.clone(), f.to_string());
-                                                }
-                                                feuilletage::ContextValue::Bool(b, _) => {
-                                                    required_if_eq_all
-                                                        .insert(k.clone(), b.to_string());
-                                                }
-                                                _ => {
-                                                    tracker.push_field(k);
-                                                    tracker.record(feuilletage::Error::TypeMismatch {
-                                                        path: tracker.current_path(),
-                                                        expected: "string".to_string(),
-                                                        actual: v.type_name().to_string(),
-                                                    });
-                                                    tracker.pop();
-                                                }
-                                            }
-                                        }
-                                    }
-                                    _ => {
-                                        tracker.record(feuilletage::Error::TypeMismatch {
-                                            path: tracker.current_path(),
-                                            expected: "object".to_string(),
-                                            actual: req_if_eq_all_value.type_name().to_string(),
-                                        });
-                                    }
-                                }
-                                tracker.pop();
-                            }
-
-                            let aliases = feuilletage_get_str_array(details_table, "aliases", tracker);
-                            names.extend(aliases);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            feuilletage::ContextValue::String(s, _) => {
-                (names, arg_type, placeholders, leftovers) = parse_arg_name(s);
-            }
-            _ => {
-                tracker.record(feuilletage::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "string or object".to_string(),
-                    actual: value.type_name().to_string(),
-                });
-                return None;
-            }
-        }
-
-        Some(Self {
-            names,
-            dest,
-            desc,
-            required: required.unwrap_or(false),
-            placeholders,
-            arg_type,
-            default,
-            default_missing_value,
-            num_values,
-            value_delimiter,
-            last_arg_double_hyphen,
-            leftovers,
-            allow_hyphen_values,
-            allow_negative_numbers,
-            group_occurrences,
-            requires,
-            conflicts_with,
-            required_without,
-            required_without_all,
-            required_if_eq,
-            required_if_eq_all,
-        })
-    }
-}
-
 // ============================================================================
 // Feuilletage parsing for SyntaxOptArgNumValues
 // ============================================================================
 
 impl SyntaxOptArgNumValues {
-    fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: Option<&feuilletage::ContextValue<S, L>>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Option<Self> {
-        let value = value?;
-
-        tracker.push_field("num_values");
-        let result = match value {
-            feuilletage::ContextValue::Int(i, _) => Some(Self::Exactly(*i as usize)),
-            feuilletage::ContextValue::String(s, _) => Self::from_str_feuilletage(s, tracker),
-            feuilletage::ContextValue::Null(_) => None,
-            _ => {
-                tracker.record(feuilletage::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "integer or string".to_string(),
-                    actual: value.type_name().to_string(),
-                });
-                None
-            }
-        };
-        tracker.pop();
-        result
-    }
-
     fn from_str_feuilletage(value: &str, tracker: &mut feuilletage::ErrorTracker) -> Option<Self> {
         let value = value.trim();
 
@@ -2789,90 +2759,6 @@ impl SyntaxOptArgNumValues {
 // ============================================================================
 
 impl SyntaxOptArgType {
-    pub(super) fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        type_value: Option<&feuilletage::ContextValue<S, L>>,
-        values_value: Option<&feuilletage::ContextValue<S, L>>,
-        value_delimiter: Option<char>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Option<Self> {
-        let type_value = type_value?;
-
-        tracker.push_field("type");
-
-        // Check if type is an array - treat as enum with those values
-        if let feuilletage::ContextValue::Array(arr, _) = type_value {
-            let values = arr
-                .iter()
-                .filter_map(|v| match v {
-                    feuilletage::ContextValue::String(s, _) => Some(s.clone()),
-                    feuilletage::ContextValue::Int(i, _) => Some(i.to_string()),
-                    feuilletage::ContextValue::Float(f, _) => Some(f.to_string()),
-                    feuilletage::ContextValue::Bool(b, _) => Some(b.to_string()),
-                    _ => None,
-                })
-                .collect::<Vec<String>>();
-            tracker.pop();
-            return Some(Self::Enum(values));
-        }
-
-        let type_str = match type_value {
-            feuilletage::ContextValue::String(s, _) => s.clone(),
-            feuilletage::ContextValue::Int(i, _) => i.to_string(),
-            feuilletage::ContextValue::Null(_) => {
-                tracker.pop();
-                return None;
-            }
-            _ => {
-                tracker.record(feuilletage::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "string or array".to_string(),
-                    actual: type_value.type_name().to_string(),
-                });
-                tracker.pop();
-                return None;
-            }
-        };
-
-        let obj = Self::from_str_feuilletage(&type_str, tracker)?;
-        tracker.pop();
-
-        match obj {
-            Self::Enum(values) if values.is_empty() => {
-                if let Some(values_val) = values_value {
-                    match values_val {
-                        feuilletage::ContextValue::Array(arr, _) => {
-                            let values = arr
-                                .iter()
-                                .filter_map(|v| match v {
-                                    feuilletage::ContextValue::String(s, _) => Some(s.clone()),
-                                    feuilletage::ContextValue::Int(i, _) => Some(i.to_string()),
-                                    feuilletage::ContextValue::Float(f, _) => Some(f.to_string()),
-                                    feuilletage::ContextValue::Bool(b, _) => Some(b.to_string()),
-                                    _ => None,
-                                })
-                                .collect::<Vec<String>>();
-                            return Some(Self::Enum(values));
-                        }
-                        feuilletage::ContextValue::String(s, _) => {
-                            if let Some(delim) = value_delimiter {
-                                let values = s
-                                    .split(delim)
-                                    .map(|v| v.to_string())
-                                    .collect::<Vec<String>>();
-                                return Some(Self::Enum(values));
-                            } else {
-                                return Some(Self::Enum(vec![s.clone()]));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                None // Empty enum with no values
-            }
-            _ => Some(obj),
-        }
-    }
-
     fn from_str_feuilletage(value: &str, tracker: &mut feuilletage::ErrorTracker) -> Option<Self> {
         let mut is_array = false;
 
@@ -2937,151 +2823,3 @@ impl SyntaxOptArgType {
         }
     }
 }
-
-// ============================================================================
-// Feuilletage parsing for SyntaxGroup
-// ============================================================================
-
-impl SyntaxGroup {
-    fn from_feuilletage_config_value_multi<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Vec<Self> {
-        let mut groups = vec![];
-
-        match value {
-            feuilletage::ContextValue::Array(array, _) => {
-                for (idx, item) in array.iter().enumerate() {
-                    tracker.push_index(idx);
-                    if let Some(group) = Self::from_feuilletage_config_value(item, None, tracker) {
-                        groups.push(group);
-                    }
-                    tracker.pop();
-                }
-            }
-            feuilletage::ContextValue::Object(table, _) => {
-                for (name, val) in table {
-                    tracker.push_field(name);
-                    if let Some(group) =
-                        Self::from_feuilletage_config_value(val, Some(name.clone()), tracker)
-                    {
-                        groups.push(group);
-                    }
-                    tracker.pop();
-                }
-            }
-            feuilletage::ContextValue::Null(_) => {}
-            _ => {
-                tracker.record(feuilletage::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "array or object".to_string(),
-                    actual: value.type_name().to_string(),
-                });
-            }
-        }
-
-        groups
-    }
-
-    fn from_feuilletage_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
-        value: &feuilletage::ContextValue<S, L>,
-        name: Option<String>,
-        tracker: &mut feuilletage::ErrorTracker,
-    ) -> Option<Self> {
-        let table = match value {
-            feuilletage::ContextValue::Object(map, _) => {
-                if map.is_empty() {
-                    tracker.push_field("name");
-                    tracker.record(feuilletage::Error::MissingField {
-                        path: tracker.current_path(),
-                    });
-                    tracker.pop();
-                    return None;
-                }
-                map
-            }
-            _ => {
-                tracker.record(feuilletage::Error::TypeMismatch {
-                    path: tracker.current_path(),
-                    expected: "object".to_string(),
-                    actual: value.type_name().to_string(),
-                });
-                return None;
-            }
-        };
-
-        // Handle group name
-        let (name, config_table) = match name {
-            Some(n) => (n, table),
-            None => {
-                if table.len() == 1 {
-                    let (key, val) = table.iter().next().unwrap();
-                    match val {
-                        feuilletage::ContextValue::Object(inner, _) => (key.clone(), inner),
-                        _ => {
-                            tracker.push_field(key);
-                            tracker.record(feuilletage::Error::TypeMismatch {
-                                path: tracker.current_path(),
-                                expected: "object".to_string(),
-                                actual: val.type_name().to_string(),
-                            });
-                            tracker.pop();
-                            return None;
-                        }
-                    }
-                } else if let Some(name_val) = table.get("name") {
-                    match name_val {
-                        feuilletage::ContextValue::String(s, _) => (s.clone(), table),
-                        feuilletage::ContextValue::Int(i, _) => (i.to_string(), table),
-                        _ => {
-                            tracker.push_field("name");
-                            tracker.record(feuilletage::Error::TypeMismatch {
-                                path: tracker.current_path(),
-                                expected: "string".to_string(),
-                                actual: name_val.type_name().to_string(),
-                            });
-                            tracker.pop();
-                            return None;
-                        }
-                    }
-                } else {
-                    tracker.push_field("name");
-                    tracker.record(feuilletage::Error::MissingField {
-                        path: tracker.current_path(),
-                    });
-                    tracker.pop();
-                    return None;
-                }
-            }
-        };
-
-        // Parse parameters
-        let parameters = feuilletage_get_str_array(config_table, "parameters", tracker);
-        if parameters.is_empty() {
-            tracker.push_field("parameters");
-            tracker.record(feuilletage::Error::MissingField {
-                path: tracker.current_path(),
-            });
-            tracker.pop();
-            return None;
-        }
-
-        let multiple = feuilletage_get_bool_or_default(config_table, "multiple", false, tracker);
-        let required = feuilletage_get_bool_or_default(config_table, "required", false, tracker);
-        let requires = feuilletage_get_str_array(config_table, "requires", tracker);
-        let conflicts_with = feuilletage_get_str_array(config_table, "conflicts_with", tracker);
-
-        Some(Self {
-            name,
-            parameters,
-            multiple,
-            required,
-            requires,
-            conflicts_with,
-        })
-    }
-}
-
-#[cfg(test)]
-#[path = "command_definition_test.rs"]
-mod tests;

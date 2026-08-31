@@ -39,7 +39,8 @@ fn empty_operation_name(tag: &str) -> Option<&'static str> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "UpConfigWire", skip_serialize, skip_deserialize)]
 pub struct UpConfig {
     pub steps: Vec<UpConfigTool>,
     pub errors: Vec<UpError>,
@@ -333,50 +334,128 @@ impl UpConfig {
 }
 
 // ============================================================================
-// Feuilletage FromContextValue implementation for UpConfig
+// Feuilletage parsed-value projection for UpConfig
 // ============================================================================
 //
-// This implementation delegates to UpConfigTool's derived FromContextValue
-// for most cases, with special handling for int/float array elements
-// (e.g., YAML `3.2` parsed as a float) which are treated as mise tool names.
+// Scalar steps are normalized to the externally tagged shape expected by
+// UpConfigTool. The typed wire variants retain enough information to report
+// invalid and specially empty operations without rereading the source value.
 // ============================================================================
 
-impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::FromContextValue<S, L>
-    for UpConfig
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    transform = "self::normalize_up_config_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct UpConfigWire(Vec<UpConfigStepWire>);
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(skip_serialize, skip_deserialize)]
+struct UpConfigStepWire {
+    #[feuilletage(default)]
+    tool: Option<UpConfigTool>,
+    #[feuilletage(default)]
+    empty_operation: Option<EmptyOperationWire>,
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum EmptyOperationWire {
+    #[feuilletage(variant = "cargo-install")]
+    CargoInstall,
+    #[feuilletage(variant = "github-release")]
+    GithubRelease,
+    #[feuilletage(variant = "go-install")]
+    GoInstall,
+}
+
+fn normalize_up_config_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    let feuilletage::ContextValue::Array(steps, _) = value else {
+        return Ok(());
+    };
+
+    for step in steps {
+        let context = step.context().clone();
+        let empty_operation = match step {
+            feuilletage::ContextValue::String(tag, _) => empty_operation_name(tag),
+            feuilletage::ContextValue::Object(values, _) if values.len() == 1 => values
+                .iter()
+                .next()
+                .filter(|(_, value)| value.is_null())
+                .and_then(|(tag, _)| empty_operation_name(tag)),
+            _ => None,
+        };
+
+        let (field, normalized) = if let Some(empty_operation) = empty_operation {
+            (
+                "empty_operation",
+                feuilletage::ContextValue::string(empty_operation, context.clone()),
+            )
+        } else {
+            let normalized = match step {
+                feuilletage::ContextValue::String(tag, _) => {
+                    let config =
+                        feuilletage::ContextValue::object(Default::default(), context.clone());
+                    feuilletage::ContextValue::object(
+                        [(tag.clone(), config)].into_iter().collect(),
+                        context.clone(),
+                    )
+                }
+                feuilletage::ContextValue::Int(value, _) => {
+                    let config =
+                        feuilletage::ContextValue::object(Default::default(), context.clone());
+                    feuilletage::ContextValue::object(
+                        [(value.to_string(), config)].into_iter().collect(),
+                        context.clone(),
+                    )
+                }
+                feuilletage::ContextValue::Float(value, _) => {
+                    let config =
+                        feuilletage::ContextValue::object(Default::default(), context.clone());
+                    feuilletage::ContextValue::object(
+                        [(value.to_string(), config)].into_iter().collect(),
+                        context.clone(),
+                    )
+                }
+                _ => step.clone(),
+            };
+            ("tool", normalized)
+        };
+
+        *step = feuilletage::ContextValue::object(
+            [(field.to_string(), normalized)].into_iter().collect(),
+            context,
+        );
+    }
+
+    Ok(())
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<UpConfigWire, S, L> for UpConfig
 {
-    fn from_context_value(
-        value: &feuilletage::ContextValue<S, L>,
+    fn from_parsed(
+        parsed: UpConfigWire,
+        _original: &feuilletage::ContextValue<S, L>,
         tracker: &mut feuilletage::ErrorTracker,
     ) -> Result<Self, feuilletage::Error> {
         let mut steps = Vec::new();
         let mut up_errors = Vec::new();
 
-        // The value must be an array of tool configurations
-        let config_array = match value {
-            feuilletage::ContextValue::Array(arr, _) => arr,
-            _ => {
-                tracker.record_type_mismatch("array", value.type_name());
-                return Ok(Self {
-                    steps: Vec::new(),
-                    errors: Vec::new(),
-                });
-            }
-        };
-
-        for (index, step_value) in config_array.iter().enumerate() {
+        for (index, step) in parsed.0.into_iter().enumerate() {
             tracker.push_index(index);
 
-            let empty_operation = match step_value {
-                feuilletage::ContextValue::String(tag, _) => empty_operation_name(tag),
-                feuilletage::ContextValue::Object(values, _) if values.len() == 1 => values
-                    .iter()
-                    .next()
-                    .filter(|(_, value)| value.is_null())
-                    .and_then(|(tag, _)| empty_operation_name(tag)),
-                _ => None,
-            };
-
-            if let Some(operation) = empty_operation {
+            if let Some(empty_operation) = step.empty_operation {
+                let operation = match empty_operation {
+                    EmptyOperationWire::CargoInstall => "cargo-install",
+                    EmptyOperationWire::GithubRelease => "github-release",
+                    EmptyOperationWire::GoInstall => "go-install",
+                };
                 tracker.record(feuilletage::Error::Custom {
                     code: "C002".to_string(),
                     path: format!("{}.{}", tracker.current_path(), operation),
@@ -385,80 +464,16 @@ impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel> feuilletage::Fro
                 up_errors.push(UpError::Config(format!(
                     "{operation} operation details are empty"
                 )));
-                tracker.pop();
-                continue;
-            }
-
-            match step_value {
-                // A bare string names a tool without supplying configuration.
-                // Parse it like the equivalent `{ tool: {} }` external tag so
-                // the tool name is not mistaken for its version.
-                feuilletage::ContextValue::String(tag, context) => {
-                    let empty_config =
-                        feuilletage::ContextValue::object(Default::default(), context.clone());
-                    let tagged_value = feuilletage::ContextValue::object(
-                        [(tag.clone(), empty_config)].into_iter().collect(),
-                        context.clone(),
-                    );
-
-                    match <UpConfigTool as feuilletage::FromContextValue<S, L>>::from_context_value(
-                        &tagged_value,
-                        tracker,
-                    ) {
-                        Ok(mut up_config) => {
-                            if let UpConfigTool::Mise(ref mut mise) = up_config {
-                                mise.process_from_tag();
-                            }
-                            steps.push(up_config);
-                        }
-                        Err(_) => {
-                            up_errors.push(UpError::Config(format!(
-                                "invalid config for step {}",
-                                index + 1
-                            )));
-                        }
-                    }
-                }
-                // Int/float values in the array are treated as mise tool names
-                // (e.g., YAML `3.2` parsed as a float key).
-                // These won't match any scalar variant in UpConfigTool's derived
-                // FromContextValue, so we handle them directly as Mise fallback.
-                feuilletage::ContextValue::Int(i, _) => {
-                    let mut mise = UpConfigMise::default();
-                    mise.requested_tool = i.to_string();
-                    mise.version = "latest".to_string();
+            } else if let Some(mut up_config) = step.tool {
+                if let UpConfigTool::Mise(ref mut mise) = up_config {
                     mise.process_from_tag();
-                    steps.push(UpConfigTool::Mise(mise));
                 }
-                feuilletage::ContextValue::Float(f, _) => {
-                    let mut mise = UpConfigMise::default();
-                    mise.requested_tool = f.to_string();
-                    mise.version = "latest".to_string();
-                    mise.process_from_tag();
-                    steps.push(UpConfigTool::Mise(mise));
-                }
-                // All other types (string, object) delegate to UpConfigTool's
-                // derived FromContextValue which handles external_tag dispatch
-                _ => {
-                    match <UpConfigTool as feuilletage::FromContextValue<S, L>>::from_context_value(
-                        step_value, tracker,
-                    ) {
-                        Ok(mut up_config) => {
-                            // Post-process Mise fallback variants to parse
-                            // "backend:tool@version" from the injected tag
-                            if let UpConfigTool::Mise(ref mut mise) = up_config {
-                                mise.process_from_tag();
-                            }
-                            steps.push(up_config);
-                        }
-                        Err(_) => {
-                            up_errors.push(UpError::Config(format!(
-                                "invalid config for step {}",
-                                index + 1
-                            )));
-                        }
-                    }
-                }
+                steps.push(up_config);
+            } else {
+                up_errors.push(UpError::Config(format!(
+                    "invalid config for step {}",
+                    index + 1
+                )));
             }
 
             tracker.pop(); // pop index
@@ -478,7 +493,8 @@ mod tests {
     use super::*;
 
     fn parse_up(yaml: &str) -> (UpConfig, feuilletage::ErrorTracker) {
-        let context = feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
         let mut config = feuilletage::Config::default();
         config.load_yaml(yaml, context);
         let mut tracker = feuilletage::ErrorTracker::new();
@@ -617,6 +633,100 @@ mod tests {
             }
             other => panic!("expected mise, got {other:?}"),
         }
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn typed_wire_preserves_scalar_and_object_tool_forms() {
+        let (up, tracker) =
+            parse_up("- python: '3.11'\n- node: 22\n- ubi:terraform@1.9:\n    upgrade: true\n");
+
+        assert_eq!(up.steps.len(), 3);
+        match &up.steps[0] {
+            UpConfigTool::Python(config) => {
+                assert_eq!(config.backend.version, "3.11");
+                assert!(config.backend.retained_config_value().is_some());
+            }
+            other => panic!("expected python, got {other:?}"),
+        }
+        match &up.steps[1] {
+            UpConfigTool::Nodejs(config) => assert_eq!(config.backend.version, "22"),
+            other => panic!("expected node, got {other:?}"),
+        }
+        match &up.steps[2] {
+            UpConfigTool::Mise(config) => {
+                assert_eq!(config.requested_tool, "terraform");
+                assert_eq!(config.backend.as_deref(), Some("ubi"));
+                assert_eq!(config.version, "1.9");
+                assert!(config.upgrade);
+            }
+            other => panic!("expected mise, got {other:?}"),
+        }
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn scalar_normalization_retains_source_context() {
+        let context = feuilletage::Context::new(
+            feuilletage::Source::File("/tmp/omni.yaml".into()),
+            feuilletage::Level::User,
+        );
+        let mut value = feuilletage::ContextValue::array(
+            vec![feuilletage::ContextValue::string("python", context.clone())],
+            context.clone(),
+        );
+
+        normalize_up_config_wire(&mut value, &context).unwrap();
+
+        let step = &value.as_array().unwrap()[0];
+        let config = step
+            .as_object()
+            .and_then(|object| object.get("tool"))
+            .and_then(feuilletage::ContextValue::as_object)
+            .and_then(|object| object.get("python"))
+            .expect("python scalar should normalize to an external tag");
+        assert_eq!(step.context(), &context);
+        assert_eq!(config.context(), &context);
+    }
+
+    #[test]
+    fn invalid_steps_accumulate_both_diagnostics_and_runtime_errors() {
+        let (up, tracker) =
+            parse_up("- python\n- true\n- terraform\n- [not, a, tool]\n- python: {}\n  node: {}\n");
+
+        assert_eq!(up.steps.len(), 2);
+        assert!(matches!(up.steps[0], UpConfigTool::Python(_)));
+        assert!(matches!(up.steps[1], UpConfigTool::Mise(_)));
+        assert_eq!(
+            up.errors,
+            vec![
+                UpError::Config("invalid config for step 2".to_string()),
+                UpError::Config("invalid config for step 4".to_string()),
+                UpError::Config("invalid config for step 5".to_string()),
+            ]
+        );
+        assert_eq!(tracker.errors().len(), 3);
+        assert!(tracker
+            .errors()
+            .iter()
+            .all(|error| error.code().starts_with("C10")));
+        for index in [1, 3, 4] {
+            assert!(tracker
+                .errors()
+                .iter()
+                .any(|error| error.location().starts_with(&format!("{index}."))));
+        }
+    }
+
+    #[test]
+    fn serialization_remains_the_step_array() {
+        let (up, tracker) = parse_up("- python: '3.11'\n- custom:\n    meet: 'true'\n");
+        let serialized = serde_json::to_value(&up).unwrap();
+
+        assert!(serialized.is_array());
+        assert_eq!(serialized.as_array().unwrap().len(), 2);
+        assert!(serialized[0].get("python").is_some());
+        assert!(serialized[1].get("custom").is_some());
         assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
     }
 }
