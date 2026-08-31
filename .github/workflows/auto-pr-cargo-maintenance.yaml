@@ -1,4 +1,4 @@
-name: Auto-pull-request for cargo dependencies
+name: Auto-pull-request for cargo maintenance
 
 
 on:
@@ -7,8 +7,10 @@ on:
     branches:
       - main
     paths:
-      - .github/workflows/auto-pr-cargo-dependencies.yaml
+      - .github/workflows/auto-pr-cargo-maintenance.yaml
       - Cargo.lock
+      - '*.rs'
+      - '**/*.rs'
 
   # Run weekly
   schedule:
@@ -31,7 +33,7 @@ env:
   # So cargo doesn't complain about unstable features
   RUSTC_BOOTSTRAP: 1
   # Which branch to use to make the pull request
-  PR_BRANCH: auto/cargo_update
+  PR_BRANCH: auto/cargo_maintenance
   # Whether or not to enable auto-merge
   PR_AUTO_MERGE: true
 
@@ -58,7 +60,7 @@ jobs:
 
       - name: Check if pull request already exists
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           STATE=$(gh pr view "${{ env.PR_BRANCH }}" \
                     --repo "${{ github.repository }}" \
@@ -67,8 +69,8 @@ jobs:
 
           echo "PR_STATE=${STATE}" | tee -a "$GITHUB_ENV"
 
-  run-cargo-update:
-    name: Update cargo dependencies
+  run-cargo-maintenance:
+    name: Update dependencies and run cargo fixes
 
     runs-on: ubuntu-latest
 
@@ -86,28 +88,59 @@ jobs:
 
       - name: Get rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
-      - name: cargo update
+      - name: Set up cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cargo-maintenance
+
+      - name: Update cargo dependencies
         run: |
           cargo update --color=never 2>&1 \
             | tee -a cargo_update.log
 
+      - name: Run cargo fix
+        env:
+          __CARGO_FIX_YOLO: 1 # So that we offer all the fixes
+        run: |
+          cargo fix --all-features --color always --allow-dirty
+
+      - name: Run clippy --fix
+        env:
+          __CARGO_FIX_YOLO: 1 # So that we offer all the fixes
+        run: |
+          cargo clippy --fix --all-features --color always --allow-dirty
+
+      - name: Run rustfmt
+        run: |
+          cargo fmt --verbose
+
       - name: Check if there is any update
-        run : |
-          [[ $(cat cargo_update.log | wc -l) -gt 1 ]] && \
-            UPDATES=true || \
-            UPDATES=false
+        run: |
+          git diff --name-only
+          git diff --quiet && \
+            UPDATES=false || \
+            UPDATES=true
           echo "UPDATES=${UPDATES}" | tee -a "$GITHUB_ENV"
 
-      - name: upload Cargo.lock artifact for use in PR
+      - name: Create archive of modified files
+        if: ${{ env.UPDATES == 'true' }}
+        run: |
+          git stash
+          git diff 'stash@{0}' -z --name-only | \
+            xargs -0 git archive 'stash@{0}' -o cargo-maintenance.zip --
+
+      - name: Upload cargo-maintenance.zip artifact for use in PR
         if: ${{ env.UPDATES == 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: Cargo-lock
-          path: Cargo.lock
+          name: cargo-maintenance
+          path: cargo-maintenance.zip
           retention-days: 1
 
-      - name: upload cargo-update log artifact for use in PR
+      - name: Upload cargo-update log artifact for use in PR
         if: ${{ env.UPDATES == 'true' }}
         uses: actions/upload-artifact@v7
         with:
@@ -123,12 +156,12 @@ jobs:
 
     needs:
       - check-pull-request
-      - run-cargo-update
+      - run-cargo-maintenance
 
-    if: needs.check-pull-request.outputs.should_run == 'true' && needs.run-cargo-update.outputs.any_update == 'true'
+    if: needs.check-pull-request.outputs.should_run == 'true' && needs.run-cargo-maintenance.outputs.any_update == 'true'
 
     env:
-      PR_TITLE: "chore(deps): 📦 cargo update"
+      PR_TITLE: "chore(deps): update cargo dependencies and fixes"
 
     steps:
       - name: Create application token
@@ -143,10 +176,15 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Download Cargo.lock from update job
+      - name: Download cargo-maintenance.zip from update job
         uses: actions/download-artifact@v8
         with:
-          name: Cargo-lock
+          name: cargo-maintenance
+
+      - name: Unzip cargo-maintenance.zip
+        run: |
+          unzip -o cargo-maintenance.zip -d .
+          rm cargo-maintenance.zip
 
       - name: Download cargo-update log from update job
         uses: actions/download-artifact@v8
@@ -156,30 +194,39 @@ jobs:
       - name: Craft commit message
         run: |
           echo "${{ env.PR_TITLE }}" | tee commit.txt
-          echo | tee -a commit.txt
-          cat cargo_update.log | tee -a commit.txt
+          if [[ -s cargo_update.log ]]; then
+            echo | tee -a commit.txt
+            cat cargo_update.log | tee -a commit.txt
+          fi
 
       - name: Craft pull-request body
         run: |
-          echo 'Updating `Cargo.lock` with `cargo update`' | tee body.md
+          echo 'Updating `Cargo.lock` and applying available cargo fixes' | tee body.md
           echo | tee -a body.md
-          echo "The following crate dependencies are to be updated:" | tee -a body.md
+          echo "The following files have been updated:" | tee -a body.md
           echo | tee -a body.md
-          awk 'NR > 1 && /Updating/ { \
-            sub(/^v/, "", $3); \
-            sub(/^v/, "", $5); \
-            printf "- [`%s`](https://crates.io/crates/%s) "\
-                   "([`v%s`](https://docs.rs/%s/%s/) -> "\
-                   "[`v%s`](https://docs.rs/%s/%s/))\n",
-                   $2, $2, $3, $2, $3, $5, $2, $5
-            }' cargo_update.log | tee -a body.md
+          git diff --name-only | while read file; do echo "- \`${file}\`"; done | tee -a body.md
+          if [[ -s cargo_update.log ]]; then
+            echo | tee -a body.md
+            echo 'The following dependencies were updated:' | tee -a body.md
+            echo | tee -a body.md
+            awk 'NR > 1 && /Updating/ { \
+              sub(/^v/, "", $3); \
+              sub(/^v/, "", $5); \
+              printf "- [`%s`](https://crates.io/crates/%s) "\
+                     "([`v%s`](https://docs.rs/%s/%s/) -> "\
+                     "[`v%s`](https://docs.rs/%s/%s/))\n",\
+                     $2, $2, $3, $2, $3, $5, $2, $5\
+              }' cargo_update.log | tee -a body.md
+          fi
 
       - name: git commit
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git switch --force-create "${{ env.PR_BRANCH }}"
-          git add ./Cargo.lock
+          git add --all
+          git reset -- cargo_update.log
           git commit --no-verify --file=commit.txt
 
       - name: git push
@@ -232,12 +279,12 @@ jobs:
 
     needs:
       - check-pull-request
-      - run-cargo-update
+      - run-cargo-maintenance
 
-    if: needs.check-pull-request.outputs.should_run == 'true' && needs.run-cargo-update.outputs.any_update == 'false' && needs.check-pull-request.outputs.pull_request_state == 'OPEN'
+    if: needs.check-pull-request.outputs.should_run == 'true' && needs.run-cargo-maintenance.outputs.any_update == 'false' && needs.check-pull-request.outputs.pull_request_state == 'OPEN'
 
     env:
-      PR_CLOSING_COMMENT: "Superseded. No more dependencies to be updated for now."
+      PR_CLOSING_COMMENT: "Superseded. No more dependencies or fixes to apply for now."
 
     steps:
       - name: Create application token
