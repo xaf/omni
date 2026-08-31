@@ -509,10 +509,7 @@ pub struct UpConfigGithubRelease {
     /// Whether to install a file that is not currently in an
     /// archive. This is useful for tools that are being
     /// distributed as a single binary file outside of an archive.
-    #[serde(
-        default = "cache_utils::set_true",
-        skip_serializing_if = "cache_utils::is_true"
-    )]
+    #[serde(skip_serializing_if = "cache_utils::is_true")]
     #[feuilletage(default = "true")]
     pub binary: bool,
 
