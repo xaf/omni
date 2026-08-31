@@ -114,8 +114,8 @@ mod multi_from_context_value {
     use crate::internal::config::FeuilletageConfigLevel;
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
-    use crate::internal::config::FeuilletageErrorTracker;
-    use crate::internal::config::FeuilletageFromContextValue;
+    use feuilletage::ErrorTracker as FeuilletageErrorTracker;
+    use feuilletage::FromContextValue as FeuilletageFromContextValue;
     use feuilletage::Config as FeuilletageConfig;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
@@ -267,8 +267,8 @@ mod single_from_context_value {
     use crate::internal::config::FeuilletageConfigLevel;
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
-    use crate::internal::config::FeuilletageErrorTracker;
-    use crate::internal::config::FeuilletageFromContextValue;
+    use feuilletage::ErrorTracker as FeuilletageErrorTracker;
+    use feuilletage::FromContextValue as FeuilletageFromContextValue;
     use feuilletage::Config as FeuilletageConfig;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
@@ -1002,8 +1002,8 @@ mod immutable_filtering {
     use crate::internal::config::FeuilletageConfigLevel;
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
-    use crate::internal::config::FeuilletageErrorTracker;
-    use crate::internal::config::FeuilletageFromContextValue;
+    use feuilletage::ErrorTracker as FeuilletageErrorTracker;
+    use feuilletage::FromContextValue as FeuilletageFromContextValue;
     use crate::internal::testutils::run_with_env;
     use feuilletage::Config as FeuilletageConfig;
     use time::OffsetDateTime;

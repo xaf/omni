@@ -125,13 +125,6 @@ pub type FeuilletageConfigContext = Context;
 /// Alias for ContextValue matching existing code patterns.
 pub type FeuilletageConfigValue = ContextValue;
 
-/// Alias for ErrorTracker matching existing code patterns.
-pub type FeuilletageErrorTracker = feuilletage::ErrorTracker;
-
-/// Re-export the context-value deserialization trait under Omni's naming convention.
-pub use feuilletage::FromContextValue as FeuilletageFromContextValue;
-
-
 // =============================================================================
 // Re-export feuilletage types that don't need generic parameters
 // =============================================================================

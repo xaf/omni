@@ -96,7 +96,7 @@ impl OmniConfigPerPath {
 ///
 /// # Arguments
 /// * `path` - The path to load configuration for. Use "/" for global config only,
-///            or a specific path to include workdir configuration.
+///   or a specific path to include workdir configuration.
 ///
 /// # Returns
 /// An `OmniConfig` instance. If deserialization fails, logs the error and returns
