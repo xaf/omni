@@ -139,9 +139,7 @@ pub fn make_partial_resolve_fn(
                 Some(value) => match value.as_map() {
                     Some(value) => value,
                     None => {
-                        return Err(tera::Error::message(
-                            "partial_resolve: no repo in context",
-                        ));
+                        return Err(tera::Error::message("partial_resolve: no repo in context"));
                     }
                 },
                 None => return Err(tera::Error::message("partial_resolve: no repo in context")),
@@ -154,9 +152,7 @@ pub fn make_partial_resolve_fn(
                 Some(value) => match value.as_str() {
                     Some(value) => value,
                     None => {
-                        return Err(tera::Error::message(
-                            "partial_resolve: no handle in repo",
-                        ));
+                        return Err(tera::Error::message("partial_resolve: no handle in repo"));
                     }
                 },
                 None => return Err(tera::Error::message("partial_resolve: no handle in repo")),
@@ -194,9 +190,7 @@ pub fn filter_escape_multiline_command(
         }
     };
 
-    let times = options
-        .get::<u64>("times")?
-        .unwrap_or(1);
+    let times = options.get::<u64>("times")?.unwrap_or(1);
 
     let mut escaped: String = value.to_string();
     for _ in 0..times {
