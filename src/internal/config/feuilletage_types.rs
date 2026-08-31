@@ -147,6 +147,9 @@ pub type FeuilletageConfigValue = ContextValue;
 /// Alias for ErrorTracker matching existing code patterns.
 pub type FeuilletageErrorTracker = feuilletage::ErrorTracker;
 
+/// Alias for the context-value deserialization trait used by migration tests.
+pub use feuilletage::FromContextValue as FeuilletageFromConfigValue;
+
 
 // =============================================================================
 // Re-export feuilletage types that don't need generic parameters
