@@ -1852,11 +1852,51 @@ impl UpConfigGithubRelease {
 
                 // Perform the extraction
                 if asset_type.is_zip() {
-                    zip_extract::extract(&archive_file, &target_dir, true).map_err(|err| {
-                        let errmsg = format!("failed to extract {asset_name}: {err}");
+                    let mut archive = zip::ZipArchive::new(archive_file).map_err(|err| {
+                        let errmsg = format!("failed to read {asset_name} as a zip archive: {err}");
                         progress_handler.error_with_message(errmsg.clone());
                         UpError::Exec(errmsg)
                     })?;
+
+                    for index in 0..archive.len() {
+                        let mut entry = archive.by_index(index).map_err(|err| {
+                            let errmsg = format!("failed to read {asset_name} zip entry: {err}");
+                            progress_handler.error_with_message(errmsg.clone());
+                            UpError::Exec(errmsg)
+                        })?;
+                        let entry_path = entry.enclosed_name().ok_or_else(|| {
+                            let errmsg = format!("refusing to extract unsafe path from {asset_name}");
+                            progress_handler.error_with_message(errmsg.clone());
+                            UpError::Exec(errmsg)
+                        })?;
+                        let output_path = target_dir.join(entry_path);
+
+                        if entry.is_dir() {
+                            std::fs::create_dir_all(&output_path).map_err(|err| {
+                                let errmsg = format!("failed to create directory for {asset_name}: {err}");
+                                progress_handler.error_with_message(errmsg.clone());
+                                UpError::Exec(errmsg)
+                            })?;
+                        } else {
+                            if let Some(parent) = output_path.parent() {
+                                std::fs::create_dir_all(parent).map_err(|err| {
+                                    let errmsg = format!("failed to create directory for {asset_name}: {err}");
+                                    progress_handler.error_with_message(errmsg.clone());
+                                    UpError::Exec(errmsg)
+                                })?;
+                            }
+                            let mut output_file = std::fs::File::create(&output_path).map_err(|err| {
+                                let errmsg = format!("failed to create extracted file for {asset_name}: {err}");
+                                progress_handler.error_with_message(errmsg.clone());
+                                UpError::Exec(errmsg)
+                            })?;
+                            std::io::copy(&mut entry, &mut output_file).map_err(|err| {
+                                let errmsg = format!("failed to extract {asset_name}: {err}");
+                                progress_handler.error_with_message(errmsg.clone());
+                                UpError::Exec(errmsg)
+                            })?;
+                        }
+                    }
                 } else if asset_type.is_tgz() {
                     let tar = flate2::read::GzDecoder::new(archive_file);
                     let mut archive = tar::Archive::new(tar);

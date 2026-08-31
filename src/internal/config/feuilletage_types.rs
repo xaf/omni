@@ -17,15 +17,12 @@
 //! - [`Context`] - alias for `feuilletage::Context<Source, Level>`
 //! - [`ContextValue`] - alias for `feuilletage::ContextValue<Source, Level>`
 //!
-//! For code that needs to track package sources, use `OmniSource` directly
-//! with the appropriate generic parameters.
+//! Package metadata is tracked by `PathEntryConfig`, not by the source type.
 
 use std::path::Path;
 use std::path::PathBuf;
 
 use serde::Serialize;
-
-use crate::internal::config::parser::PathEntryConfig;
 
 // =============================================================================
 // Custom Source Type
@@ -33,8 +30,7 @@ use crate::internal::config::parser::PathEntryConfig;
 
 /// Custom source type for omni extending feuilletage's Source enum.
 ///
-/// This type includes all the standard source variants (File, Environment,
-/// Programmatic, Default) plus omni-specific variants like Package.
+/// This type includes the standard source variants used by Omni.
 /// It implements `feuilletage::CustomSource` so it can be used as a source type
 /// parameter in `Config<OmniSource, Level>`, etc.
 ///
@@ -48,9 +44,6 @@ use crate::internal::config::parser::PathEntryConfig;
 /// let file_source = OmniSource::File("/etc/omni/config.yaml".into());
 /// let prog_source = OmniSource::Programmatic;
 ///
-/// // Custom package source
-/// let pkg = PathEntryConfig { /* ... */ };
-/// let pkg_source = OmniSource::Package(pkg);
 /// ```
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[derive(Default)]
@@ -64,8 +57,6 @@ pub enum OmniSource {
     /// Default value
     #[default]
     Default,
-    /// Source is a package with associated metadata
-    Package(PathEntryConfig),
 }
 
 
@@ -76,22 +67,12 @@ impl feuilletage::CustomSource for OmniSource {
             OmniSource::Environment => "environment".to_string(),
             OmniSource::Programmatic => "programmatic".to_string(),
             OmniSource::Default => "default".to_string(),
-            OmniSource::Package(entry) => {
-                format!("package:{}", entry.package.as_deref().unwrap_or("unknown"))
-            }
         }
     }
 
     fn file_path(&self) -> Option<&Path> {
         match self {
             OmniSource::File(path) => Some(path.as_path()),
-            OmniSource::Package(entry) => {
-                if entry.full_path.is_empty() {
-                    None
-                } else {
-                    Some(Path::new(&entry.full_path))
-                }
-            }
             _ => None,
         }
     }
@@ -115,7 +96,7 @@ impl feuilletage::CustomSource for OmniSource {
 
 /// Source type - re-export of feuilletage's built-in Source enum.
 ///
-/// Use this for most source tracking. For package-aware tracking, use `OmniSource`.
+/// Use this for source tracking. Package metadata is kept on `PathEntryConfig`.
 pub type Source = feuilletage::Source;
 
 /// Level type - re-export of feuilletage's built-in Level enum.
@@ -158,6 +139,4 @@ pub use feuilletage::FromContextValue as FeuilletageFromContextValue;
 pub use feuilletage::{
     // Values
     Value,
-    // Traits (for custom implementations)
-    IsEmpty,
 };

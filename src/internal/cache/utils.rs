@@ -4,6 +4,8 @@ pub trait Empty {
     fn is_empty(&self) -> bool;
 }
 
+// Referenced by name from a serde attribute, so the compiler cannot see its use.
+#[allow(dead_code)]
 pub fn set_true() -> bool {
     true
 }

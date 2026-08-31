@@ -146,7 +146,6 @@ impl ConfigCommand {
         match &self.details.source {
             OmniSource::Default => "/default".to_string(),
             OmniSource::File(ref path) => path.to_string_lossy().to_string(),
-            OmniSource::Package(ref path_entry_config) => path_entry_config.full_path.clone(),
             OmniSource::Environment => "/environment".to_string(),
             OmniSource::Programmatic => "/programmatic".to_string(),
         }

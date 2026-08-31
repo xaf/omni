@@ -123,32 +123,6 @@ impl Default for PathRepoUpdatesSelfUpdateEnum {
 // True -> "true", False -> "false", NoCheck -> "nocheck", Ask -> "ask"
 
 impl PathRepoUpdatesSelfUpdateEnum {
-    pub fn from_bool(value: bool) -> Self {
-        if value {
-            Self::True
-        } else {
-            Self::False
-        }
-    }
-
-    pub fn from_str(value: &str) -> Self {
-        match value.to_lowercase().as_str() {
-            "true" | "yes" | "y" => Self::True,
-            "false" | "no" | "n" => Self::False,
-            "nocheck" => Self::NoCheck,
-            "ask" => Self::Ask,
-            _ => Self::default(),
-        }
-    }
-
-    pub fn from_int(value: i64) -> Self {
-        match value {
-            0 => Self::False,
-            1 => Self::True,
-            _ => Self::Ask,
-        }
-    }
-
     pub fn do_not_check(&self) -> bool {
         matches!(self, PathRepoUpdatesSelfUpdateEnum::NoCheck)
     }
@@ -194,31 +168,6 @@ pub enum PathRepoUpdatesOnCommandNotFoundEnum {
 // True -> "true", False -> "false", Ask -> "ask"
 
 impl PathRepoUpdatesOnCommandNotFoundEnum {
-    pub fn from_bool(value: bool) -> Self {
-        if value {
-            Self::True
-        } else {
-            Self::False
-        }
-    }
-
-    pub fn from_str(value: &str) -> Self {
-        match value.to_lowercase().as_str() {
-            "true" | "yes" | "y" => Self::True,
-            "false" | "no" | "n" => Self::False,
-            "ask" => Self::Ask,
-            _ => Self::default(),
-        }
-    }
-
-    pub fn from_int(value: i64) -> Self {
-        match value {
-            0 => Self::False,
-            1 => Self::True,
-            _ => Self::default(),
-        }
-    }
-
     pub fn is_false(&self) -> bool {
         match self {
             Self::False => true,
