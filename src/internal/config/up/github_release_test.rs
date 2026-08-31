@@ -115,7 +115,7 @@ mod multi_from_context_value {
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
     use crate::internal::config::FeuilletageErrorTracker;
-    use crate::internal::config::FeuilletageFromConfigValue;
+    use crate::internal::config::FeuilletageFromContextValue;
     use feuilletage::Config as FeuilletageConfig;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
@@ -133,7 +133,7 @@ mod multi_from_context_value {
         let yaml = "";
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubReleases as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -146,7 +146,7 @@ mod multi_from_context_value {
         let yaml = "owner/repo";
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubReleases as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -165,7 +165,7 @@ mod multi_from_context_value {
         let yaml = r#"{"repository": "owner/repo"}"#;
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubReleases as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -184,7 +184,7 @@ mod multi_from_context_value {
         let yaml = r#"{"owner/repo": "1.2.3", "owner2/repo2": {"version": "2.3.4", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}, "owner3/repo3": {}}"#;
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubReleases as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -221,7 +221,7 @@ mod multi_from_context_value {
         let yaml = r#"["owner/repo", {"repository": "owner2/repo2", "version": "2.3.4", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}, {"owner3/repo3": "3.4.5"}, {"owner4/repo4": {"version": "4.5.6"}}]"#;
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubReleases as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -268,7 +268,7 @@ mod single_from_context_value {
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
     use crate::internal::config::FeuilletageErrorTracker;
-    use crate::internal::config::FeuilletageFromConfigValue;
+    use crate::internal::config::FeuilletageFromContextValue;
     use feuilletage::Config as FeuilletageConfig;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
@@ -286,7 +286,7 @@ mod single_from_context_value {
         let yaml = "owner/repo";
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubRelease as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -304,7 +304,7 @@ mod single_from_context_value {
         let yaml = r#"{"repository": "owner/repo"}"#;
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubRelease as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -322,7 +322,7 @@ mod single_from_context_value {
         let yaml = r#"{"repo": "owner/repo"}"#;
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubRelease as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -340,7 +340,7 @@ mod single_from_context_value {
         let yaml = r#"{"repository": "owner/repo", "version": "1.2.3", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}"#;
         let config_value = parse_yaml(yaml);
         let mut tracker = FeuilletageErrorTracker::new();
-        let config = <UpConfigGithubRelease as FeuilletageFromConfigValue>::from_context_value(
+        let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
             &config_value,
             &mut tracker,
         )
@@ -1003,7 +1003,7 @@ mod immutable_filtering {
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
     use crate::internal::config::FeuilletageErrorTracker;
-    use crate::internal::config::FeuilletageFromConfigValue;
+    use crate::internal::config::FeuilletageFromContextValue;
     use crate::internal::testutils::run_with_env;
     use feuilletage::Config as FeuilletageConfig;
     use time::OffsetDateTime;
@@ -1108,7 +1108,7 @@ mod immutable_filtering {
             let yaml = r#"{"repository": "owner/repo", "immutable": true}"#;
             let config_value = parse_yaml(yaml);
             let mut tracker = FeuilletageErrorTracker::new();
-            let config = <UpConfigGithubRelease as FeuilletageFromConfigValue>::from_context_value(
+            let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
                 &config_value,
                 &mut tracker,
             )
@@ -1121,7 +1121,7 @@ mod immutable_filtering {
             let config_value2 = parse_yaml(yaml2);
             let mut tracker2 = FeuilletageErrorTracker::new();
             let config2 =
-                <UpConfigGithubRelease as FeuilletageFromConfigValue>::from_context_value(
+                <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
                     &config_value2,
                     &mut tracker2,
                 )
