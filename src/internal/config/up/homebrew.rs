@@ -815,6 +815,7 @@ impl HomebrewTap {
         taps_set.into_iter().collect()
     }
 
+    #[allow(clippy::mutable_key_type)]
     fn add_implicit_taps_set(
         mut taps: BTreeSet<Self>,
         installs: &[HomebrewInstall],

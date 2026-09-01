@@ -796,8 +796,9 @@ impl TidyGitRepo {
         let current_path = path_entry_config(self.current_path.to_str().unwrap());
 
         // Access path table using feuilletage's ContextValue API
-        if let Some(path_config_value) = feuilletage_config.root().as_object().and_then(|obj| obj.get("path")) {
-            if let feuilletage::ContextValue::Object(path_table, _) = path_config_value {
+        if let Some(feuilletage::ContextValue::Object(path_table, _)) =
+            feuilletage_config.root().as_object().and_then(|obj| obj.get("path"))
+        {
                 for (_key, path_list_value) in path_table.iter() {
                     if let feuilletage::ContextValue::Array(path_list, _) = path_list_value {
                         for value in path_list.iter() {
@@ -815,7 +816,6 @@ impl TidyGitRepo {
                         }
                     }
                 }
-            }
         }
 
         let mut any_edited = false;
@@ -836,8 +836,7 @@ impl TidyGitRepo {
 
         let result = ConfigLoader::edit_user_config_file_feuilletage(file_path, |config| {
             // Use feuilletage's mutable access via get_mut("path")
-            if let Some(path_config_value) = config.get_mut("path") {
-                if let feuilletage::ContextValue::Object(path_table, _) = path_config_value {
+            if let Some(feuilletage::ContextValue::Object(path_table, _)) = config.get_mut("path") {
                     for (_key, path_list_value) in path_table.iter_mut() {
                         if let feuilletage::ContextValue::Array(path_list, _) = path_list_value {
                             for value in path_list.iter_mut() {
@@ -855,7 +854,6 @@ impl TidyGitRepo {
                             }
                         }
                     }
-                }
             }
 
             edited
