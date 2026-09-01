@@ -45,7 +45,6 @@ git-url-parse = "0.6.0"
 git2 = { version = "0.21.0", features = ["vendored-libgit2"] }
 glob = "0.3.4"
 globset = "0.4.20"
-humantime = "2.4.0"
 imara-diff = "0.2.0"
 indexmap = "2.14.0"
 indicatif = "0.18.6"
