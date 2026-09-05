@@ -17,14 +17,14 @@ use crate::internal::commands::builtin::UpCommand;
 use crate::internal::commands::path::global_omnipath_entries;
 use crate::internal::commands::utils::abs_path;
 use crate::internal::commands::Command;
+use crate::internal::config::feuilletage_loader::OmniConfigLoader;
 use crate::internal::config::config;
-use crate::internal::config::global_config_loader;
 use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::parser::PathEntryConfig;
 use crate::internal::config::up::utils::directory::safe_rename;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigSource;
+use crate::internal::config::ConfigLoader;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
 use crate::internal::env::shell_is_interactive;
@@ -37,7 +37,6 @@ use crate::internal::git::path_entry_config;
 use crate::internal::git::safe_git_url_parse;
 use crate::internal::git_env;
 use crate::internal::user_interface::StringColor;
-use crate::internal::ConfigLoader;
 use crate::internal::ORG_LOADER;
 use crate::omni_error;
 use crate::omni_info;
@@ -788,28 +787,35 @@ impl TidyGitRepo {
     {
         let mut files_to_edit = HashSet::new();
 
-        let config = global_config_loader().raw_config.clone();
+        // Load global config using feuilletage loader
+        let mut loader = OmniConfigLoader::new_global();
+        let feuilletage_config = match loader.build() {
+            Ok(config) => config,
+            Err(_) => return false,
+        };
         let current_path = path_entry_config(self.current_path.to_str().unwrap());
 
-        if let Some(config_path) = config.get_as_table("path") {
-            for key in config_path.keys() {
-                if let Some(path_list) = config_path.get(key) {
-                    if let Some(path_list) = path_list.as_array() {
-                        for value in path_list {
-                            if let Some(path_entry) = PathEntryConfig::from_config_value(
-                                &value,
+        // Access path table using feuilletage's ContextValue API
+        if let Some(feuilletage::ContextValue::Object(path_table, _)) =
+            feuilletage_config.root().as_object().and_then(|obj| obj.get("path"))
+        {
+                for (_key, path_list_value) in path_table.iter() {
+                    if let feuilletage::ContextValue::Array(path_list, _) = path_list_value {
+                        for value in path_list.iter() {
+                            if let Some(path_entry) = PathEntryConfig::from_feuilletage_value(
+                                value,
                                 &ConfigErrorHandler::noop(),
                             ) {
                                 if path_entry.starts_with(&current_path) {
-                                    if let ConfigSource::File(path) = value.get_source() {
-                                        files_to_edit.insert(path.clone());
+                                    // Extract source from feuilletage context
+                                    if let feuilletage::Source::File(path) = &value.context().source {
+                                        files_to_edit.insert(path.to_string_lossy().to_string());
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
         }
 
         let mut any_edited = false;
@@ -828,23 +834,26 @@ impl TidyGitRepo {
         let current_path = path_entry_config(self.current_path.to_str().unwrap());
         let expected_path = path_entry_config(self.expected_path.to_str().unwrap());
 
-        let result = ConfigLoader::edit_user_config_file(file_path.to_string(), |config_value| {
-            if let Some(config_path) = config_value.get_as_table_mut("path") {
-                for path_list in config_path.values_mut() {
-                    if let Some(path_list) = path_list.as_array_mut() {
-                        for value in path_list.iter_mut() {
-                            if let Some(mut path_entry) = PathEntryConfig::from_config_value(
-                                value,
-                                &ConfigErrorHandler::noop(),
-                            ) {
-                                if path_entry.replace(&current_path, &expected_path) {
-                                    *value = path_entry.as_config_value().clone();
-                                    edited = true;
+        let result = ConfigLoader::edit_user_config_file_feuilletage(file_path, |config| {
+            // Use feuilletage's mutable access via get_mut("path")
+            if let Some(feuilletage::ContextValue::Object(path_table, _)) = config.get_mut("path") {
+                    for (_key, path_list_value) in path_table.iter_mut() {
+                        if let feuilletage::ContextValue::Array(path_list, _) = path_list_value {
+                            for value in path_list.iter_mut() {
+                                if let Some(mut path_entry) = PathEntryConfig::from_feuilletage_value(
+                                    value,
+                                    &ConfigErrorHandler::noop(),
+                                ) {
+                                    if path_entry.replace(&current_path, &expected_path) {
+                                        // Convert back using to_feuilletage_value and update the value
+                                        let ctx = value.context().clone();
+                                        *value = feuilletage::ContextValue::new(path_entry.to_feuilletage_value(), ctx);
+                                        edited = true;
+                                    }
                                 }
                             }
                         }
                     }
-                }
             }
 
             edited

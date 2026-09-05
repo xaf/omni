@@ -7,7 +7,7 @@ use crate::internal::cache::CacheManagerError;
 /// Upgrade the database schema
 pub fn upgrade_database(conn: &Connection) -> Result<(), CacheManagerError> {
     // Get the current version of the database
-    let current_version: usize = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let current_version: u32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     // Set up for getting to version 1 and migrating
     // from the JSON files

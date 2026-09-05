@@ -5,7 +5,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command as StdCommand;
 
-use normalize_path::NormalizePath;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
@@ -23,7 +22,6 @@ use crate::internal::cache::CacheManagerError;
 use crate::internal::cache::MiseOperationCache;
 use crate::internal::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::up::homebrew::HomebrewInstall;
 use crate::internal::config::up::utils::data_path_dir_hash;
 use crate::internal::config::up::utils::directory::safe_rename;
@@ -42,8 +40,10 @@ use crate::internal::config::up::UpConfigTool;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::is_executable;
-use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
+
+// Feuilletage imports for new config parsing system
+use crate::internal::config::FeuilletageConfigValue;
 use crate::internal::env::cache_home;
 use crate::internal::env::current_dir;
 use crate::internal::env::data_home;
@@ -72,7 +72,7 @@ type PostInstallFunc = fn(
 /// A struct representing the arguments that will be passed to the post-install
 /// functions as they are being called.
 pub struct PostInstallFuncArgs<'a> {
-    pub config_value: Option<ConfigValue>,
+    pub config_value: Option<FeuilletageConfigValue>,
     pub fqtn: &'a FullyQualifiedToolName,
     #[allow(dead_code)]
     pub requested_version: String,
@@ -821,12 +821,7 @@ struct MiseRegistryEntry {
     repository: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct UpConfigMiseParams {
-    pub tool_url: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct FullyQualifiedToolName {
     /// The name of the tool to install. e.g. python, rust, etc.
     tool: String,
@@ -1083,20 +1078,25 @@ impl FullyQualifiedToolName {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(scalar_as = "version", skip_serialize)]
 pub struct UpConfigMise {
-    /// The name of the tool to install.
+    /// The name of the tool to install; injected via from_tag at
+    /// the UpConfigTool enum level for the Mise fallback variant.
     #[serde(skip)]
-    requested_tool: String,
+    #[feuilletage(skip)]
+    pub(crate) requested_tool: String,
 
     /// The fully qualified name of the tool to install
     #[serde(skip)]
+    #[feuilletage(skip)]
     resolved_tool: OnceCell<FullyQualifiedToolName>,
 
     /// The URL to use to install the tool; will be set automatically
     /// if needed, either from the override tool url provided by the
     /// caller, or as a param to default to for the tool
     #[serde(skip)]
+    #[feuilletage(skip)]
     pub tool_url: Option<String>,
 
     /// The URL passed as parameter to override the location
@@ -1104,71 +1104,69 @@ pub struct UpConfigMise {
     /// to make sure it can be dumped when looking at the
     /// configuration.
     #[serde(rename = "url", default, skip_serializing_if = "Option::is_none")]
+    #[feuilletage(default, rename = "url")]
     pub override_tool_url: Option<String>,
 
     /// The version of the tool to install, as specified in the config file.
+    #[feuilletage(default = "\"latest\".to_string()", coerce)]
     pub version: String,
 
     /// The backend to use to install the tool with mise
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[feuilletage(default)]
     pub backend: Option<String>,
 
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub upgrade: bool,
 
     /// A list of directories to install the tool for.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    #[feuilletage(
+        default,
+        allow_single,
+        rename = "dir",
+        transform_each = "normalize_path"
+    )]
     pub dirs: BTreeSet<String>,
 
     /// A list of functions to run to detect the version of the tool.
-    /// The functions will be called with the following parameters:
-    /// - tool: the name of the tool
-    /// - path: the path currently being searched
-    ///   The functions should return the version of the tool if found, or None
-    ///   if not found.
-    ///   The functions will be called in order, and the first one to return a
-    ///   version will be used.
-    ///   If no function returns a version, the version will be considered not
-    ///   found.
     #[serde(skip)]
+    #[feuilletage(skip)]
     detect_version_funcs: Vec<DetectVersionFunc>,
 
     /// A list of functions to run after installing a version of the tool.
-    /// This is useful for tools that require additional steps after installing
-    /// a version, such as installing plugins or running post-install scripts.
-    /// The functions will be called with the following parameters:
-    /// - progress_handler: a progress handler to use to report progress
-    /// - tool: the name of the tool
-    /// - versions: MiseToolUpVersion objects describing the versions that were
-    ///   up-ed, with the following fields:
-    ///     - version: the version of the tool that was installed
-    ///     - installed: whether the tool was installed or already installed
-    ///     - paths: the relative paths where the tool version was installed
     #[serde(skip)]
+    #[feuilletage(skip)]
     post_install_funcs: Vec<PostInstallFunc>,
 
     /// The actual version of the tool that has to be installed.
     #[serde(skip)]
+    #[feuilletage(skip)]
     actual_version: OnceCell<String>,
 
     /// The actual versions of the tool that have been installed.
     /// This is only used when the version is "auto".
     #[serde(skip)]
+    #[feuilletage(skip)]
     actual_versions: OnceCell<BTreeMap<String, BTreeSet<String>>>,
 
     /// The configuration value that was used to create this object.
     #[serde(skip)]
-    config_value: Option<ConfigValue>,
+    #[feuilletage(skip)]
+    config_value: Option<FeuilletageConfigValue>,
 
     /// Whether the up operation succeeded. If unset, the operation has not
     /// been attempted yet.
     #[serde(skip)]
+    #[feuilletage(skip)]
     up_succeeded: OnceCell<bool>,
 
     /// The tool object representing the dependencies for this mise tool.
     #[serde(skip)]
+    #[feuilletage(skip)]
     deps: OnceCell<Box<UpConfigTool>>,
 }
 
@@ -1205,6 +1203,19 @@ impl UpConfigMise {
         self.post_install_funcs.push(func);
     }
 
+    pub(crate) fn retain_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+        &mut self,
+        value: &feuilletage::ContextValue<S, L>,
+    ) {
+        let value: feuilletage::Value = value.into();
+        self.config_value = Some(value.into());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_config_value(&self) -> Option<&FeuilletageConfigValue> {
+        self.config_value.as_ref()
+    }
+
     fn new_from_auto(&self, version: &str, dirs: BTreeSet<String>) -> Self {
         UpConfigMise {
             requested_tool: self.requested_tool.clone(),
@@ -1217,94 +1228,20 @@ impl UpConfigMise {
         }
     }
 
-    pub fn from_config_value(
-        tool: &str,
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        Self::from_config_value_with_params(
-            tool,
-            config_value,
-            UpConfigMiseParams::default(),
-            error_handler,
-        )
-    }
-
-    pub fn from_config_value_with_params(
-        tool: &str,
-        config_value: Option<&ConfigValue>,
-        params: UpConfigMiseParams,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut version = "latest".to_string();
-        let mut backend = None;
-        let mut upgrade = false;
-        let mut dirs = BTreeSet::new();
-        let mut override_tool_url = None;
-
-        let (tool, backend_in_name, version_in_name) = parse_mise_name(tool);
-        if let Some(backend_in_name) = backend_in_name {
-            backend = Some(backend_in_name);
-        }
-        if let Some(version_in_name) = version_in_name {
-            version = version_in_name;
-        }
-
-        if let Some(config_value) = config_value {
-            if let Some(value) = config_value.as_str() {
-                version = value.to_string();
-            } else if let Some(value) = config_value.as_float() {
-                version = value.to_string();
-            } else if let Some(value) = config_value.as_integer() {
-                version = value.to_string();
-            } else {
-                if let Some(value) =
-                    config_value.get_as_str_or_none("version", &error_handler.with_key("version"))
-                {
-                    version = value.to_string();
-                }
-
-                if let Some(value) =
-                    config_value.get_as_str_or_none("backend", &error_handler.with_key("backend"))
-                {
-                    backend = Some(value.to_string());
-                }
-
-                let list_dirs =
-                    config_value.get_as_str_array("dir", &error_handler.with_key("dir"));
-                for value in list_dirs {
-                    dirs.insert(
-                        PathBuf::from(value)
-                            .normalize()
-                            .to_string_lossy()
-                            .to_string(),
-                    );
-                }
-
-                if let Some(url) =
-                    config_value.get_as_str_or_none("url", &error_handler.with_key("url"))
-                {
-                    override_tool_url = Some(url.to_string());
-                }
-
-                if let Some(value) =
-                    config_value.get_as_bool_or_none("upgrade", &error_handler.with_key("upgrade"))
-                {
-                    upgrade = value;
-                }
+    /// Process the requested_tool field that was injected via from_tag.
+    /// Parses "backend:tool@version" format and updates fields accordingly.
+    pub fn process_from_tag(&mut self) {
+        let (tool, backend_in_name, version_in_name) = parse_mise_name(&self.requested_tool);
+        self.requested_tool = tool;
+        if let Some(b) = backend_in_name {
+            if self.backend.is_none() {
+                self.backend = Some(b);
             }
         }
-
-        UpConfigMise {
-            requested_tool: tool.to_string(),
-            tool_url: params.tool_url.clone(),
-            override_tool_url,
-            version,
-            backend,
-            upgrade,
-            dirs,
-            config_value: config_value.cloned(),
-            ..UpConfigMise::default()
+        if let Some(v) = version_in_name {
+            if self.version == "latest" {
+                self.version = v;
+            }
         }
     }
 
@@ -2410,6 +2347,13 @@ fn detect_version_from_mise(tool_name: String, path: PathBuf) -> Option<String> 
         Err(_err) => None,
     }
 }
+
+// ============================================================================
+// FromContextValue is now generated by feuilletage::Config derive macro.
+// The #[feuilletage(scalar_as = "version")] attribute handles scalar input
+// (string/int/float → version field), and #[feuilletage(coerce)] on the
+// version field handles int/float → string coercion.
+// ============================================================================
 
 /// Parse the provided name which can be in the format:
 /// - <tool>

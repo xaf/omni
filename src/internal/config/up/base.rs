@@ -1,12 +1,9 @@
 use itertools::Itertools;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils::Empty;
 use crate::internal::cache::UpEnvironmentsCache;
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::up::utils::cleanup_path;
 use crate::internal::config::up::utils::reshim;
 use crate::internal::config::up::utils::ProgressHandler;
@@ -19,13 +16,31 @@ use crate::internal::config::up::UpConfigMise;
 use crate::internal::config::up::UpConfigTool;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command;
 use crate::internal::user_interface::colors::StringColor;
 use crate::internal::workdir;
 use crate::omni_warning;
 
-#[derive(Debug, Deserialize, Clone)]
+fn empty_operation_name(tag: &str) -> Option<&'static str> {
+    match tag {
+        "cargo-install"
+        | "cargo_install"
+        | "cargoinstall"
+        | "cargo-install-crates"
+        | "cargo-install-crate"
+        | "cargo-crates"
+        | "cargo-crate" => Some("cargo-install"),
+        "github-release" | "github_release" | "githubrelease" | "ghrelease" | "github-releases"
+        | "github_releases" | "githubreleases" | "ghreleases" | "github" | "gh-release"
+        | "gh-releases" => Some("github-release"),
+        "go-install" | "go_install" | "goinstall" | "go-install-tools" | "go-install-tool"
+        | "go-tools" | "go-tool" => Some("go-install"),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "UpConfigWire", skip_serialize, skip_deserialize)]
 pub struct UpConfig {
     pub steps: Vec<UpConfigTool>,
     pub errors: Vec<UpError>,
@@ -48,99 +63,6 @@ impl Serialize for UpConfig {
 }
 
 impl UpConfig {
-    pub fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let config_value = config_value?;
-
-        let config_array = match config_value.as_array() {
-            Some(config_array) => config_array,
-            None => {
-                error_handler
-                    .with_expected("array")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
-
-                return None;
-            }
-        };
-
-        let mut up_errors = Vec::new();
-        let mut steps = Vec::new();
-        for (value, index) in config_array.iter().zip(0..) {
-            let step_error_handler = error_handler.with_index(index);
-
-            if let Some(table) = value.as_table() {
-                if table.len() != 1 {
-                    step_error_handler
-                        .with_actual(value)
-                        .error(ConfigErrorKind::NotExactlyOneKeyInTable);
-                    up_errors.push(UpError::Config(format!(
-                        "invalid config for step {}: {}",
-                        index + 1,
-                        value
-                    )));
-                    continue;
-                }
-
-                let (up_name, config_value) = table.iter().next().unwrap();
-
-                if let Some(up_config) = UpConfigTool::from_config_value(
-                    up_name,
-                    Some(config_value),
-                    &step_error_handler.with_key(up_name),
-                ) {
-                    steps.push(up_config);
-                } else {
-                    up_errors.push(UpError::Config(format!(
-                        "invalid config for step {} ({}): {}",
-                        index + 1,
-                        up_name,
-                        config_value
-                    )));
-                }
-            } else if let Some(up_name) = value.as_str_forced() {
-                if let Some(up_config) = UpConfigTool::from_config_value(
-                    &up_name,
-                    None,
-                    &step_error_handler.with_key(&up_name),
-                ) {
-                    steps.push(up_config);
-                } else {
-                    up_errors.push(UpError::Config(format!(
-                        "invalid config for step {} ({})",
-                        index + 1,
-                        up_name
-                    )));
-                }
-            } else {
-                step_error_handler
-                    .with_expected("string or table")
-                    .with_actual(value)
-                    .error(ConfigErrorKind::InvalidValueType);
-                up_errors.push(UpError::Config(format!(
-                    "invalid config for step {}: {}",
-                    index + 1,
-                    value
-                )));
-            }
-        }
-
-        if steps.is_empty() && up_errors.is_empty() {
-            return None;
-        }
-
-        Some(UpConfig {
-            steps,
-            errors: up_errors,
-        })
-    }
-
-    // pub fn steps(&self) -> Vec<UpConfigTool> {
-    // self.steps.clone()
-    // }
-
     pub fn errors(&self) -> Vec<UpError> {
         self.errors.clone()
     }
@@ -408,5 +330,403 @@ impl UpConfig {
             num_removed.to_string().light_yellow(),
             if num_removed > 1 { "ies" } else { "y" }
         )))
+    }
+}
+
+// ============================================================================
+// Feuilletage parsed-value projection for UpConfig
+// ============================================================================
+//
+// Scalar steps are normalized to the externally tagged shape expected by
+// UpConfigTool. The typed wire variants retain enough information to report
+// invalid and specially empty operations without rereading the source value.
+// ============================================================================
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    transform = "self::normalize_up_config_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct UpConfigWire(Vec<UpConfigStepWire>);
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(skip_serialize, skip_deserialize)]
+struct UpConfigStepWire {
+    #[feuilletage(default)]
+    tool: Option<UpConfigTool>,
+    #[feuilletage(default)]
+    empty_operation: Option<EmptyOperationWire>,
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum EmptyOperationWire {
+    #[feuilletage(variant = "cargo-install")]
+    CargoInstall,
+    #[feuilletage(variant = "github-release")]
+    GithubRelease,
+    #[feuilletage(variant = "go-install")]
+    GoInstall,
+}
+
+fn normalize_up_config_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    let feuilletage::ContextValue::Array(steps, _) = value else {
+        return Ok(());
+    };
+
+    for step in steps {
+        let context = step.context().clone();
+        let empty_operation = match step {
+            feuilletage::ContextValue::String(tag, _) => empty_operation_name(tag),
+            feuilletage::ContextValue::Object(values, _) if values.len() == 1 => values
+                .iter()
+                .next()
+                .filter(|(_, value)| value.is_null())
+                .and_then(|(tag, _)| empty_operation_name(tag)),
+            _ => None,
+        };
+
+        let (field, normalized) = if let Some(empty_operation) = empty_operation {
+            (
+                "empty_operation",
+                feuilletage::ContextValue::string(empty_operation, context.clone()),
+            )
+        } else {
+            let normalized = match step {
+                feuilletage::ContextValue::String(tag, _) => {
+                    let config =
+                        feuilletage::ContextValue::object(Default::default(), context.clone());
+                    feuilletage::ContextValue::object(
+                        [(tag.clone(), config)].into_iter().collect(),
+                        context.clone(),
+                    )
+                }
+                feuilletage::ContextValue::Int(value, _) => {
+                    let config =
+                        feuilletage::ContextValue::object(Default::default(), context.clone());
+                    feuilletage::ContextValue::object(
+                        [(value.to_string(), config)].into_iter().collect(),
+                        context.clone(),
+                    )
+                }
+                feuilletage::ContextValue::Float(value, _) => {
+                    let config =
+                        feuilletage::ContextValue::object(Default::default(), context.clone());
+                    feuilletage::ContextValue::object(
+                        [(value.to_string(), config)].into_iter().collect(),
+                        context.clone(),
+                    )
+                }
+                _ => step.clone(),
+            };
+            ("tool", normalized)
+        };
+
+        *step = feuilletage::ContextValue::object(
+            [(field.to_string(), normalized)].into_iter().collect(),
+            context,
+        );
+    }
+
+    Ok(())
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<UpConfigWire, S, L> for UpConfig
+{
+    fn from_parsed(
+        parsed: UpConfigWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        let mut steps = Vec::new();
+        let mut up_errors = Vec::new();
+
+        for (index, step) in parsed.0.into_iter().enumerate() {
+            tracker.push_index(index);
+
+            if let Some(empty_operation) = step.empty_operation {
+                let operation = match empty_operation {
+                    EmptyOperationWire::CargoInstall => "cargo-install",
+                    EmptyOperationWire::GithubRelease => "github-release",
+                    EmptyOperationWire::GoInstall => "go-install",
+                };
+                tracker.record(feuilletage::Error::Custom {
+                    code: "C002".to_string(),
+                    path: format!("{}.{}", tracker.current_path(), operation),
+                    message: "operation details are empty".to_string(),
+                });
+                up_errors.push(UpError::Config(format!(
+                    "{operation} operation details are empty"
+                )));
+            } else if let Some(mut up_config) = step.tool {
+                if let UpConfigTool::Mise(ref mut mise) = up_config {
+                    mise.process_from_tag();
+                }
+                steps.push(up_config);
+            } else {
+                up_errors.push(UpError::Config(format!(
+                    "invalid config for step {}",
+                    index + 1
+                )));
+            }
+
+            tracker.pop(); // pop index
+        }
+
+        Ok(Self {
+            steps,
+            errors: up_errors,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use feuilletage::FromContextValue;
+
+    use super::*;
+
+    fn parse_up(yaml: &str) -> (UpConfig, feuilletage::ErrorTracker) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let up = UpConfig::from_context_value(config.root(), &mut tracker).unwrap();
+        (up, tracker)
+    }
+
+    #[test]
+    fn parses_nonempty_operation_aliases() {
+        let (up, tracker) = parse_up(
+            "- cargo-crate:\n    crate: ripgrep\n- gh-release:\n    repository: BurntSushi/ripgrep\n- go-tool:\n    path: golang.org/x/tools/gopls\n",
+        );
+
+        assert_eq!(up.steps.len(), 3);
+        assert!(matches!(up.steps[0], UpConfigTool::CargoInstall(_)));
+        assert!(matches!(up.steps[1], UpConfigTool::GithubRelease(_)));
+        assert!(matches!(up.steps[2], UpConfigTool::GoInstall(_)));
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn reports_empty_operations_without_dropping_runtime_validation() {
+        let (up, tracker) = parse_up("- cargo-crate\n- gh-release:\n- go-tools\n");
+
+        assert!(up.steps.is_empty());
+        assert_eq!(
+            up.errors,
+            vec![
+                UpError::Config("cargo-install operation details are empty".to_string()),
+                UpError::Config("github-release operation details are empty".to_string()),
+                UpError::Config("go-install operation details are empty".to_string()),
+            ]
+        );
+        assert_eq!(tracker.errors().len(), 3);
+        assert!(tracker.errors().iter().all(|error| error.code() == "C002"));
+    }
+
+    #[test]
+    fn continues_parsing_after_an_empty_operation() {
+        let (up, tracker) = parse_up("- go-install:\n- terraform\n");
+
+        assert_eq!(up.steps.len(), 1);
+        assert!(matches!(up.steps[0], UpConfigTool::Mise(_)));
+        assert_eq!(
+            up.errors,
+            vec![UpError::Config(
+                "go-install operation details are empty".to_string()
+            )]
+        );
+        assert_eq!(tracker.errors().len(), 1);
+        assert_eq!(tracker.errors()[0].code(), "C002");
+    }
+
+    #[test]
+    fn reports_empty_operations_for_every_accepted_alias() {
+        let aliases = [
+            ("cargo-install", "cargo-install"),
+            ("cargo_install", "cargo-install"),
+            ("cargoinstall", "cargo-install"),
+            ("cargo-install-crates", "cargo-install"),
+            ("cargo-install-crate", "cargo-install"),
+            ("cargo-crates", "cargo-install"),
+            ("cargo-crate", "cargo-install"),
+            ("github-release", "github-release"),
+            ("github_release", "github-release"),
+            ("githubrelease", "github-release"),
+            ("ghrelease", "github-release"),
+            ("github-releases", "github-release"),
+            ("github_releases", "github-release"),
+            ("githubreleases", "github-release"),
+            ("ghreleases", "github-release"),
+            ("github", "github-release"),
+            ("gh-release", "github-release"),
+            ("gh-releases", "github-release"),
+            ("go-install", "go-install"),
+            ("go_install", "go-install"),
+            ("goinstall", "go-install"),
+            ("go-install-tools", "go-install"),
+            ("go-install-tool", "go-install"),
+            ("go-tools", "go-install"),
+            ("go-tool", "go-install"),
+        ];
+
+        for (alias, operation) in aliases {
+            let (up, tracker) = parse_up(&format!("- {alias}\n- {alias}:\n"));
+
+            assert!(up.steps.is_empty(), "alias {alias}");
+            assert_eq!(
+                up.errors,
+                vec![
+                    UpError::Config(format!("{operation} operation details are empty")),
+                    UpError::Config(format!("{operation} operation details are empty")),
+                ],
+                "alias {alias}"
+            );
+            assert_eq!(tracker.errors().len(), 2, "alias {alias}");
+            assert!(
+                tracker.errors().iter().all(|error| error.code() == "C002"),
+                "alias {alias}"
+            );
+        }
+    }
+
+    #[test]
+    fn bare_scalars_name_tools_without_becoming_versions() {
+        let (up, tracker) = parse_up("- python\n- node\n- terraform\n- 3.2\n");
+
+        assert_eq!(up.steps.len(), 4);
+        match &up.steps[0] {
+            UpConfigTool::Python(config) => {
+                assert_eq!(config.backend.requested_tool, "python");
+                assert_eq!(config.backend.version, "latest");
+                assert!(config.backend.retained_config_value().is_some());
+            }
+            other => panic!("expected python, got {other:?}"),
+        }
+        match &up.steps[1] {
+            UpConfigTool::Nodejs(config) => {
+                assert_eq!(config.backend.requested_tool, "node");
+                assert_eq!(config.backend.version, "latest");
+                assert!(config.backend.retained_config_value().is_some());
+            }
+            other => panic!("expected node, got {other:?}"),
+        }
+        match &up.steps[2] {
+            UpConfigTool::Mise(config) => {
+                assert_eq!(config.requested_tool, "terraform");
+                assert_eq!(config.version, "latest");
+            }
+            other => panic!("expected mise, got {other:?}"),
+        }
+        match &up.steps[3] {
+            UpConfigTool::Mise(config) => {
+                assert_eq!(config.requested_tool, "3.2");
+                assert_eq!(config.version, "latest");
+            }
+            other => panic!("expected mise, got {other:?}"),
+        }
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn typed_wire_preserves_scalar_and_object_tool_forms() {
+        let (up, tracker) =
+            parse_up("- python: '3.11'\n- node: 22\n- ubi:terraform@1.9:\n    upgrade: true\n");
+
+        assert_eq!(up.steps.len(), 3);
+        match &up.steps[0] {
+            UpConfigTool::Python(config) => {
+                assert_eq!(config.backend.version, "3.11");
+                assert!(config.backend.retained_config_value().is_some());
+            }
+            other => panic!("expected python, got {other:?}"),
+        }
+        match &up.steps[1] {
+            UpConfigTool::Nodejs(config) => assert_eq!(config.backend.version, "22"),
+            other => panic!("expected node, got {other:?}"),
+        }
+        match &up.steps[2] {
+            UpConfigTool::Mise(config) => {
+                assert_eq!(config.requested_tool, "terraform");
+                assert_eq!(config.backend.as_deref(), Some("ubi"));
+                assert_eq!(config.version, "1.9");
+                assert!(config.upgrade);
+            }
+            other => panic!("expected mise, got {other:?}"),
+        }
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn scalar_normalization_retains_source_context() {
+        let context = feuilletage::Context::new(
+            feuilletage::Source::File("/tmp/omni.yaml".into()),
+            feuilletage::Level::User,
+        );
+        let mut value = feuilletage::ContextValue::array(
+            vec![feuilletage::ContextValue::string("python", context.clone())],
+            context.clone(),
+        );
+
+        normalize_up_config_wire(&mut value, &context).unwrap();
+
+        let step = &value.as_array().unwrap()[0];
+        let config = step
+            .as_object()
+            .and_then(|object| object.get("tool"))
+            .and_then(feuilletage::ContextValue::as_object)
+            .and_then(|object| object.get("python"))
+            .expect("python scalar should normalize to an external tag");
+        assert_eq!(step.context(), &context);
+        assert_eq!(config.context(), &context);
+    }
+
+    #[test]
+    fn invalid_steps_accumulate_both_diagnostics_and_runtime_errors() {
+        let (up, tracker) =
+            parse_up("- python\n- true\n- terraform\n- [not, a, tool]\n- python: {}\n  node: {}\n");
+
+        assert_eq!(up.steps.len(), 2);
+        assert!(matches!(up.steps[0], UpConfigTool::Python(_)));
+        assert!(matches!(up.steps[1], UpConfigTool::Mise(_)));
+        assert_eq!(
+            up.errors,
+            vec![
+                UpError::Config("invalid config for step 2".to_string()),
+                UpError::Config("invalid config for step 4".to_string()),
+                UpError::Config("invalid config for step 5".to_string()),
+            ]
+        );
+        assert_eq!(tracker.errors().len(), 3);
+        assert!(tracker
+            .errors()
+            .iter()
+            .all(|error| error.code().starts_with("C10")));
+        for index in [1, 3, 4] {
+            assert!(tracker
+                .errors()
+                .iter()
+                .any(|error| error.location().starts_with(&format!("{index}."))));
+        }
+    }
+
+    #[test]
+    fn serialization_remains_the_step_array() {
+        let (up, tracker) = parse_up("- python: '3.11'\n- custom:\n    meet: 'true'\n");
+        let serialized = serde_json::to_value(&up).unwrap();
+
+        assert!(serialized.is_array());
+        assert_eq!(serialized.as_array().unwrap().len(), 2);
+        assert!(serialized[0].get("python").is_some());
+        assert!(serialized[1].get("custom").is_some());
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
     }
 }

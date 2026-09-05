@@ -10,8 +10,6 @@ use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
-use crate::internal::cache::utils as cache_utils;
-use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::up::mise::PostInstallFuncArgs;
 use crate::internal::config::up::mise_tool_path;
 use crate::internal::config::up::utils::data_path_dir_hash;
@@ -27,20 +25,16 @@ use crate::internal::config::up::UpOptions;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::current_dir;
 use crate::internal::workdir;
-use crate::internal::ConfigValue;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Parameters for Node.js configuration (separate from the backend config).
+///
+/// Controls whether to auto-install engines and packages from package.json.
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct UpConfigNodejsParams {
-    #[serde(
-        default = "cache_utils::set_true",
-        skip_serializing_if = "cache_utils::is_true"
-    )]
-    install_engines: bool,
-    #[serde(
-        default = "cache_utils::set_true",
-        skip_serializing_if = "cache_utils::is_true"
-    )]
-    install_packages: bool,
+    #[feuilletage(default = "true", skip_if_default)]
+    pub install_engines: bool,
+    #[feuilletage(default = "true", skip_if_default)]
+    pub install_packages: bool,
 }
 
 impl Default for UpConfigNodejsParams {
@@ -55,38 +49,21 @@ impl Default for UpConfigNodejsParams {
 impl UpConfigNodejsParams {
     const DEFAULT_INSTALL_ENGINES: bool = true;
     const DEFAULT_INSTALL_PACKAGES: bool = true;
-
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut params = Self::default();
-
-        if let Some(config_value) = &config_value {
-            if let Some(value) = config_value.get_as_bool_or_none(
-                "install_engines",
-                &error_handler.with_key("install_engines"),
-            ) {
-                params.install_engines = value;
-            }
-
-            if let Some(value) = config_value.get_as_bool_or_none(
-                "install_packages",
-                &error_handler.with_key("install_packages"),
-            ) {
-                params.install_packages = value;
-            }
-        }
-
-        params
-    }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+// Manual FromContextValue implementation replaced by derive macro above
+// The #[feuilletage(default = "true")] handles the default values for both boolean fields
+
+/// Configuration for Node.js tool installation.
+///
+/// This struct combines:
+/// - A mise backend for tool version management
+/// - Node.js specific params (install_engines, install_packages)
+///
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "UpConfigMise", skip_serialize, skip_deserialize)]
 pub struct UpConfigNodejs {
-    #[serde(skip)]
     pub backend: UpConfigMise,
-    #[serde(skip)]
     pub params: UpConfigNodejsParams,
 }
 
@@ -113,21 +90,6 @@ impl Serialize for UpConfigNodejs {
 }
 
 impl UpConfigNodejs {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut backend = UpConfigMise::from_config_value("node", config_value, error_handler);
-        backend.add_detect_version_func(detect_version_from_package_json);
-        backend.add_detect_version_func(detect_version_from_nvmrc);
-        backend.add_post_install_func(remove_mise_reshim_from_bin);
-        backend.add_post_install_func(setup_individual_npm_prefix);
-
-        let params = UpConfigNodejsParams::from_config_value(config_value, error_handler);
-
-        Self { backend, params }
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -139,6 +101,35 @@ impl UpConfigNodejs {
 
     pub fn down(&self, progress_handler: &UpProgressHandler) -> Result<(), UpError> {
         self.backend.down(progress_handler)
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<UpConfigMise, S, L> for UpConfigNodejs
+{
+    fn from_parsed(
+        mut backend: UpConfigMise,
+        original: &feuilletage::ContextValue<S, L>,
+        errors: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        backend.requested_tool = "node".to_string();
+        backend.process_from_tag();
+        backend.retain_config_value(original);
+
+        backend.add_detect_version_func(detect_version_from_package_json);
+        backend.add_detect_version_func(detect_version_from_nvmrc);
+        backend.add_post_install_func(remove_mise_reshim_from_bin);
+        backend.add_post_install_func(setup_individual_npm_prefix);
+
+        let params = if matches!(original, feuilletage::ContextValue::Object(_, _)) {
+            <UpConfigNodejsParams as feuilletage::FromContextValue<S, L>>::from_context_value(
+                original, errors,
+            )?
+        } else {
+            UpConfigNodejsParams::default()
+        };
+
+        Ok(Self { backend, params })
     }
 }
 
@@ -304,10 +295,16 @@ fn setup_individual_npm_prefix(
         }
     };
 
-    let params = UpConfigNodejsParams::from_config_value(
-        args.config_value.as_ref(),
-        &ConfigErrorHandler::noop(),
-    );
+    let params = if let Some(config_value) = args.config_value.as_ref() {
+        let mut tracker = feuilletage::ErrorTracker::new();
+        <UpConfigNodejsParams as feuilletage::FromContextValue<_, _>>::from_context_value(
+            config_value,
+            &mut tracker,
+        )
+        .unwrap_or_default()
+    } else {
+        UpConfigNodejsParams::default()
+    };
     if !params.install_engines && !params.install_packages {
         // Exit early if we don't need to install engines or packages
         return Ok(());
@@ -485,5 +482,71 @@ impl PackageInstallEngine {
         cmd.stderr(std::process::Stdio::piped());
 
         cmd
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use feuilletage::FromContextValue;
+
+    use super::*;
+
+    fn parse_nodejs(yaml: &str) -> (UpConfigNodejs, feuilletage::ErrorTracker) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let nodejs = UpConfigNodejs::from_context_value(config.root(), &mut tracker).unwrap();
+        (nodejs, tracker)
+    }
+
+    #[test]
+    fn scalar_auto_uses_default_params_without_object_diagnostic() {
+        let (nodejs, tracker) = parse_nodejs("auto");
+
+        assert_eq!(nodejs.backend.requested_tool, "node");
+        assert_eq!(nodejs.backend.version, "auto");
+        assert!(nodejs.params.install_engines);
+        assert!(nodejs.params.install_packages);
+        assert!(nodejs.backend.retained_config_value().is_some());
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn object_form_parses_node_params() {
+        let (nodejs, tracker) =
+            parse_nodejs("version: 20\ninstall_engines: false\ninstall_packages: false\n");
+
+        assert_eq!(nodejs.backend.requested_tool, "node");
+        assert_eq!(nodejs.backend.version, "20");
+        assert!(!nodejs.params.install_engines);
+        assert!(!nodejs.params.install_packages);
+        let mut callback_tracker = feuilletage::ErrorTracker::new();
+        let callback_params = UpConfigNodejsParams::from_context_value(
+            nodejs.backend.retained_config_value().unwrap(),
+            &mut callback_tracker,
+        )
+        .unwrap();
+        assert!(!callback_params.install_engines);
+        assert!(!callback_params.install_packages);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+        assert!(
+            callback_tracker.errors().is_empty(),
+            "{:#?}",
+            callback_tracker.errors()
+        );
+    }
+
+    #[test]
+    fn serialization_still_flattens_backend_and_node_params() {
+        let (nodejs, _) = parse_nodejs("version: 20\nupgrade: true\ninstall_engines: false\n");
+        let value = serde_json::to_value(&nodejs).unwrap();
+
+        assert_eq!(value["version"], "20");
+        assert_eq!(value["upgrade"], true);
+        assert_eq!(value["install_engines"], false);
+        assert!(value.get("backend").is_none());
+        assert!(value.get("params").is_none());
     }
 }

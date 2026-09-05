@@ -12,8 +12,8 @@ use crate::internal::commands::utils::split_name;
 use crate::internal::config::config;
 use crate::internal::config::CommandDefinition;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigScope;
-use crate::internal::config::ConfigSource;
+use crate::internal::config::Level;
+use crate::internal::config::OmniSource;
 use crate::internal::user_interface::colors::StringColor;
 use crate::omni_error;
 
@@ -138,15 +138,16 @@ impl ConfigCommand {
 
     pub fn is_trusted(&self) -> bool {
         // User scope or better is trusted
-        self.details.scope <= ConfigScope::User
+        // User level or better (System) is trusted
+        self.details.scope != Level::Local
     }
 
     pub fn source(&self) -> String {
-        match self.details.source {
-            ConfigSource::Default => "/default".to_string(),
-            ConfigSource::File(ref path) => path.clone(),
-            ConfigSource::Package(ref path_entry_config) => path_entry_config.full_path.clone(),
-            ConfigSource::Null => "/null".to_string(),
+        match &self.details.source {
+            OmniSource::Default => "/default".to_string(),
+            OmniSource::File(ref path) => path.to_string_lossy().to_string(),
+            OmniSource::Environment => "/environment".to_string(),
+            OmniSource::Programmatic => "/programmatic".to_string(),
         }
     }
 

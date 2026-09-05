@@ -1,7 +1,6 @@
-use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct UpOptions<'a> {
     pub commit_sha: Option<String>,
     pub read_cache: bool,

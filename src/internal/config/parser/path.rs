@@ -1,97 +1,55 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 
-use serde::Deserialize;
-use serde::Serialize;
-
-use crate::internal::config::config_value::ConfigData;
 use crate::internal::config::parser::errors::ConfigErrorHandler;
 use crate::internal::config::parser::errors::ConfigErrorKind;
-use crate::internal::config::ConfigScope;
-use crate::internal::config::ConfigSource;
-use crate::internal::config::ConfigValue;
 use crate::internal::git::package_path_from_handle;
 use crate::internal::git::package_root_path;
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+// ============================================================================
+// NEW IMPLEMENTATION USING FEUILLETAGE
+// ============================================================================
+
+/// PathConfig using feuilletage's derive macro.
+///
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
+/// - `serde::Serialize` implementation for serialization
+///
+/// We still need manual `serde::Deserialize` for compatibility with the existing
+/// codebase that uses serde for some operations.
+#[derive(Debug, Clone, feuilletage::Config)]
+#[derive(Default)]
 pub struct PathConfig {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub append: Vec<PathEntryConfig>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+
+    #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub prepend: Vec<PathEntryConfig>,
 }
 
-impl PathConfig {
-    pub(super) fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
 
-        let append = if let Some(append) = config_value.get("append") {
-            if let Some(array) = append.as_array() {
-                array
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, value)| {
-                        PathEntryConfig::from_config_value(
-                            value,
-                            &error_handler.with_key("append").with_index(idx),
-                        )
-                    })
-                    .collect()
-            } else {
-                error_handler
-                    .with_key("append")
-                    .with_expected("array")
-                    .with_actual(append)
-                    .error(ConfigErrorKind::InvalidValueType);
-
-                vec![]
-            }
-        } else {
-            vec![]
-        };
-
-        let prepend = if let Some(prepend) = config_value.get("prepend") {
-            if let Some(array) = prepend.as_array() {
-                array
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, value)| {
-                        PathEntryConfig::from_config_value(
-                            value,
-                            &error_handler.with_key("prepend").with_index(idx),
-                        )
-                    })
-                    .collect()
-            } else {
-                error_handler
-                    .with_key("prepend")
-                    .with_expected("array")
-                    .with_actual(prepend)
-                    .error(ConfigErrorKind::InvalidValueType);
-
-                vec![]
-            }
-        } else {
-            vec![]
-        };
-
-        Self { append, prepend }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+/// PathEntryConfig using feuilletage's derive macro.
+///
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
+/// - `serde::Serialize` implementation for serialization
+///
+/// We still need manual `serde::Deserialize` for compatibility with the existing
+/// codebase that uses serde for some operations.
+///
+/// Note: The `full_path` field is computed and uses `#[feuilletage(skip)]` to exclude
+/// it from both serialization and deserialization.
+#[derive(Debug, Clone, PartialEq, feuilletage::Config)]
+#[derive(Default)]
 pub struct PathEntryConfig {
+    #[feuilletage(default = "String::new()")]
     pub path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+
+    #[feuilletage(skip_if_empty)]
     pub package: Option<String>,
-    #[serde(skip)]
+
+    #[feuilletage(skip, default = "String::new()")]
     pub full_path: String,
 }
 
@@ -111,86 +69,6 @@ impl PathEntryConfig {
             } else {
                 "".to_string()
             },
-        }
-    }
-
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if config_value.is_table() {
-            let path =
-                config_value.get_as_str_or_default("path", "", &error_handler.with_key("path"));
-            let package =
-                config_value.get_as_str_or_none("package", &error_handler.with_key("package"));
-            let absolute_path = path.starts_with('/');
-
-            if let Some(package) = package {
-                if absolute_path {
-                    error_handler
-                        .with_key("package")
-                        .with_actual(config_value.get("package").expect("package should exist"))
-                        .error(ConfigErrorKind::UnsupportedValueInContext)
-                } else if let Some(package_path) = package_path_from_handle(&package) {
-                    let mut full_path = package_path;
-                    if !path.is_empty() {
-                        full_path = full_path.join(path.clone());
-                    }
-
-                    return Some(Self {
-                        path: path.clone(),
-                        package: Some(package.to_string()),
-                        full_path: full_path.to_str().unwrap().to_string(),
-                    });
-                } else {
-                    error_handler
-                        .with_key("package")
-                        .with_context("package", package)
-                        .error(ConfigErrorKind::InvalidPackage);
-
-                    return None;
-                }
-            }
-
-            Some(Self {
-                path: path.clone(),
-                package: None,
-                full_path: path,
-            })
-        } else if let Some(path) = config_value.as_str_forced() {
-            Some(Self {
-                path: path.clone(),
-                package: None,
-                full_path: path,
-            })
-        } else {
-            error_handler
-                .with_expected(vec!["string", "table"])
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            None
-        }
-    }
-
-    pub fn as_config_value(&self) -> ConfigValue {
-        if let Some(package) = &self.package {
-            let mut map = HashMap::new();
-            map.insert(
-                "path".to_string(),
-                ConfigValue::from_str(&self.path).expect("path should be a string"),
-            );
-            map.insert(
-                "package".to_string(),
-                ConfigValue::from_str(package).expect("package should be a string"),
-            );
-            ConfigValue::new(
-                ConfigSource::Null,
-                ConfigScope::Null,
-                Some(Box::new(ConfigData::Mapping(map))),
-            )
-        } else {
-            ConfigValue::from_str(&self.full_path).expect("full_path should be a string")
         }
     }
 
@@ -216,14 +94,6 @@ impl PathEntryConfig {
         }
 
         PathBuf::from(&self.full_path).starts_with(&path_entry.full_path)
-    }
-
-    pub fn starts_with_path(&self, path: PathBuf) -> bool {
-        if !self.is_valid() {
-            return false;
-        }
-
-        PathBuf::from(&self.full_path).starts_with(path)
     }
 
     pub fn includes_path(&self, path: PathBuf) -> bool {
@@ -265,5 +135,97 @@ impl PathEntryConfig {
             }
         }
         false
+    }
+
+    /// Convert to feuilletage Value for use with feuilletage's Config API
+    pub fn to_feuilletage_value(&self) -> feuilletage::Value {
+        if let Some(package) = &self.package {
+            let mut map = indexmap::IndexMap::new();
+            map.insert(
+                "path".to_string(),
+                feuilletage::Value::String(self.path.clone()),
+            );
+            map.insert(
+                "package".to_string(),
+                feuilletage::Value::String(package.clone()),
+            );
+            feuilletage::Value::Object(map)
+        } else {
+            // Just the path as a string
+            feuilletage::Value::String(self.full_path.clone())
+        }
+    }
+
+    /// Convert from feuilletage ConfigValue to PathEntryConfig
+    pub fn from_feuilletage_value(
+        config_value: &feuilletage::ContextValue,
+        error_handler: &ConfigErrorHandler,
+    ) -> Option<Self> {
+        match config_value {
+            feuilletage::ContextValue::Object(map, _) => {
+                let path = map
+                    .get("path")
+                    .and_then(|v| match v {
+                        feuilletage::ContextValue::String(s, _) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+
+                let package = map.get("package").and_then(|v| match v {
+                    feuilletage::ContextValue::String(s, _) => Some(s.clone()),
+                    _ => None,
+                });
+
+                let absolute_path = path.starts_with('/');
+
+                if let Some(package) = package {
+                    if absolute_path {
+                        error_handler
+                            .with_key("package")
+                            .error(ConfigErrorKind::UnsupportedValueInContext);
+                        None
+                    } else if let Some(package_path) = package_path_from_handle(&package) {
+                        let mut full_path = package_path;
+                        if !path.is_empty() {
+                            full_path = full_path.join(path.clone());
+                        }
+
+                        Some(Self {
+                            path: path.clone(),
+                            package: Some(package.to_string()),
+                            full_path: full_path.to_str().unwrap().to_string(),
+                        })
+                    } else {
+                        error_handler
+                            .with_key("package")
+                            .with_context("package", package)
+                            .error(ConfigErrorKind::InvalidPackage);
+                        None
+                    }
+                } else {
+                    Some(Self {
+                        path: path.clone(),
+                        package: None,
+                        full_path: path,
+                    })
+                }
+            }
+            feuilletage::ContextValue::String(path, _) => Some(Self {
+                path: path.clone(),
+                package: None,
+                full_path: path.clone(),
+            }),
+            feuilletage::ContextValue::Int(i, _) => Some(Self {
+                path: i.to_string(),
+                package: None,
+                full_path: i.to_string(),
+            }),
+            _ => {
+                error_handler
+                    .with_expected(vec!["string", "object"])
+                    .error(ConfigErrorKind::InvalidValueType);
+                None
+            }
+        }
     }
 }

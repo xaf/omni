@@ -1,13 +1,22 @@
 use std::collections::BTreeMap;
 use std::collections::HashSet;
+use std::fs;
 use std::path::PathBuf;
 use std::process::exit;
 
 use itertools::Itertools;
 
+use feuilletage::ConfigWarning;
+use feuilletage::Error as FeuilletageError;
+use feuilletage::ErrorTracker;
+use feuilletage::Format;
+use feuilletage::FromContextValue;
+use feuilletage::Level;
+
 use crate::internal::commands::base::BuiltinCommand;
 use crate::internal::commands::frompath::PathCommand;
 use crate::internal::commands::Command;
+use crate::internal::config::feuilletage_loader::OmniConfigLoader;
 use crate::internal::config::config;
 use crate::internal::config::parser::path_pattern_from_str;
 use crate::internal::config::parser::ConfigError;
@@ -17,7 +26,6 @@ use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::utils::check_allowed;
 use crate::internal::config::CommandSyntax;
 use crate::internal::config::ConfigLoader;
-use crate::internal::config::ConfigScope;
 use crate::internal::config::OmniConfig;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
@@ -313,7 +321,7 @@ impl ConfigCheckCommand {
         args: &ConfigCheckCommandArgs,
     ) {
         // Get all the available configuration files
-        let config_files: Vec<(String, ConfigScope)> = if args.use_files_from_cli() {
+        let config_files: Vec<(String, Level)> = if args.use_files_from_cli() {
             args.config_files
                 .iter()
                 .filter(|file| {
@@ -323,27 +331,23 @@ impl ConfigCheckCommand {
                     }
                     true
                 })
-                .map(|file| (file.clone(), ConfigScope::Null))
+                .map(|file| (file.clone(), Level::Local))
                 .collect()
         } else {
             ConfigLoader::all_config_files()
                 .into_iter()
-                .filter(|(_file, scope)| match scope {
-                    ConfigScope::System => args.global_scope || args.default_scope,
-                    ConfigScope::User => args.global_scope || args.default_scope,
-                    ConfigScope::Workdir => args.local_scope || args.default_scope,
-                    ConfigScope::Null => args.local_scope || args.default_scope,
-                    ConfigScope::Default => true,
+                .filter(|(_file, level)| match level {
+                    Level::System => args.global_scope || args.default_scope,
+                    Level::User => args.global_scope || args.default_scope,
+                    Level::Local => args.local_scope || args.default_scope,
                 })
                 .collect()
         };
 
-        for (file, scope) in config_files {
-            let loader = ConfigLoader::new_from_file(&file, scope);
-            let file_config = OmniConfig::from_config_value(
-                &loader.raw_config,
-                &error_handler.with_file(file.clone()),
-            );
+        for (file, level) in config_files {
+            let Some(file_config) = deserialize_config_file(error_handler, &file, level) else {
+                continue;
+            };
 
             // Load the check configuration for the location of the file,
             // since we do not want to do local configuration checks that
@@ -410,21 +414,25 @@ impl ConfigCheckCommand {
             // Use the configuration files to get the paths
             let config_files: Vec<_> = ConfigLoader::all_config_files()
                 .into_iter()
-                .filter(|(_file, scope)| match scope {
-                    ConfigScope::System => args.global_scope || args.default_scope,
-                    ConfigScope::User => args.global_scope || args.default_scope,
-                    ConfigScope::Workdir => args.local_scope || args.default_scope,
-                    ConfigScope::Null => args.local_scope || args.default_scope,
-                    ConfigScope::Default => true,
+                .filter(|(_file, level)| match level {
+                    Level::System => args.global_scope || args.default_scope,
+                    Level::User => args.global_scope || args.default_scope,
+                    Level::Local => args.local_scope || args.default_scope,
                 })
                 .collect();
 
-            // Load the selected configuration files
-            let mut loader = ConfigLoader::new_empty();
-            for (file, scope) in config_files {
-                loader.import_config_file(&file, scope);
-            }
-            let config: OmniConfig = loader.into();
+            let mut loader = OmniConfigLoader::new_from_files(config_files);
+            let feuilletage_config = match loader.build() {
+                Ok(config) => config,
+                Err(_) => {
+                    // Return early with empty search paths
+                    return;
+                }
+            };
+            let mut tracker = ErrorTracker::new();
+            let config: OmniConfig =
+                OmniConfig::from_context_value(feuilletage_config.root(), &mut tracker)
+                    .unwrap_or_default();
 
             // Prepare the path list
             let mut paths = vec![];
@@ -589,6 +597,417 @@ impl ConfigCheckCommand {
 
         // Exit with the appropriate code
         exit(if errors.is_empty() { 0 } else { 1 });
+    }
+}
+
+fn deserialize_config_file(
+    error_handler: &ConfigErrorHandler,
+    file: &str,
+    level: Level,
+) -> Option<OmniConfig> {
+    let mut constraint_loader =
+        OmniConfigLoader::new_from_file_with_format(file, Format::Yaml, level);
+    let _ = constraint_loader.deserialize::<OmniConfig>();
+    aggregate_feuilletage_mutability_diagnostics(error_handler, &constraint_loader, file);
+
+    // Config check validates every supplied value, including values that the
+    // source level cannot apply. Mutability violations are reported separately.
+    let mut loader = OmniConfigLoader::new_from_file_with_format(file, Format::Yaml, Level::User);
+    let result = loader.deserialize::<OmniConfig>();
+    let missing_command_runs = missing_command_run_paths(file);
+
+    aggregate_feuilletage_errors_excluding_command_runs(
+        error_handler,
+        loader.errors().errors(),
+        file,
+        &missing_command_runs,
+    );
+    aggregate_feuilletage_warnings(error_handler, loader.errors().warnings(), file);
+    aggregate_missing_command_runs(error_handler, file, &missing_command_runs);
+
+    match result {
+        Ok(config) => Some(config),
+        Err(error) => {
+            aggregate_feuilletage_errors_excluding_command_runs(
+                error_handler,
+                &[error],
+                file,
+                &missing_command_runs,
+            );
+            None
+        }
+    }
+}
+
+fn missing_command_run_paths(file: &str) -> HashSet<String> {
+    let Ok(contents) = fs::read_to_string(file) else {
+        return HashSet::new();
+    };
+    let Ok(config) = serde_yaml::from_str::<serde_yaml::Value>(&contents) else {
+        return HashSet::new();
+    };
+    let Some(commands) = config
+        .as_mapping()
+        .and_then(|config| config.get("commands"))
+        .and_then(serde_yaml::Value::as_mapping)
+    else {
+        return HashSet::new();
+    };
+
+    let mut paths = HashSet::new();
+    collect_missing_command_run_paths(commands, "commands", &mut paths);
+    paths
+}
+
+fn collect_missing_command_run_paths(
+    commands: &serde_yaml::Mapping,
+    prefix: &str,
+    paths: &mut HashSet<String>,
+) {
+    for (name, command) in commands {
+        let Some(name) = name.as_str() else {
+            continue;
+        };
+        let command_path = format!("{prefix}.{name}");
+
+        if command.is_null() {
+            paths.insert(format!("{command_path}.run"));
+            continue;
+        }
+
+        let Some(command) = command.as_mapping() else {
+            continue;
+        };
+        if !command.contains_key("run") {
+            paths.insert(format!("{command_path}.run"));
+        }
+        if let Some(subcommands) = command
+            .get("subcommands")
+            .and_then(serde_yaml::Value::as_mapping)
+        {
+            collect_missing_command_run_paths(
+                subcommands,
+                &format!("{command_path}.subcommands"),
+                paths,
+            );
+        }
+    }
+}
+
+fn aggregate_missing_command_runs(
+    error_handler: &ConfigErrorHandler,
+    file: &str,
+    paths: &HashSet<String>,
+) {
+    for path in paths {
+        error_handler
+            .with_file(file)
+            .diagnostic("C001", format!("key '{path}' is missing"), false);
+    }
+}
+
+fn aggregate_feuilletage_errors_excluding_command_runs(
+    error_handler: &ConfigErrorHandler,
+    errors: &[FeuilletageError],
+    fallback_file: &str,
+    missing_command_runs: &HashSet<String>,
+) {
+    let errors = errors
+        .iter()
+        .filter(|error| !command_run_error_is_replaced(error, missing_command_runs))
+        .cloned()
+        .collect::<Vec<_>>();
+    aggregate_feuilletage_errors(error_handler, &errors, fallback_file);
+}
+
+fn command_run_error_is_replaced(
+    error: &FeuilletageError,
+    missing_command_runs: &HashSet<String>,
+) -> bool {
+    match error {
+        FeuilletageError::MissingField { path } => missing_command_runs.contains(path),
+        FeuilletageError::InvalidValue { path, message } => {
+            missing_command_runs.contains(path)
+                && message.starts_with("required field 'run' was not provided")
+        }
+        FeuilletageError::TypeMismatch {
+            path,
+            expected,
+            actual,
+        } => {
+            expected == "object"
+                && actual == "null"
+                && missing_command_runs.contains(&format!("{path}.run"))
+        }
+        _ => false,
+    }
+}
+
+fn aggregate_feuilletage_mutability_diagnostics(
+    error_handler: &ConfigErrorHandler,
+    loader: &OmniConfigLoader,
+    file: &str,
+) {
+    aggregate_feuilletage_warnings(error_handler, loader.errors().warnings(), file);
+
+    for error in loader.errors().errors() {
+        if let FeuilletageError::InvalidValue { path, message } = error {
+            if message.contains("can only be set by levels") {
+                error_handler.with_file(file).diagnostic(
+                    "C110",
+                    format!("unsupported value at config path '{path}': {message}"),
+                    true,
+                );
+            }
+        }
+    }
+}
+
+fn aggregate_feuilletage_errors(
+    error_handler: &ConfigErrorHandler,
+    errors: &[FeuilletageError],
+    fallback_file: &str,
+) {
+    for error in errors {
+        let (file, message) = feuilletage_error_details(error, fallback_file);
+        error_handler
+            .with_file(file)
+            .diagnostic(error.code(), message, false);
+    }
+}
+
+fn aggregate_feuilletage_warnings(
+    error_handler: &ConfigErrorHandler,
+    warnings: &[ConfigWarning],
+    file: &str,
+) {
+    for warning in warnings {
+        error_handler.with_file(file).diagnostic(
+            "C110",
+            format!(
+                "unsupported value at config path '{}': {}",
+                warning.path, warning.message
+            ),
+            true,
+        );
+    }
+}
+
+fn feuilletage_error_details(error: &FeuilletageError, fallback_file: &str) -> (String, String) {
+    match error {
+        FeuilletageError::MissingField { path } => (
+            fallback_file.to_string(),
+            format!("missing required field at config path '{path}'"),
+        ),
+        FeuilletageError::TypeMismatch {
+            path,
+            expected,
+            actual,
+        } => (
+            fallback_file.to_string(),
+            format!("invalid value at config path '{path}': expected {expected}, got {actual}"),
+        ),
+        FeuilletageError::InvalidValue { path, message } => (
+            fallback_file.to_string(),
+            format!("invalid value at config path '{path}': {message}"),
+        ),
+        FeuilletageError::MergeConflict { path, message } => (
+            fallback_file.to_string(),
+            format!("merge conflict at config path '{path}': {message}"),
+        ),
+        FeuilletageError::ImmutableOverride { path, source } => (
+            fallback_file.to_string(),
+            format!("source '{source}' cannot override immutable config path '{path}'"),
+        ),
+        FeuilletageError::ParseError { source, message } => (source.clone(), message.clone()),
+        FeuilletageError::FormatNotSupported { format, message } => (
+            fallback_file.to_string(),
+            format!("unsupported config format '{format}': {message}"),
+        ),
+        FeuilletageError::IoError { path, message } => (path.clone(), message.clone()),
+        FeuilletageError::Custom { path, message, .. } => (
+            fallback_file.to_string(),
+            format!("error at config path '{path}': {message}"),
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::Builder;
+
+    use super::*;
+
+    #[test]
+    fn malformed_yaml_is_aggregated_with_its_source_file() {
+        let file = Builder::new().suffix(".yaml").tempfile().unwrap();
+        fs::write(file.path(), "commands:\n  broken: [\n").unwrap();
+        let file_path = file.path().to_string_lossy().to_string();
+
+        let error_handler = ConfigErrorHandler::new();
+        deserialize_config_file(&error_handler, &file_path, Level::Local);
+
+        let errors = error_handler.errors();
+        let parse_errors: Vec<_> = errors
+            .iter()
+            .filter(|error| error.errorcode() == "C120")
+            .collect();
+        assert_eq!(parse_errors.len(), 1, "{errors:#?}");
+        assert_eq!(parse_errors[0].file(), file_path);
+        assert_eq!(parse_errors[0].lineno(), 0);
+        assert!(!parse_errors[0].message().is_empty());
+
+        let selected = HashSet::from(["C120".to_string()]);
+        assert!(check_selected(parse_errors[0], &selected, &HashSet::new()));
+        let json = serde_json::to_value(parse_errors[0]).unwrap();
+        assert_eq!(json["file"], file_path);
+        assert_eq!(json["lineno"], 0);
+        assert_eq!(json["errorcode"], "C120");
+    }
+
+    #[test]
+    fn non_fatal_deserialization_error_is_aggregated_with_its_config_path() {
+        let file = Builder::new().suffix(".yaml").tempfile().unwrap();
+        fs::write(file.path(), "command_match_min_score: invalid\n").unwrap();
+        let file_path = file.path().to_string_lossy().to_string();
+
+        let error_handler = ConfigErrorHandler::new();
+        let config = deserialize_config_file(&error_handler, &file_path, Level::Local);
+        assert!(config.is_some());
+
+        let errors = error_handler.errors();
+        assert!(errors.iter().all(|error| error.file() == file_path));
+        assert!(errors.iter().all(|error| error.lineno() == 0));
+        assert_eq!(
+            errors
+                .iter()
+                .filter(|error| {
+                    error.errorcode() == "C102"
+                        && error.message().contains("command_match_min_score")
+                })
+                .count(),
+            1,
+            "{errors:#?}",
+        );
+    }
+
+    #[test]
+    fn mutable_by_warning_is_reported_as_c110_without_c102_for_that_field() {
+        let file = Builder::new().suffix(".yaml").tempfile().unwrap();
+        fs::write(file.path(), "org:\n  - handle: acme\n").unwrap();
+        let file_path = file.path().to_string_lossy().to_string();
+
+        let error_handler = ConfigErrorHandler::new();
+        let config = deserialize_config_file(&error_handler, &file_path, Level::Local);
+        assert!(config.is_some());
+
+        let errors = error_handler.errors();
+        let warning = errors
+            .iter()
+            .find(|error| error.errorcode() == "C110")
+            .unwrap_or_else(|| panic!("missing C110 warning: {errors:#?}"));
+        assert_eq!(warning.file(), file_path);
+        assert_eq!(warning.lineno(), 0);
+        assert!(warning.message().contains("org"));
+        assert!(warning.default_ignored());
+        assert!(!errors
+            .iter()
+            .any(|error| { error.errorcode() == "C102" && error.message().contains("org") }));
+
+        assert!(!check_selected(warning, &HashSet::new(), &HashSet::new()));
+        assert!(check_selected(
+            warning,
+            &HashSet::from(["C110".to_string()]),
+            &HashSet::new()
+        ));
+    }
+
+    #[test]
+    fn rechecking_same_file_deduplicates_backend_diagnostics() {
+        let file = Builder::new().suffix(".yaml").tempfile().unwrap();
+        fs::write(file.path(), "command_match_min_score: invalid\n").unwrap();
+        let file_path = file.path().to_string_lossy().to_string();
+        let error_handler = ConfigErrorHandler::new();
+
+        deserialize_config_file(&error_handler, &file_path, Level::Local);
+        let first_errors = error_handler.errors();
+        deserialize_config_file(&error_handler, &file_path, Level::Local);
+
+        assert_eq!(error_handler.errors(), first_errors);
+    }
+
+    #[test]
+    fn backend_dedup_preserves_same_diagnostic_from_different_files() {
+        let error_handler = ConfigErrorHandler::new();
+
+        error_handler
+            .with_file("first.yaml")
+            .diagnostic("C102", "same diagnostic", false);
+        error_handler
+            .with_file("second.yaml")
+            .diagnostic("C102", "same diagnostic", false);
+
+        assert_eq!(error_handler.errors().len(), 2);
+    }
+
+    #[test]
+    fn backend_errors_are_not_ignored_by_default() {
+        let error_handler = ConfigErrorHandler::new();
+        error_handler
+            .with_file("config.yaml")
+            .diagnostic("C102", "backend error", false);
+
+        let errors = error_handler.errors();
+        assert_eq!(errors.len(), 1);
+        assert!(!errors[0].default_ignored());
+        assert!(check_selected(&errors[0], &HashSet::new(), &HashSet::new()));
+    }
+
+    #[test]
+    fn command_run_validation_descends_into_invalid_parent_commands() {
+        let file = Builder::new().suffix(".yaml").tempfile().unwrap();
+        fs::write(
+            file.path(),
+            concat!(
+                "commands:\n",
+                "  empty:\n",
+                "  parent:\n",
+                "    subcommands:\n",
+                "      child:\n",
+                "        desc: missing run\n",
+            ),
+        )
+        .unwrap();
+        let file_path = file.path().to_string_lossy().to_string();
+
+        let error_handler = ConfigErrorHandler::new();
+        deserialize_config_file(&error_handler, &file_path, Level::Local);
+
+        let errors = error_handler.errors();
+        let missing = errors
+            .iter()
+            .filter(|error| error.errorcode() == "C001")
+            .map(ConfigError::message)
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            missing,
+            HashSet::from([
+                "key 'commands.empty.run' is missing".to_string(),
+                "key 'commands.parent.run' is missing".to_string(),
+                "key 'commands.parent.subcommands.child.run' is missing".to_string(),
+            ])
+        );
+        assert!(!errors.iter().any(|error| {
+            error.errorcode() == "C101" && error.message().contains("commands.empty")
+        }));
+        assert!(!errors.iter().any(|error| {
+            error.errorcode() == "C102"
+                && error
+                    .message()
+                    .contains("required field 'run' was not provided")
+        }));
     }
 }
 

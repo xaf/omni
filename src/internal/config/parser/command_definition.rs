@@ -15,18 +15,24 @@ use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::ParseArgsErrorKind;
 use crate::internal::config::parser::ParseArgsValue;
-use crate::internal::config::ConfigScope;
-use crate::internal::config::ConfigSource;
-use crate::internal::config::ConfigValue;
+use crate::internal::config::Level;
+use crate::internal::config::OmniSource;
+use crate::internal::config::Value as FeuilletageValue;
 use crate::internal::user_interface::colors::StringColor;
 use crate::internal::ORG_LOADER;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+// Feuilletage type aliases for the YAML deserialization (uses concrete types)
+type FeuilletageConfigValue = crate::internal::config::ContextValue;
+type FeuilletageErrorTracker = feuilletage::ErrorTracker;
+
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(skip_serialize)]
 pub struct CommandDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desc: Option<String>,
     pub run: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[feuilletage(default, allow_single)]
     pub aliases: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub syntax: Option<CommandSyntax>,
@@ -37,135 +43,24 @@ pub struct CommandDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subcommands: Option<HashMap<String, CommandDefinition>>,
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default = "false")]
     pub argparser: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[feuilletage(default)]
     pub tags: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default = "false")]
     pub export: bool,
     #[serde(skip)]
-    pub source: ConfigSource,
+    #[feuilletage(from_context_fn = "command_def_source_from_context")]
+    pub source: OmniSource,
     #[serde(skip)]
-    pub scope: ConfigScope,
+    #[feuilletage(from_context_fn = "command_def_scope_from_context")]
+    pub scope: Level,
 }
 
-impl CommandDefinition {
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let desc = config_value.get_as_str_or_none("desc", &error_handler.with_key("desc"));
-
-        let run = config_value
-            .get_as_str_or_none("run", &error_handler.with_key("run"))
-            .unwrap_or_else(|| {
-                error_handler
-                    .with_key("run")
-                    .error(ConfigErrorKind::MissingKey);
-                "true".to_string()
-            });
-
-        let aliases = config_value.get_as_str_array("aliases", &error_handler.with_key("aliases"));
-
-        let syntax = match config_value.get("syntax") {
-            Some(value) => {
-                CommandSyntax::from_config_value(&value, &error_handler.with_key("syntax"))
-            }
-            None => None,
-        };
-
-        let tags = match config_value.get("tags") {
-            Some(value) => {
-                let mut tags = BTreeMap::new();
-                if let Some(table) = value.as_table() {
-                    for (key, value) in table {
-                        if let Some(value) = value.as_str_forced() {
-                            tags.insert(key.to_string(), value.to_string());
-                        } else {
-                            error_handler
-                                .with_key("tags")
-                                .with_key(key)
-                                .with_expected("string")
-                                .with_actual(value)
-                                .error(ConfigErrorKind::InvalidValueType);
-                        }
-                    }
-                } else {
-                    error_handler
-                        .with_key("tags")
-                        .with_expected("table")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-                tags
-            }
-            None => BTreeMap::new(),
-        };
-
-        let category =
-            config_value.get_as_str_array("category", &error_handler.with_key("category"));
-        let category = if category.is_empty() {
-            None
-        } else {
-            Some(category)
-        };
-
-        let dir = config_value.get_as_str_or_none("dir", &error_handler.with_key("dir"));
-
-        let subcommands = match config_value.get("subcommands") {
-            Some(value) => {
-                let mut subcommands = HashMap::new();
-                let subcommands_error_handler = error_handler.with_key("subcommands");
-                if let Some(table) = value.as_table() {
-                    for (key, value) in table {
-                        subcommands.insert(
-                            key.to_string(),
-                            CommandDefinition::from_config_value(
-                                &value,
-                                &subcommands_error_handler.with_key(key),
-                            ),
-                        );
-                    }
-                } else {
-                    subcommands_error_handler
-                        .with_expected("table")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-                Some(subcommands)
-            }
-            None => None,
-        };
-
-        let argparser = config_value.get_as_bool_or_default(
-            "argparser",
-            false, // Disable argparser by default
-            &error_handler.with_key("argparser"),
-        );
-
-        let export = config_value.get_as_bool_or_default(
-            "export",
-            false, // Do not export by default
-            &error_handler.with_key("export"),
-        );
-
-        Self {
-            desc,
-            run,
-            aliases,
-            syntax,
-            category,
-            dir,
-            subcommands,
-            argparser,
-            tags,
-            export,
-            source: config_value.get_source().clone(),
-            scope: config_value.current_scope().clone(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Clone, PartialEq, Default, feuilletage::Config)]
+#[feuilletage(parse_as = "CommandSyntaxWire", skip_serialize, skip_deserialize)]
 pub struct CommandSyntax {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<String>,
@@ -184,106 +79,20 @@ impl CommandSyntax {
 
     pub fn deserialize<'de, D>(
         deserializer: D,
-        error_handler: &ConfigErrorHandler,
+        _error_handler: &ConfigErrorHandler,
     ) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let value = serde_yaml::Value::deserialize(deserializer)?;
-        let config_value = ConfigValue::from_value(ConfigSource::Null, ConfigScope::Null, value);
-        if let Some(command_syntax) = CommandSyntax::from_config_value(&config_value, error_handler)
-        {
-            Ok(command_syntax)
-        } else {
-            Err(serde::de::Error::custom("invalid command syntax"))
-        }
-    }
-
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let mut usage = None;
-        let mut parameters = vec![];
-        let mut groups = vec![];
-
-        if let Some(array) = config_value.as_array() {
-            parameters.extend(array.iter().enumerate().filter_map(|(idx, value)| {
-                SyntaxOptArg::from_config_value(value, None, &error_handler.with_index(idx))
-            }));
-        } else if let Some(table) = config_value.as_table() {
-            let keys = [
-                ("parameters", None),
-                ("arguments", Some(true)),
-                ("argument", Some(true)),
-                ("options", Some(false)),
-                ("option", Some(false)),
-                ("optional", Some(false)),
-            ];
-
-            for (key, required) in keys {
-                if let Some(value) = table.get(key) {
-                    let param_error_handler = error_handler.with_key(key);
-                    if let Some(value) = value.as_array() {
-                        let arguments = value
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(idx, value)| {
-                                SyntaxOptArg::from_config_value(
-                                    value,
-                                    required,
-                                    &param_error_handler.with_index(idx),
-                                )
-                            })
-                            .collect::<Vec<SyntaxOptArg>>();
-                        parameters.extend(arguments);
-                    } else if let Some(arg) =
-                        SyntaxOptArg::from_config_value(value, required, &param_error_handler)
-                    {
-                        parameters.push(arg);
-                    } else {
-                        param_error_handler
-                            .with_expected("array or table")
-                            .with_actual(value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                }
-            }
-
-            if let Some(value) = table.get("groups") {
-                groups =
-                    SyntaxGroup::from_config_value_multi(value, &error_handler.with_key("groups"));
-            }
-
-            if let Some(value) = table.get("usage") {
-                if let Some(value) = value.as_str_forced() {
-                    usage = Some(value.to_string());
-                } else {
-                    error_handler
-                        .with_key("usage")
-                        .with_expected("string")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-            }
-        } else if let Some(value) = config_value.as_str_forced() {
-            usage = Some(value.to_string());
-        } else {
-            error_handler
-                .with_expected("array, table or string")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-
-        if parameters.is_empty() && groups.is_empty() && usage.is_none() {
-            return None;
-        }
-
-        Some(Self {
-            usage,
-            parameters,
-            groups,
-        })
+        // Convert serde_yaml::Value to feuilletage ConfigValue
+        let feuilletage_value = yaml_value_to_feuilletage_value(value);
+        let mut tracker = FeuilletageErrorTracker::new();
+        <Self as feuilletage::FromContextValue>::from_context_value(
+            &feuilletage_value,
+            &mut tracker,
+        )
+        .map_err(|_| serde::de::Error::custom("invalid command syntax"))
     }
 
     /// The 'leftovers' parameter is used to capture all the remaining arguments
@@ -771,7 +580,7 @@ impl CommandSyntax {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SyntaxOptArg {
     #[serde(alias = "name")]
     pub names: Vec<String>,
@@ -846,251 +655,6 @@ impl Default for SyntaxOptArg {
 }
 
 impl SyntaxOptArg {
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        required: Option<bool>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let mut names;
-        let mut arg_type;
-        let mut placeholders;
-        let mut leftovers;
-
-        let mut desc = None;
-        let mut dest = None;
-        let mut required = required;
-        let mut default = None;
-        let mut default_missing_value = None;
-        let mut num_values = None;
-        let mut value_delimiter = None;
-        let mut last_arg_double_hyphen = false;
-        let mut allow_hyphen_values = false;
-        let mut allow_negative_numbers = false;
-        let mut group_occurrences = false;
-        let mut requires = vec![];
-        let mut conflicts_with = vec![];
-        let mut required_without = vec![];
-        let mut required_without_all = vec![];
-        let mut required_if_eq = HashMap::new();
-        let mut required_if_eq_all = HashMap::new();
-
-        if let Some(table) = config_value.as_table() {
-            let value_for_details;
-
-            if let Some(name_value) = table.get("name") {
-                if let Some(name_value) = name_value.as_str() {
-                    (names, arg_type, placeholders, leftovers) = parse_arg_name(&name_value);
-                    value_for_details = Some(config_value.clone());
-                } else {
-                    error_handler
-                        .with_key("name")
-                        .with_expected("string")
-                        .with_actual(name_value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    return None;
-                }
-            } else if table.len() == 1 {
-                if let Some((key, value)) = table.into_iter().next() {
-                    (names, arg_type, placeholders, leftovers) = parse_arg_name(&key);
-                    value_for_details = Some(value);
-                } else {
-                    return None;
-                }
-            } else {
-                error_handler
-                    .with_key("name")
-                    .error(ConfigErrorKind::MissingKey);
-                return None;
-            }
-
-            if let Some(value_for_details) = value_for_details {
-                if let Some(value_str) = value_for_details.as_str() {
-                    desc = Some(value_str.to_string());
-                } else if let Some(value_table) = value_for_details.as_table() {
-                    desc = value_for_details
-                        .get_as_str_or_none("desc", &error_handler.with_key("desc"));
-                    dest = value_for_details
-                        .get_as_str_or_none("dest", &error_handler.with_key("dest"));
-
-                    if required.is_none() {
-                        required = Some(value_for_details.get_as_bool_or_default(
-                            "required",
-                            false,
-                            &error_handler.with_key("required"),
-                        ));
-                    }
-
-                    // Try to load the placeholders from the placeholders key,
-                    // if not found, try to load it from the placeholder key
-                    for key in &["placeholders", "placeholder"] {
-                        let ph =
-                            value_for_details.get_as_str_array(key, &error_handler.with_key(key));
-                        if !ph.is_empty() {
-                            placeholders = ph;
-                            break;
-                        }
-                    }
-
-                    default = value_for_details
-                        .get_as_str_or_none("default", &error_handler.with_key("default"));
-                    default_missing_value = value_for_details.get_as_str_or_none(
-                        "default_missing_value",
-                        &error_handler.with_key("default_missing_value"),
-                    );
-                    num_values = SyntaxOptArgNumValues::from_config_value(
-                        value_table.get("num_values"),
-                        &error_handler.with_key("num_values"),
-                    );
-                    value_delimiter = value_for_details
-                        .get_as_str_or_none("delimiter", &error_handler.with_key("delimiter"))
-                        .and_then(|value| {
-                            value.chars().next().or_else(|| {
-                                error_handler
-                                    .with_key("delimiter")
-                                    .with_expected("non-empty string")
-                                    .with_actual(value)
-                                    .error(ConfigErrorKind::InvalidValueType);
-                                None
-                            })
-                        });
-                    last_arg_double_hyphen = value_for_details.get_as_bool_or_default(
-                        "last",
-                        false,
-                        &error_handler.with_key("last"),
-                    );
-                    leftovers = value_for_details.get_as_bool_or_default(
-                        "leftovers",
-                        false,
-                        &error_handler.with_key("leftovers"),
-                    );
-                    allow_hyphen_values = value_for_details.get_as_bool_or_default(
-                        "allow_hyphen_values",
-                        false,
-                        &error_handler.with_key("allow_hyphen_values"),
-                    );
-                    allow_negative_numbers = value_for_details.get_as_bool_or_default(
-                        "allow_negative_numbers",
-                        false,
-                        &error_handler.with_key("allow_negative_numbers"),
-                    );
-                    group_occurrences = value_for_details.get_as_bool_or_default(
-                        "group_occurrences",
-                        false,
-                        &error_handler.with_key("group_occurrences"),
-                    );
-
-                    arg_type = SyntaxOptArgType::from_config_value(
-                        value_table.get("type"),
-                        value_table.get("values"),
-                        value_delimiter,
-                        &error_handler.with_key("type"),
-                    )
-                    .unwrap_or(SyntaxOptArgType::String);
-
-                    requires = value_for_details
-                        .get_as_str_array("requires", &error_handler.with_key("requires"));
-
-                    conflicts_with = value_for_details.get_as_str_array(
-                        "conflicts_with",
-                        &error_handler.with_key("conflicts_with"),
-                    );
-
-                    required_without = value_for_details.get_as_str_array(
-                        "required_without",
-                        &error_handler.with_key("required_without"),
-                    );
-
-                    required_without_all = value_for_details.get_as_str_array(
-                        "required_without_all",
-                        &error_handler.with_key("required_without_all"),
-                    );
-
-                    if let Some(required_if_eq_value) = value_table.get("required_if_eq") {
-                        if let Some(value) = required_if_eq_value.as_table() {
-                            for (key, value) in value {
-                                if let Some(value) = value.as_str_forced() {
-                                    required_if_eq.insert(key.to_string(), value.to_string());
-                                } else {
-                                    error_handler
-                                        .with_key("required_if_eq")
-                                        .with_key(key)
-                                        .with_expected("string")
-                                        .with_actual(value)
-                                        .error(ConfigErrorKind::InvalidValueType);
-                                }
-                            }
-                        } else {
-                            error_handler
-                                .with_key("required_if_eq")
-                                .with_expected("table")
-                                .with_actual(required_if_eq_value)
-                                .error(ConfigErrorKind::InvalidValueType);
-                        }
-                    }
-
-                    if let Some(required_if_eq_all_value) = value_table.get("required_if_eq_all") {
-                        if let Some(value) = required_if_eq_all_value.as_table() {
-                            for (key, value) in value {
-                                if let Some(value) = value.as_str_forced() {
-                                    required_if_eq_all.insert(key.to_string(), value.to_string());
-                                } else {
-                                    error_handler
-                                        .with_key("required_if_eq_all")
-                                        .with_key(key)
-                                        .with_expected("string")
-                                        .with_actual(value)
-                                        .error(ConfigErrorKind::InvalidValueType);
-                                }
-                            }
-                        } else {
-                            error_handler
-                                .with_key("required_if_eq_all")
-                                .with_expected("table")
-                                .with_actual(required_if_eq_all_value)
-                                .error(ConfigErrorKind::InvalidValueType);
-                        }
-                    }
-
-                    let aliases = value_for_details
-                        .get_as_str_array("aliases", &error_handler.with_key("aliases"));
-                    names.extend(aliases);
-                }
-            }
-        } else if let Some(value) = config_value.as_str() {
-            (names, arg_type, placeholders, leftovers) = parse_arg_name(&value);
-        } else {
-            error_handler
-                .with_expected("string or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            return None;
-        }
-
-        Some(Self {
-            names,
-            dest,
-            desc,
-            required: required.unwrap_or(false),
-            placeholders,
-            arg_type,
-            default,
-            default_missing_value,
-            num_values,
-            value_delimiter,
-            last_arg_double_hyphen,
-            leftovers,
-            allow_hyphen_values,
-            allow_negative_numbers,
-            group_occurrences,
-            requires,
-            conflicts_with,
-            required_without,
-            required_without_all,
-            required_if_eq,
-            required_if_eq_all,
-        })
-    }
-
     pub fn arg_type(&self) -> SyntaxOptArgType {
         let convert_to_array = self.leftovers || self.value_delimiter.is_some();
 
@@ -2024,7 +1588,7 @@ pub fn parse_arg_name(arg_name: &str) -> (Vec<String>, SyntaxOptArgType, Vec<Str
     (names, arg_type, placeholders, leftovers)
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Copy)]
+#[derive(Debug, Serialize, Clone, PartialEq, Copy)]
 pub enum SyntaxOptArgNumValues {
     Any,
     Exactly(usize),
@@ -2200,25 +1764,6 @@ impl SyntaxOptArgNumValues {
         }
     }
 
-    fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let config_value = config_value?;
-
-        if let Some(value) = config_value.as_integer() {
-            Some(Self::Exactly(value as usize))
-        } else if let Some(value) = config_value.as_str_forced() {
-            Self::from_str(&value, error_handler)
-        } else {
-            error_handler
-                .with_expected("positive integer or range")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            None
-        }
-    }
-
     fn is_many(&self) -> bool {
         match self {
             Self::Any => true,
@@ -2250,7 +1795,7 @@ impl SyntaxOptArgNumValues {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Clone, PartialEq, Default)]
 pub enum SyntaxOptArgType {
     #[default]
     #[serde(rename = "str", alias = "string")]
@@ -2312,63 +1857,6 @@ impl SyntaxOptArgType {
                 _ => unimplemented!("unsupported array type: {:?}", self),
             },
         }
-    }
-
-    fn from_config_value(
-        config_value_type: Option<&ConfigValue>,
-        config_value_values: Option<&ConfigValue>,
-        value_delimiter: Option<char>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let config_value_type = config_value_type?;
-
-        // Check if type is an array (list) - if so, treat as enum with those values
-        if let Some(array) = config_value_type.as_array() {
-            let values = array
-                .iter()
-                .filter_map(|value| value.as_str_forced())
-                .collect::<Vec<String>>();
-            return Some(Self::Enum(values));
-        }
-
-        let obj = Self::from_str(
-            &config_value_type.as_str_forced().or_else(|| {
-                error_handler
-                    .with_expected("string or array")
-                    .with_actual(config_value_type)
-                    .error(ConfigErrorKind::InvalidValueType);
-                None
-            })?,
-            error_handler,
-        )?;
-
-        match obj {
-            Self::Enum(values) if values.is_empty() => {
-                if let Some(values) = config_value_values {
-                    if let Some(array) = values.as_array() {
-                        let values = array
-                            .iter()
-                            .filter_map(|value| value.as_str_forced())
-                            .collect::<Vec<String>>();
-                        return Some(Self::Enum(values));
-                    } else if let Some(value) = values.as_str_forced() {
-                        if let Some(value_delimiter) = value_delimiter {
-                            let values = value
-                                .split(value_delimiter)
-                                .map(|value| value.to_string())
-                                .collect::<Vec<String>>();
-                            return Some(Self::Enum(values));
-                        } else {
-                            return Some(Self::Enum(vec![value.to_string()]));
-                        }
-                    }
-                }
-                // TODO: add error for empty enum
-            }
-            _ => return Some(obj),
-        }
-
-        None
     }
 
     pub fn from_str(value: &str, error_handler: &ConfigErrorHandler) -> Option<Self> {
@@ -2465,7 +1953,11 @@ impl SyntaxOptArgType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[cfg(test)]
+#[path = "command_definition_test.rs"]
+mod tests;
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SyntaxGroup {
     pub name: String,
     pub parameters: Vec<String>,
@@ -2493,192 +1985,6 @@ impl Default for SyntaxGroup {
 }
 
 impl SyntaxGroup {
-    /// Create a vector of groups from a config value that can contain multiple groups.
-    /// This supports the groups being specified as:
-    ///
-    /// ```yaml
-    /// groups:
-    ///  - name: group1
-    ///    parameters:
-    ///    - param1
-    ///    - param2
-    ///    multiple: true
-    ///    required: true
-    /// - name: group2
-    ///   parameters: param3
-    ///   requires: group1
-    ///   conflicts_with: group3
-    /// - group3:
-    ///     parameters: param4
-    /// ```
-    ///
-    /// Or as:
-    ///
-    /// ```yaml
-    /// groups:
-    ///   group1:
-    ///     parameters:
-    ///     - param1
-    ///     - param2
-    ///     multiple: true
-    ///     required: true
-    ///   group2:
-    ///     parameters: param3
-    ///     requires: group1
-    ///     conflicts_with: group3
-    ///   group3:
-    ///     parameters: param4
-    /// ```
-    ///
-    /// The ConfigValue object received is the contents of the `groups` key in the config file.
-    pub(super) fn from_config_value_multi(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        let mut groups = vec![];
-
-        if let Some(array) = config_value.as_array() {
-            // If this is an array, we can simply iterate over it and create the groups
-            for (idx, value) in array.iter().enumerate() {
-                if let Some(group) =
-                    Self::from_config_value(value, None, &error_handler.with_index(idx))
-                {
-                    groups.push(group);
-                }
-            }
-        } else if let Some(table) = config_value.as_table() {
-            // If this is a table, we need to iterate over the keys and create the groups
-            for (name, value) in table {
-                if let Some(group) = Self::from_config_value(
-                    &value,
-                    Some(name.to_string()),
-                    &error_handler.with_key(name),
-                ) {
-                    groups.push(group);
-                }
-            }
-        } else {
-            error_handler
-                .with_expected("array or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-
-        groups
-    }
-
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        name: Option<String>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        // Exit early if the value is not a table
-        let table = if let Some(table) = config_value.as_table() {
-            // Exit early if the table is empty
-            if table.is_empty() {
-                error_handler
-                    .with_key("name")
-                    .error(ConfigErrorKind::MissingKey);
-                error_handler
-                    .with_key("parameters")
-                    .error(ConfigErrorKind::MissingKey);
-                return None;
-            }
-            table
-        } else {
-            error_handler
-                .with_expected("table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            return None;
-        };
-
-        let mut config_value = config_value;
-        let mut error_handler = error_handler.clone();
-
-        // Handle the group name
-        let name = match name {
-            Some(name) => name,
-            None => {
-                if table.len() == 1 {
-                    // Extract the only key from the table, this will be the name of the group
-                    let key = table.keys().next().unwrap().to_string();
-
-                    // Change the config to be the value of the key, this will be the group's config
-                    config_value = table.get(&key)?;
-                    error_handler = error_handler.with_key(&key);
-
-                    // Exit early if the value is not a table
-                    if !config_value.is_table() {
-                        error_handler
-                            .with_expected("table")
-                            .with_actual(config_value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                        return None;
-                    }
-
-                    // Return the key as the name of the group
-                    key
-                } else if let Some(name_config_value) = config_value.get("name") {
-                    if let Some(name) = name_config_value.as_str_forced() {
-                        name.to_string()
-                    } else {
-                        error_handler
-                            .with_key("name")
-                            .with_expected("string")
-                            .with_actual(name_config_value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                        return None;
-                    }
-                } else {
-                    error_handler
-                        .with_key("name")
-                        .error(ConfigErrorKind::MissingKey);
-                    return None;
-                }
-            }
-        };
-
-        // Handle the group parameters
-        let parameters =
-            config_value.get_as_str_array("parameters", &error_handler.with_key("parameters"));
-        // No parameters, skip this group
-        if parameters.is_empty() {
-            error_handler
-                .with_key("parameters")
-                .error(ConfigErrorKind::MissingKey);
-            return None;
-        }
-
-        // Parse the rest of the group configuration
-        let multiple = config_value.get_as_bool_or_default(
-            "multiple",
-            false,
-            &error_handler.with_key("multiple"),
-        );
-
-        let required = config_value.get_as_bool_or_default(
-            "required",
-            false,
-            &error_handler.with_key("required"),
-        );
-
-        let requires =
-            config_value.get_as_str_array("requires", &error_handler.with_key("requires"));
-
-        let conflicts_with = config_value
-            .get_as_str_array("conflicts_with", &error_handler.with_key("conflicts_with"));
-
-        Some(Self {
-            name,
-            parameters,
-            multiple,
-            required,
-            requires,
-            conflicts_with,
-        })
-    }
-
     fn dest(&self) -> String {
         sanitize_str(&self.name)
     }
@@ -2751,6 +2057,769 @@ fn sanitize_str(s: &str) -> String {
     s.trim_matches('_').to_string()
 }
 
-#[cfg(test)]
-#[path = "command_definition_test.rs"]
-mod tests;
+// ============================================================================
+// Helper functions for feuilletage derive macro (from_context_fn)
+// ============================================================================
+
+fn command_def_source_from_context<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    ctx: &feuilletage::Context<S, L>,
+) -> OmniSource {
+    match ctx.source.file_path() {
+        Some(p) => OmniSource::File(p.to_path_buf()),
+        None => OmniSource::Default,
+    }
+}
+
+fn command_def_scope_from_context<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    ctx: &feuilletage::Context<S, L>,
+) -> Level {
+    match ctx.level.name() {
+        "system" => Level::System,
+        "user" => Level::User,
+        _ => Level::Local,
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    scalar_as = "usage",
+    array_as = "parameters",
+    skip_serialize,
+    skip_deserialize
+)]
+struct CommandSyntaxWire {
+    #[feuilletage(default)]
+    usage: Option<StringOrIntWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    parameters: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    arguments: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    argument: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    options: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    option: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    optional: Vec<SyntaxOptArgWire>,
+    #[feuilletage(default, allow_map)]
+    groups: Vec<SyntaxGroupWire>,
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transform = "self::normalize_syntax_opt_arg_shape",
+    scalar_as = "name",
+    allow_map(key = "name", scalar_as = "desc"),
+    post_process = "normalize_syntax_opt_arg_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct SyntaxOptArgWire {
+    name: StrictStringWire,
+    #[feuilletage(default)]
+    dest: Option<String>,
+    #[feuilletage(default)]
+    desc: Option<String>,
+    #[feuilletage(default)]
+    required: Option<StrictBoolWire>,
+    #[feuilletage(default, allow_single)]
+    placeholders: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    placeholder: Vec<String>,
+    #[feuilletage(default, rename = "type")]
+    arg_type: Option<SyntaxOptArgTypeWire>,
+    #[feuilletage(default)]
+    values: Option<SyntaxStringListWire>,
+    #[feuilletage(default)]
+    default: Option<String>,
+    #[feuilletage(default)]
+    default_missing_value: Option<String>,
+    #[feuilletage(default)]
+    num_values: Option<StringOrIntWire>,
+    #[feuilletage(default, rename = "delimiter")]
+    value_delimiter: Option<String>,
+    #[feuilletage(default, rename = "last")]
+    last_arg_double_hyphen: StrictBoolWire,
+    #[feuilletage(default)]
+    leftovers: Option<StrictBoolWire>,
+    #[feuilletage(default)]
+    allow_hyphen_values: StrictBoolWire,
+    #[feuilletage(default)]
+    allow_negative_numbers: StrictBoolWire,
+    #[feuilletage(default)]
+    group_occurrences: StrictBoolWire,
+    #[feuilletage(default, allow_single)]
+    requires: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    conflicts_with: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    required_without: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    required_without_all: Vec<String>,
+    #[feuilletage(default)]
+    required_if_eq: HashMap<String, String>,
+    #[feuilletage(default)]
+    required_if_eq_all: HashMap<String, String>,
+    #[feuilletage(default, allow_single)]
+    aliases: Vec<String>,
+    #[feuilletage(default, rename = "__syntax_details_object")]
+    details_object: bool,
+    #[feuilletage(skip)]
+    parsed_arg_type: SyntaxOptArgType,
+    #[feuilletage(skip)]
+    parsed_num_values: Option<SyntaxOptArgNumValues>,
+    #[feuilletage(skip)]
+    parsed_value_delimiter: Option<char>,
+}
+
+fn normalize_syntax_opt_arg_shape<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    let feuilletage::ContextValue::Object(fields, object_context) = value else {
+        return Ok(());
+    };
+    let object_context = object_context.clone();
+
+    if fields.contains_key("name") {
+        let context = fields
+            .values()
+            .next()
+            .expect("an object containing name is non-empty")
+            .context()
+            .clone();
+        fields.insert(
+            "__syntax_details_object".to_string(),
+            feuilletage::ContextValue::bool(true, context),
+        );
+        return Ok(());
+    }
+
+    if fields.len() != 1 {
+        return Ok(());
+    }
+
+    let (_, details) = fields.iter_mut().next().expect("single-entry object");
+    match details {
+        feuilletage::ContextValue::Object(details, _) => {
+            let context = details
+                .values()
+                .next()
+                .map(feuilletage::ContextValue::context)
+                .cloned()
+                .unwrap_or_else(|| object_context.clone());
+            details.insert(
+                "__syntax_details_object".to_string(),
+                feuilletage::ContextValue::bool(true, context),
+            );
+        }
+        feuilletage::ContextValue::Int(_, context)
+        | feuilletage::ContextValue::Float(_, context)
+        | feuilletage::ContextValue::Bool(_, context) => {
+            *details = feuilletage::ContextValue::null(context.clone());
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum StrictStringWire {
+    #[feuilletage(variant = any_string)]
+    Value(String),
+    #[feuilletage(variant = any_bool)]
+    InvalidBool,
+    #[feuilletage(variant = any_int)]
+    InvalidInt,
+    #[feuilletage(variant = any_float)]
+    InvalidFloat,
+    #[feuilletage(variant = predicate("syntax_value_is_array"))]
+    InvalidArray,
+    #[feuilletage(variant = predicate("syntax_value_is_object"))]
+    InvalidObject,
+    #[feuilletage(variant = null)]
+    InvalidNull,
+}
+
+impl StrictStringWire {
+    fn into_string(
+        self,
+        tracker: &feuilletage::ErrorTracker,
+    ) -> Result<String, feuilletage::Error> {
+        match self {
+            Self::Value(value) => Ok(value),
+            Self::InvalidBool => Err(syntax_string_type_mismatch(tracker, "bool")),
+            Self::InvalidInt => Err(syntax_string_type_mismatch(tracker, "int")),
+            Self::InvalidFloat => Err(syntax_string_type_mismatch(tracker, "float")),
+            Self::InvalidArray => Err(syntax_string_type_mismatch(tracker, "array")),
+            Self::InvalidObject => Err(syntax_string_type_mismatch(tracker, "object")),
+            Self::InvalidNull => Err(syntax_string_type_mismatch(tracker, "null")),
+        }
+    }
+}
+
+fn syntax_string_type_mismatch(
+    tracker: &feuilletage::ErrorTracker,
+    actual: &str,
+) -> feuilletage::Error {
+    feuilletage::Error::TypeMismatch {
+        path: tracker.current_path(),
+        expected: "string".to_string(),
+        actual: actual.to_string(),
+    }
+}
+
+fn syntax_value_is_array<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+) -> bool {
+    matches!(value, feuilletage::ContextValue::Array(_, _))
+}
+
+fn syntax_value_is_object<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &feuilletage::ContextValue<S, L>,
+) -> bool {
+    matches!(value, feuilletage::ContextValue::Object(_, _))
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "validate_strict_bool_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct StrictBoolWire(FeuilletageValue);
+
+impl Default for StrictBoolWire {
+    fn default() -> Self {
+        Self(FeuilletageValue::Bool(false))
+    }
+}
+
+impl StrictBoolWire {
+    fn value(&self) -> bool {
+        match &self.0 {
+            FeuilletageValue::Bool(value) => *value,
+            _ => false,
+        }
+    }
+}
+
+fn validate_strict_bool_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    _parsed: &mut StrictBoolWire,
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if matches!(original, feuilletage::ContextValue::Bool(_, _)) {
+        Ok(())
+    } else {
+        Err(feuilletage::Error::TypeMismatch {
+            path: tracker.current_path(),
+            expected: "boolean".to_string(),
+            actual: original.type_name().to_string(),
+        })
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "validate_string_or_int_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct StringOrIntWire(String);
+
+fn validate_string_or_int_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    _parsed: &mut StringOrIntWire,
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if matches!(
+        original,
+        feuilletage::ContextValue::String(_, _) | feuilletage::ContextValue::Int(_, _)
+    ) {
+        Ok(())
+    } else {
+        Err(feuilletage::Error::TypeMismatch {
+            path: tracker.current_path(),
+            expected: "string".to_string(),
+            actual: original.type_name().to_string(),
+        })
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum SyntaxOptArgTypeWire {
+    Values(Vec<String>),
+    Name(StringOrIntWire),
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+enum SyntaxStringListWire {
+    Values(Vec<String>),
+    #[feuilletage(variant = any_string)]
+    Value(String),
+}
+
+impl SyntaxStringListWire {
+    fn into_vec(self, delimiter: Option<char>) -> Vec<String> {
+        match self {
+            Self::Values(values) => values,
+            Self::Value(value) => delimiter
+                .map(|delimiter| value.split(delimiter).map(str::to_string).collect())
+                .unwrap_or_else(|| vec![value]),
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(allow_map(key = "name"), skip_serialize, skip_deserialize)]
+struct SyntaxGroupWire {
+    name: StringOrIntWire,
+    #[feuilletage(default, allow_single)]
+    parameters: Vec<String>,
+    #[feuilletage(default)]
+    multiple: StrictBoolWire,
+    #[feuilletage(default)]
+    required: StrictBoolWire,
+    #[feuilletage(default, allow_single)]
+    requires: Vec<String>,
+    #[feuilletage(default, allow_single)]
+    conflicts_with: Vec<String>,
+}
+
+fn normalize_syntax_opt_arg_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    parsed: &mut SyntaxOptArgWire,
+    _original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    tracker.push_field("name");
+    let name =
+        std::mem::replace(&mut parsed.name, StrictStringWire::InvalidNull).into_string(tracker);
+    tracker.pop();
+    parsed.name = StrictStringWire::Value(name?);
+
+    parsed.parsed_value_delimiter = parsed.value_delimiter.as_ref().and_then(|delimiter| {
+        delimiter.chars().next().or_else(|| {
+            tracker.push_field("delimiter");
+            tracker.record(feuilletage::Error::InvalidValue {
+                path: tracker.current_path(),
+                message: "delimiter must be non-empty".to_string(),
+            });
+            tracker.pop();
+            None
+        })
+    });
+
+    parsed.parsed_arg_type = match parsed.arg_type.as_ref() {
+        Some(SyntaxOptArgTypeWire::Values(values)) => SyntaxOptArgType::Enum(values.clone()),
+        Some(SyntaxOptArgTypeWire::Name(value)) => {
+            tracker.push_field("type");
+            let arg_type = SyntaxOptArgType::from_str_feuilletage(&value.0, tracker);
+            tracker.pop();
+            match arg_type {
+                Some(SyntaxOptArgType::Enum(values)) if values.is_empty() => parsed
+                    .values
+                    .take()
+                    .map(|values| {
+                        SyntaxOptArgType::Enum(values.into_vec(parsed.parsed_value_delimiter))
+                    })
+                    .unwrap_or(SyntaxOptArgType::String),
+                Some(arg_type) => arg_type,
+                None => SyntaxOptArgType::String,
+            }
+        }
+        None => SyntaxOptArgType::String,
+    };
+
+    parsed.parsed_num_values = parsed.num_values.as_ref().and_then(|value| {
+        tracker.push_field("num_values");
+        let num_values = SyntaxOptArgNumValues::from_str_feuilletage(&value.0, tracker);
+        tracker.pop();
+        num_values
+    });
+
+    Ok(())
+}
+
+impl SyntaxOptArgWire {
+    fn into_domain(
+        self,
+        required_default: Option<bool>,
+        _tracker: &mut feuilletage::ErrorTracker,
+    ) -> SyntaxOptArg {
+        let (mut names, inferred_type, inferred_placeholders, inferred_leftovers) =
+            parse_arg_name(match &self.name {
+                StrictStringWire::Value(name) => name,
+                _ => unreachable!("parameter name was validated during wire parsing"),
+            });
+        names.extend(self.aliases);
+
+        let placeholders = if self.placeholders.is_empty() {
+            if self.placeholder.is_empty() {
+                inferred_placeholders
+            } else {
+                self.placeholder
+            }
+        } else {
+            self.placeholders
+        };
+
+        let arg_type = self
+            .arg_type
+            .map_or(inferred_type, |_| self.parsed_arg_type);
+
+        SyntaxOptArg {
+            names,
+            dest: self.dest,
+            desc: self.desc,
+            required: self
+                .required
+                .map(|required| required.value())
+                .or(required_default)
+                .unwrap_or(false),
+            placeholders,
+            arg_type,
+            default: self.default,
+            default_missing_value: self.default_missing_value,
+            num_values: self.parsed_num_values,
+            value_delimiter: self.parsed_value_delimiter,
+            last_arg_double_hyphen: self.last_arg_double_hyphen.value(),
+            leftovers: self
+                .leftovers
+                .map(|leftovers| leftovers.value())
+                .unwrap_or_else(|| {
+                    if self.details_object {
+                        false
+                    } else {
+                        inferred_leftovers
+                    }
+                }),
+            allow_hyphen_values: self.allow_hyphen_values.value(),
+            allow_negative_numbers: self.allow_negative_numbers.value(),
+            group_occurrences: self.group_occurrences.value(),
+            requires: self.requires,
+            conflicts_with: self.conflicts_with,
+            required_without: self.required_without,
+            required_without_all: self.required_without_all,
+            required_if_eq: self.required_if_eq,
+            required_if_eq_all: self.required_if_eq_all,
+        }
+    }
+}
+
+impl SyntaxGroupWire {
+    fn into_domain(self, tracker: &mut feuilletage::ErrorTracker) -> Option<SyntaxGroup> {
+        if self.parameters.is_empty() {
+            tracker.push_field("parameters");
+            tracker.record(feuilletage::Error::MissingField {
+                path: tracker.current_path(),
+            });
+            tracker.pop();
+            return None;
+        }
+
+        Some(SyntaxGroup {
+            name: self.name.0,
+            parameters: self.parameters,
+            multiple: self.multiple.value(),
+            required: self.required.value(),
+            requires: self.requires,
+            conflicts_with: self.conflicts_with,
+        })
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<CommandSyntaxWire, S, L> for CommandSyntax
+{
+    fn from_parsed(
+        parsed: CommandSyntaxWire,
+        original: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        let mut parameters = Vec::new();
+        parameters.extend(
+            parsed
+                .parameters
+                .into_iter()
+                .map(|parameter| parameter.into_domain(None, tracker)),
+        );
+        parameters.extend(
+            parsed
+                .arguments
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(true), tracker)),
+        );
+        parameters.extend(
+            parsed
+                .argument
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(true), tracker)),
+        );
+        parameters.extend(
+            parsed
+                .options
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(false), tracker)),
+        );
+        parameters.extend(
+            parsed
+                .option
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(false), tracker)),
+        );
+        parameters.extend(
+            parsed
+                .optional
+                .into_iter()
+                .map(|parameter| parameter.into_domain(Some(false), tracker)),
+        );
+
+        let mut groups = Vec::new();
+        tracker.push_field("groups");
+        for (index, group) in parsed.groups.into_iter().enumerate() {
+            tracker.push_index(index);
+            if let Some(group) = group.into_domain(tracker) {
+                groups.push(group);
+            }
+            tracker.pop();
+        }
+        tracker.pop();
+
+        if parameters.is_empty() && groups.is_empty() && parsed.usage.is_none() {
+            Err(feuilletage::Error::TypeMismatch {
+                path: tracker.current_path(),
+                expected: "command syntax (array or object)".to_string(),
+                actual: original.type_name().to_string(),
+            })
+        } else {
+            Ok(Self {
+                usage: parsed.usage.map(|usage| usage.0),
+                parameters,
+                groups,
+            })
+        }
+    }
+}
+
+// ============================================================================
+// Feuilletage helper functions for parsing
+// ============================================================================
+
+/// Convert a serde_yaml::Value to feuilletage ConfigValue
+fn yaml_value_to_feuilletage_value(value: serde_yaml::Value) -> FeuilletageConfigValue {
+    let context =
+        feuilletage::Context::new(feuilletage::Source::Default, feuilletage::Level::System);
+    match value {
+        serde_yaml::Value::Null => FeuilletageConfigValue::null(context),
+        serde_yaml::Value::Bool(b) => FeuilletageConfigValue::bool(b, context),
+        serde_yaml::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                FeuilletageConfigValue::int(i, context)
+            } else if let Some(f) = n.as_f64() {
+                FeuilletageConfigValue::float(f, context)
+            } else {
+                FeuilletageConfigValue::null(context)
+            }
+        }
+        serde_yaml::Value::String(s) => FeuilletageConfigValue::string(s, context),
+        serde_yaml::Value::Sequence(seq) => {
+            let arr: Vec<FeuilletageConfigValue> = seq
+                .into_iter()
+                .map(yaml_value_to_feuilletage_value)
+                .collect();
+            FeuilletageConfigValue::array(arr, context)
+        }
+        serde_yaml::Value::Mapping(map) => {
+            let obj: indexmap::IndexMap<String, FeuilletageConfigValue> = map
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    let key = match k {
+                        serde_yaml::Value::String(s) => s,
+                        _ => return None,
+                    };
+                    Some((key, yaml_value_to_feuilletage_value(v)))
+                })
+                .collect();
+            FeuilletageConfigValue::object(obj, context)
+        }
+        serde_yaml::Value::Tagged(_) => FeuilletageConfigValue::null(context),
+    }
+}
+
+// ============================================================================
+// Feuilletage parsing for SyntaxOptArgNumValues
+// ============================================================================
+
+impl SyntaxOptArgNumValues {
+    fn from_str_feuilletage(value: &str, tracker: &mut feuilletage::ErrorTracker) -> Option<Self> {
+        let value = value.trim();
+
+        if value.contains("..") {
+            let mut parts = value.split("..");
+
+            let min = parts.next()?.trim();
+            let max = parts.next()?.trim();
+            let (max, max_inclusive) = if let Some(max) = max.strip_prefix('=') {
+                (max, true)
+            } else {
+                (max, false)
+            };
+
+            let max = match max {
+                "" => None,
+                value => match value.parse::<usize>() {
+                    Ok(value) => Some(value),
+                    Err(_) => {
+                        tracker.record(feuilletage::Error::InvalidValue {
+                            path: tracker.current_path(),
+                            message: format!("expected positive integer, got '{}'", value),
+                        });
+                        return None;
+                    }
+                },
+            };
+
+            let min = match min {
+                "" => None,
+                value => match value.parse::<usize>() {
+                    Ok(value) => Some(value),
+                    Err(_) => {
+                        tracker.record(feuilletage::Error::InvalidValue {
+                            path: tracker.current_path(),
+                            message: format!("expected positive integer, got '{}'", value),
+                        });
+                        return None;
+                    }
+                },
+            };
+
+            match (min, max, max_inclusive) {
+                (None, None, _) => Some(Self::Any),
+                (None, Some(max), true) => Some(Self::AtMost(max)),
+                (None, Some(max), false) => {
+                    if max > 0 {
+                        Some(Self::AtMost(max - 1))
+                    } else {
+                        tracker.record(feuilletage::Error::InvalidValue {
+                            path: tracker.current_path(),
+                            message: "invalid range: min 0 max 0".to_string(),
+                        });
+                        None
+                    }
+                }
+                (Some(min), None, _) => Some(Self::AtLeast(min)),
+                (Some(min), Some(max), true) => {
+                    if min <= max {
+                        Some(Self::Between(min, max))
+                    } else {
+                        tracker.record(feuilletage::Error::InvalidValue {
+                            path: tracker.current_path(),
+                            message: format!("invalid range: min {} > max {}", min, max),
+                        });
+                        None
+                    }
+                }
+                (Some(min), Some(max), false) => {
+                    if min < max {
+                        Some(Self::Between(min, max - 1))
+                    } else {
+                        tracker.record(feuilletage::Error::InvalidValue {
+                            path: tracker.current_path(),
+                            message: format!("invalid range: min {} >= max {}", min, max),
+                        });
+                        None
+                    }
+                }
+            }
+        } else {
+            match value.parse::<usize>() {
+                Ok(value) => Some(Self::Exactly(value)),
+                Err(_) => {
+                    tracker.record(feuilletage::Error::InvalidValue {
+                        path: tracker.current_path(),
+                        message: format!("expected positive integer, got '{}'", value),
+                    });
+                    None
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Feuilletage parsing for SyntaxOptArgType
+// ============================================================================
+
+impl SyntaxOptArgType {
+    fn from_str_feuilletage(value: &str, tracker: &mut feuilletage::ErrorTracker) -> Option<Self> {
+        let mut is_array = false;
+
+        let normalized = value.trim().to_lowercase();
+        let mut value = normalized.trim();
+
+        if value.starts_with("array/") {
+            value = &value[6..];
+            is_array = true;
+        } else if value.starts_with('[') && value.ends_with(']') {
+            value = &value[1..value.len() - 1];
+            is_array = true;
+        } else if value == "array" {
+            return Some(Self::Array(Box::new(Self::String)));
+        }
+
+        let obj = match value.to_lowercase().as_str() {
+            "int" | "integer" => Self::Integer,
+            "float" => Self::Float,
+            "bool" | "boolean" => Self::Boolean,
+            "flag" => Self::Flag,
+            "count" | "counter" => Self::Counter,
+            "str" | "string" => Self::String,
+            "dir" | "path" | "dirpath" => Self::DirPath,
+            "file" | "filepath" => Self::FilePath,
+            "repopath" => Self::RepoPath,
+            "enum" => Self::Enum(vec![]),
+            _ => {
+                // Check for enum formats like enum(xx, yy) or (xx, yy)
+                let mut enum_contents = None;
+
+                if value.starts_with("enum(") && value.ends_with(')') {
+                    enum_contents = Some(&value[5..value.len() - 1]);
+                } else if value.starts_with('(') && value.ends_with(')') {
+                    enum_contents = Some(&value[1..value.len() - 1]);
+                }
+
+                if let Some(contents) = enum_contents {
+                    let values = contents
+                        .split(',')
+                        .map(|v| v.trim().to_string())
+                        .filter(|v| !v.is_empty())
+                        .collect::<Vec<String>>();
+                    Self::Enum(values)
+                } else {
+                    tracker.record(feuilletage::Error::InvalidValue {
+                        path: tracker.current_path(),
+                        message: format!(
+                            "invalid type '{}', expected one of: int, float, bool, flag, count, str, path, enum, array/<type>",
+                            value
+                        ),
+                    });
+                    return None;
+                }
+            }
+        };
+
+        if is_array {
+            Some(Self::Array(Box::new(obj)))
+        } else {
+            Some(obj)
+        }
+    }
+}

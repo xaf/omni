@@ -1,23 +1,40 @@
 use serde::Deserialize;
 use serde::Serialize;
+// Note: ShellAliasConfig uses feuilletage::Config which auto-generates Serialize
+// ShellAliasesConfig uses manual Serialize for custom array serialization
 
 use crate::internal::cache::utils::Empty;
-use crate::internal::config::parser::errors::ConfigErrorHandler;
-use crate::internal::config::parser::errors::ConfigErrorKind;
-use crate::internal::config::ConfigValue;
 
-#[derive(Debug, Deserialize, Clone)]
+// ============================================================================
+// NEW IMPLEMENTATION USING FEUILLETAGE
+// ============================================================================
+
+/// ShellAliasesConfig - container for shell aliases.
+///
+/// Uses feuilletage::Config with transparent to auto-generate FromContextValue.
+/// Custom Serialize and Deserialize impls are kept for backwards compatibility
+/// (serializes/deserializes as array directly, not as struct).
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(transparent, skip_serialize, skip_deserialize)]
+#[derive(Default)]
 pub struct ShellAliasesConfig {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[feuilletage(default)]
     pub aliases: Vec<ShellAliasConfig>,
 }
-
 impl Empty for ShellAliasesConfig {
     fn is_empty(&self) -> bool {
         self.aliases.is_empty()
     }
 }
 
+impl feuilletage::IsEmpty for ShellAliasesConfig {
+    fn is_empty(&self) -> bool {
+        Empty::is_empty(self)
+    }
+}
+
+// Custom Serialize implementation for backwards compatibility
+// (serializes as array directly, not as struct with "aliases" field)
 impl Serialize for ShellAliasesConfig {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -27,94 +44,31 @@ impl Serialize for ShellAliasesConfig {
     }
 }
 
-impl ShellAliasesConfig {
-    pub(super) fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut aliases = vec![];
-        if let Some(config_value) = config_value {
-            if let Some(array) = config_value.as_array() {
-                for (idx, value) in array.iter().enumerate() {
-                    if let Some(alias) =
-                        ShellAliasConfig::from_config_value(value, &error_handler.with_index(idx))
-                    {
-                        aliases.push(alias);
-                    }
-                }
-            } else {
-                error_handler
-                    .with_expected("array")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
-            }
-        }
-        Self { aliases }
+// Manual Deserialize implementation for compatibility with existing code
+// (e.g., loading from cache files, etc.)
+impl<'de> Deserialize<'de> for ShellAliasesConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Deserialize as Vec<ShellAliasConfig> directly for backwards compatibility
+        let aliases = Vec::<ShellAliasConfig>::deserialize(deserializer)?;
+        Ok(ShellAliasesConfig { aliases })
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+
+/// ShellAliasConfig using feuilletage's derive macro.
+///
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromContextValue` implementation for deserialization from feuilletage's Config
+/// - `serde::Serialize` and `serde::Deserialize` implementations
+#[derive(Debug, Clone, feuilletage::Config)]
+#[derive(Default)]
 pub struct ShellAliasConfig {
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[feuilletage(default = "String::new()", skip_if_empty)]
     pub alias: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+
+    #[feuilletage(skip_if_empty)]
     pub target: Option<String>,
-}
-
-impl ShellAliasConfig {
-    pub(super) fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if let Some(value) = config_value.as_str() {
-            Some(Self {
-                alias: value.to_string(),
-                target: None,
-            })
-        } else if let Some(table) = config_value.as_table() {
-            let alias = if let Some(value) = table.get("alias") {
-                if let Some(value) = value.as_str() {
-                    value.to_string()
-                } else {
-                    error_handler
-                        .with_key("alias")
-                        .with_expected("string")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    return None;
-                }
-            } else {
-                error_handler
-                    .with_key("alias")
-                    .error(ConfigErrorKind::MissingKey);
-
-                return None;
-            };
-
-            let mut target = None;
-            if let Some(value) = table.get("target") {
-                if let Some(value) = value.as_str() {
-                    target = Some(value.to_string());
-                } else {
-                    error_handler
-                        .with_key("target")
-                        .with_expected("string")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    return None;
-                }
-            }
-
-            Some(Self { alias, target })
-        } else {
-            error_handler
-                .with_expected(vec!["string", "table"])
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            None
-        }
-    }
 }

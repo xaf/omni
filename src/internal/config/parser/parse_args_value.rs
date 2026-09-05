@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 pub enum ParseArgsValue {
     SingleString(Option<String>),
     SingleInteger(Option<i64>),

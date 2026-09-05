@@ -1,29 +1,38 @@
-use serde::Deserialize;
+use crate::internal::config::Value as FeuilletageValue;
 use serde::Serialize;
 
 use tera::Tera;
 
 use crate::internal::cache::utils::Empty;
 use crate::internal::cache::PromptsCache;
-use crate::internal::config::parser::errors::ConfigErrorHandler;
-use crate::internal::config::parser::errors::ConfigErrorKind;
 use crate::internal::config::template::config_template_context;
+use crate::internal::config::template::register_partial_resolve_placeholder;
 use crate::internal::config::template::render_config_template;
 use crate::internal::config::template::tera_render_error_message;
-use crate::internal::config::ConfigValue;
 use crate::internal::git_env;
 use crate::internal::user_interface::colors::StringColor;
 use crate::omni_warning;
 
-#[derive(Default, Debug, Deserialize, Clone)]
+// Feuilletage imports
+use crate::internal::config::FeuilletageConfigContext;
+use crate::internal::config::FeuilletageConfigLevel;
+use crate::internal::config::FeuilletageConfigSource;
+
+#[derive(Default, Debug, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "PromptsConfigWire", skip_serialize)]
 pub struct PromptsConfig {
-    #[serde(flatten)]
     pub prompts: Vec<PromptConfig>,
 }
 
 impl Empty for PromptsConfig {
     fn is_empty(&self) -> bool {
         self.prompts.is_empty()
+    }
+}
+
+impl feuilletage::IsEmpty for PromptsConfig {
+    fn is_empty(&self) -> bool {
+        Empty::is_empty(self)
     }
 }
 
@@ -37,149 +46,27 @@ impl Serialize for PromptsConfig {
 }
 
 impl PromptsConfig {
-    pub fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        if let Some(config_value) = config_value {
-            if let Some(array) = config_value.as_array() {
-                let prompts = array
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, config_value)| {
-                        PromptConfig::from_config_value(
-                            config_value,
-                            &error_handler.with_index(idx),
-                        )
-                    })
-                    .collect();
-
-                return Self { prompts };
-            } else {
-                error_handler
-                    .with_expected("array")
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::InvalidValueType);
-            }
-        }
-
-        Self::default()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &PromptConfig> {
         self.prompts.iter()
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "PromptConfigWire", skip_serialize)]
 pub struct PromptConfig {
     pub id: String,
     pub prompt: String,
-    #[serde(
-        skip_serializing_if = "serde_yaml::Value::is_null",
-        default = "serde_yaml::Value::default"
-    )]
-    pub default: serde_yaml::Value,
-    #[serde(
-        flatten,
-        skip_serializing_if = "PromptType::is_default",
-        default = "PromptType::default"
-    )]
+    #[serde(skip_serializing_if = "feuilletage_value_is_null")]
+    pub default: FeuilletageValue,
+    #[serde(flatten, skip_serializing_if = "PromptType::is_default")]
     pub prompt_type: PromptType,
-    #[serde(
-        skip_serializing_if = "PromptScope::is_default",
-        default = "PromptScope::default"
-    )]
+    #[serde(skip_serializing_if = "PromptScope::is_default")]
     pub scope: PromptScope,
     #[serde(skip_serializing_if = "Option::is_none", rename = "if")]
     pub if_condition: Option<String>,
 }
 
 impl PromptConfig {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        // We need to have an id and a prompt:
-        // - id is used to identify the answer to the prompt
-        // - prompt is the message that will be displayed to the user
-
-        let id = match config_value
-            .get_as_str_or_none("id", &error_handler.with_key("id"))
-            .map(|id| id.trim().to_string())
-        {
-            Some(id) if id.is_empty() => {
-                error_handler
-                    .with_key("id")
-                    .error(ConfigErrorKind::EmptyKey);
-
-                None
-            }
-            Some(id) => Some(id),
-            None => {
-                error_handler
-                    .with_key("id")
-                    .error(ConfigErrorKind::MissingKey);
-
-                None
-            }
-        }?;
-
-        let prompt = match config_value
-            .get_as_str_or_none("prompt", &error_handler.with_key("prompt"))
-            .map(|prompt| prompt.trim().to_string())
-        {
-            Some(prompt) if prompt.is_empty() => {
-                error_handler
-                    .with_key("prompt")
-                    .error(ConfigErrorKind::EmptyKey);
-
-                None
-            }
-            Some(prompt) => Some(prompt),
-            None => {
-                error_handler
-                    .with_key("prompt")
-                    .error(ConfigErrorKind::MissingKey);
-
-                None
-            }
-        }?;
-
-        let prompt_type = PromptType::from_config_value(config_value, error_handler)?;
-
-        // if is used to conditionally prompt the user.
-        let if_condition = config_value.get_as_str_forced("if");
-
-        // We keep the default value as a serde_yaml::Value so that we can
-        // serialize it as a string if it's a string, or as a boolean if it's a
-        // boolean, etc. and interpret it as the correct type when we use it
-        // as default value for the prompt.
-        let default = match config_value.get("default") {
-            Some(default) => default.as_serde_yaml(),
-            None => serde_yaml::Value::Null,
-        };
-
-        // Scope is used to determine how prompts answers are stored. For
-        // example, if the scope is "repo", the prompt will be considered
-        // as answered only for the current repository. If the scope is
-        // "org", the prompt will be considered as answered for the whole
-        // organization. If a repository has a prompt with the same id as
-        // an organization prompt, the repository prompt will take
-        // precedence and be re-asked, but won't override the organization
-        // answer.
-        let scope = PromptScope::from_config_value(config_value, error_handler);
-
-        Some(Self {
-            id,
-            prompt,
-            default,
-            prompt_type,
-            scope,
-            if_condition,
-        })
-    }
-
     pub fn should_prompt(&self) -> bool {
         match &self.if_condition {
             Some(if_condition) => {
@@ -194,18 +81,19 @@ impl PromptConfig {
     pub fn in_context(&self) -> Result<Self, String> {
         let template_context = config_template_context(".");
 
-        // Dump self as yaml string using serde_yaml
+        // Dump self as yaml string
         let yaml = match serde_yaml::to_string(self) {
             Ok(yaml) => yaml,
             Err(err) => {
                 return Err(format!(
-                    "failed to dump prompt {} as yaml: {}",
+                    "failed to serialize prompt {} to yaml: {}",
                     self.id, err
                 ))
             }
         };
 
         let mut template = Tera::default();
+        register_partial_resolve_placeholder(&mut template);
         let prompt_key = format!("prompt.{}", self.id);
         if let Err(err) = template.add_raw_template(&prompt_key, yaml.as_str()) {
             return Err(tera_render_error_message(err));
@@ -213,9 +101,13 @@ impl PromptConfig {
 
         match render_config_template(&template, &template_context) {
             Ok(value) => {
-                // Load the template as config value
-                let config_value = match ConfigValue::from_str(&value) {
-                    Ok(value) => value,
+                // Parse YAML using feuilletage
+                let context = FeuilletageConfigContext::new(
+                    FeuilletageConfigSource::Programmatic,
+                    FeuilletageConfigLevel::Local,
+                );
+                let config_value = match feuilletage::loader::load_yaml(&value, context) {
+                    Ok(cv) => cv,
                     Err(err) => {
                         return Err(format!(
                             "failed to parse prompt {} as yaml: {}",
@@ -224,16 +116,17 @@ impl PromptConfig {
                     }
                 };
 
-                let error_handler = ConfigErrorHandler::new();
-                match Self::from_config_value(&config_value, &error_handler) {
-                    Some(prompt) => Ok(prompt),
-                    None => Err(format!(
+                // Use feuilletage's FromContextValue implementation
+                let mut tracker = feuilletage::ErrorTracker::new();
+                match <Self as feuilletage::FromContextValue<
+                    FeuilletageConfigSource,
+                    FeuilletageConfigLevel,
+                >>::from_context_value(&config_value, &mut tracker)
+                {
+                    Ok(prompt) => Ok(prompt),
+                    Err(err) => Err(format!(
                         "failed to parse prompt {} from rendered template: {}",
-                        self.id,
-                        error_handler
-                            .last_error()
-                            .map(|err| err.message().to_string())
-                            .unwrap_or("unknown error".to_string())
+                        self.id, err
                     )),
                 }
             }
@@ -251,7 +144,8 @@ impl PromptConfig {
     }
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Default, Debug, Serialize, Clone, Copy, feuilletage::Config)]
+#[feuilletage(untagged, parse_as = "PromptScopeWire", skip_serialize)]
 pub enum PromptScope {
     #[default]
     #[serde(rename = "repo", alias = "repository")]
@@ -261,37 +155,13 @@ pub enum PromptScope {
 }
 
 impl PromptScope {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let scope = match config_value.get_as_str_or_none("scope", &error_handler.with_key("scope"))
-        {
-            Some(scope) => scope.trim().to_lowercase(),
-            None => return Self::default(),
-        };
-
-        match scope.as_str() {
-            "repo" | "repository" => Self::Repository,
-            "org" | "organization" => Self::Organization,
-            _ => {
-                error_handler
-                    .with_key("scope")
-                    .with_expected("repo or org")
-                    .with_actual(scope)
-                    .error(ConfigErrorKind::InvalidValue);
-
-                Self::default()
-            }
-        }
-    }
-
     pub fn is_default(&self) -> bool {
         matches!(self, Self::Repository)
     }
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(untagged, parse_as = "PromptTypeWire", skip_serialize)]
 #[serde(tag = "type")]
 pub enum PromptType {
     #[default]
@@ -322,83 +192,6 @@ pub enum PromptType {
 }
 
 impl PromptType {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let prompt_type = match config_value
-            .get_as_str_or_none("type", &error_handler.with_key("type"))
-            .map(|s| s.trim().to_lowercase())
-        {
-            Some(prompt_type) if prompt_type.is_empty() => {
-                error_handler
-                    .with_key("type")
-                    .error(ConfigErrorKind::EmptyKey);
-
-                return Some(Self::default());
-            }
-            Some(prompt_type) => prompt_type,
-            None => {
-                error_handler
-                    .with_key("type")
-                    .error(ConfigErrorKind::MissingKey);
-
-                return Some(Self::default());
-            }
-        };
-
-        match prompt_type.as_str() {
-            "text" => Some(Self::Text),
-            "password" => Some(Self::Password),
-            "confirm" | "boolean" => Some(Self::Confirm),
-            "choice" | "select" | "choices" | "multichoice" | "multiselect" => {
-                if let Some(choices) = config_value.get("choices") {
-                    let choices = PromptChoicesConfig::from_config_value(
-                        &choices,
-                        &error_handler.with_key("choices"),
-                    )?;
-
-                    return match prompt_type.as_str() {
-                        "choice" | "select" => Some(Self::Choice { choices }),
-                        "choices" | "multichoice" | "multiselect" => {
-                            Some(Self::MultiChoice { choices })
-                        }
-                        _ => unreachable!("invalid prompt type for choices"),
-                    };
-                }
-
-                error_handler
-                    .with_key("choices")
-                    .error(ConfigErrorKind::MissingKey);
-
-                None
-            }
-            "int" => {
-                let min =
-                    config_value.get_as_integer_or_none("min", &error_handler.with_key("min"));
-                let max =
-                    config_value.get_as_integer_or_none("max", &error_handler.with_key("max"));
-
-                Some(Self::Int { min, max })
-            }
-            "float" => {
-                let min = config_value.get_as_float_or_none("min", &error_handler.with_key("min"));
-                let max = config_value.get_as_float_or_none("max", &error_handler.with_key("max"));
-
-                Some(Self::Float { min, max })
-            }
-            _ => {
-                error_handler
-                    .with_key("type")
-                    .with_expected("text, password, confirm, choice, multichoice, int, or float")
-                    .with_actual(prompt_type)
-                    .error(ConfigErrorKind::InvalidValue);
-
-                None
-            }
-        }
-    }
-
     pub fn is_default(&self) -> bool {
         matches!(self, Self::Text)
     }
@@ -407,13 +200,14 @@ impl PromptType {
         &self,
         id: &str,
         prompt: &str,
-        default: serde_yaml::Value,
+        default: FeuilletageValue,
         scope: PromptScope,
     ) -> bool {
         // Override the default value with the cached answer if there is one
         // for the current scope; otherwise, use the default value.
+        // The cache returns serde_json::Value, so we convert it to FeuilletageValue.
         let default = match PromptsCache::get().answers(".").get(id) {
-            Some(answer) => answer.clone(),
+            Some(answer) => json_value_to_feuilletage_value(answer),
             None => default,
         };
 
@@ -506,10 +300,10 @@ impl PromptType {
                     .collect::<Vec<_>>();
 
                 if !default.is_null() {
-                    let defaults = match default.clone() {
-                        serde_yaml::Value::Sequence(defaults) => defaults,
-                        serde_yaml::Value::String(_) => vec![default],
-                        serde_yaml::Value::Number(ref number) if number.is_i64() => vec![default],
+                    let defaults: Vec<FeuilletageValue> = match default.clone() {
+                        FeuilletageValue::Array(defaults) => defaults,
+                        FeuilletageValue::String(_) => vec![default],
+                        FeuilletageValue::Int(_) => vec![default],
                         _ => vec![],
                     };
 
@@ -675,12 +469,13 @@ impl PromptType {
             }
         };
 
-        let serde_yaml_answer = match requestty::prompt_one(question) {
+        // Create the answer value as serde_json::Value for cache storage
+        let answer_value: serde_json::Value = match requestty::prompt_one(question) {
             Ok(answer) => match answer {
-                requestty::Answer::String(answer) => serde_yaml::to_value(answer),
-                requestty::Answer::Bool(answer) => serde_yaml::to_value(answer),
-                requestty::Answer::Int(answer) => serde_yaml::to_value(answer),
-                requestty::Answer::Float(answer) => serde_yaml::to_value(answer),
+                requestty::Answer::String(answer) => serde_json::Value::String(answer),
+                requestty::Answer::Bool(answer) => serde_json::Value::Bool(answer),
+                requestty::Answer::Int(answer) => serde_json::json!(answer),
+                requestty::Answer::Float(answer) => serde_json::json!(answer),
                 requestty::Answer::ListItem(answer) => {
                     let choices = match self {
                         Self::Choice { choices } => match choices.choices() {
@@ -701,7 +496,7 @@ impl PromptType {
                         }
                     };
 
-                    serde_yaml::to_value(selected_choice)
+                    serde_json::Value::String(selected_choice)
                 }
                 requestty::Answer::ListItems(answers) => {
                     let choices = match self {
@@ -715,13 +510,13 @@ impl PromptType {
                         }
                     };
 
-                    let selected_choices = answers
+                    let selected_choices: Vec<serde_json::Value> = answers
                         .iter()
                         .filter_map(|answer| choices.get(answer.index))
-                        .map(|choice| choice.id.to_string())
-                        .collect::<Vec<_>>();
+                        .map(|choice| serde_json::Value::String(choice.id.to_string()))
+                        .collect();
 
-                    serde_yaml::to_value(selected_choices)
+                    serde_json::Value::Array(selected_choices)
                 }
                 _ => unimplemented!(),
             },
@@ -731,17 +526,7 @@ impl PromptType {
             }
         };
 
-        let serde_yaml_answer = match serde_yaml_answer {
-            Ok(serde_yaml_answer) => serde_yaml_answer,
-            Err(err) => {
-                omni_warning!(format!("failed to serialize answer: {}", err));
-                return false;
-            }
-        };
-
-        if let Err(err) =
-            PromptsCache::get().add_answer(id, scope_org, scope_repo, serde_yaml_answer)
-        {
+        if let Err(err) = PromptsCache::get().add_answer(id, scope_org, scope_repo, answer_value) {
             omni_warning!(format!("failed to update cache: {}", err));
             false
         } else {
@@ -750,73 +535,47 @@ impl PromptType {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(untagged, parse_as = "PromptChoicesWire", skip_serialize)]
 pub enum PromptChoicesConfig {
     ChoicesAsArray(Vec<PromptChoiceConfig>),
     ChoicesAsString(String),
 }
 
 impl PromptChoicesConfig {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if let Some(array) = config_value.as_array() {
-            let choices = array
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, value)| {
-                    PromptChoiceConfig::from_config_value(value, &error_handler.with_index(idx))
-                })
-                .collect::<Vec<PromptChoiceConfig>>();
-
-            if choices.is_empty() {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                None
-            } else {
-                Some(Self::ChoicesAsArray(choices))
-            }
-        } else if let Some(string) = config_value.as_str_forced() {
-            Some(Self::ChoicesAsString(string.to_string()))
-        } else {
-            error_handler
-                .with_expected("array or template of array")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            None
-        }
-    }
-
     pub fn choices(&self) -> Result<Vec<PromptChoiceConfig>, String> {
         match self {
             Self::ChoicesAsArray(choices) => Ok(choices.clone()),
-            Self::ChoicesAsString(template) => match ConfigValue::from_str(template) {
-                Ok(config_value) => {
-                    let choices = match config_value.as_array() {
-                        Some(choices) => choices,
-                        None => {
-                            return Err("choices template must be an array".to_string());
-                        }
-                    };
-
-                    let choices = choices
-                        .iter()
-                        .filter_map(|value| {
-                            PromptChoiceConfig::from_config_value(
-                                value,
-                                &ConfigErrorHandler::noop(),
-                            )
-                        })
-                        .collect::<Vec<PromptChoiceConfig>>();
-
-                    if choices.is_empty() {
-                        Err("choices template must be a non-empty array".to_string())
-                    } else {
-                        Ok(choices)
+            Self::ChoicesAsString(template) => {
+                // Parse YAML using feuilletage
+                let context = FeuilletageConfigContext::new(
+                    FeuilletageConfigSource::Programmatic,
+                    FeuilletageConfigLevel::Local,
+                );
+                let config_value = match feuilletage::loader::load_yaml(template, context) {
+                    Ok(cv) => cv,
+                    Err(err) => {
+                        return Err(format!("failed to parse choices template as yaml: {err}"));
                     }
+                };
+
+                // Convert to Vec<PromptChoiceConfig> using feuilletage's FromContextValue
+                let mut tracker = feuilletage::ErrorTracker::new();
+                match <Vec<PromptChoiceConfig> as feuilletage::FromContextValue<
+                    FeuilletageConfigSource,
+                    FeuilletageConfigLevel,
+                >>::from_context_value(&config_value, &mut tracker)
+                {
+                    Ok(choices) => {
+                        if choices.is_empty() {
+                            Err("choices template must be a non-empty array".to_string())
+                        } else {
+                            Ok(choices)
+                        }
+                    }
+                    Err(_) => Err("choices template must be an array".to_string()),
                 }
-                Err(err) => Err(format!("failed to parse choices template as yaml: {err}")),
-            },
+            }
         }
     }
 }
@@ -833,54 +592,14 @@ impl Serialize for PromptChoicesConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(scalar_as = "id")]
 pub struct PromptChoiceConfig {
+    #[feuilletage(fallback = "choice")]
     pub id: String,
+
+    #[feuilletage(fallback = "id")]
     pub choice: String,
-}
-
-impl PromptChoiceConfig {
-    pub fn from_config_value(
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if let Some(table) = config_value.as_table() {
-            let id = table.get("id").and_then(|id| id.as_str());
-            let choice = table.get("choice").and_then(|choice| choice.as_str());
-
-            match (id, choice) {
-                (Some(id), Some(choice)) => Some(Self { id, choice }),
-                (Some(id), None) => Some(Self {
-                    id: id.clone(),
-                    choice: id,
-                }),
-                (None, Some(choice)) => Some(Self {
-                    id: choice.clone(),
-                    choice,
-                }),
-                _ => {
-                    error_handler
-                        .with_expected("id or choice")
-                        .with_actual(config_value)
-                        .error(ConfigErrorKind::MissingKey);
-
-                    None
-                }
-            }
-        } else if let Some(choice) = config_value.as_str_forced() {
-            Some(Self {
-                id: choice.to_string(),
-                choice: choice.to_string(),
-            })
-        } else {
-            error_handler
-                .with_expected("table or string")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            None
-        }
-    }
 }
 
 impl From<PromptChoiceConfig> for String {
@@ -892,5 +611,599 @@ impl From<PromptChoiceConfig> for String {
 impl From<&PromptChoiceConfig> for String {
     fn from(choice: &PromptChoiceConfig) -> String {
         choice.choice.clone()
+    }
+}
+
+// ============================================================================
+// FeuilletageValue helper functions
+// ============================================================================
+
+/// Helper function for serde skip_serializing_if
+fn feuilletage_value_is_null(value: &FeuilletageValue) -> bool {
+    matches!(value, FeuilletageValue::Null)
+}
+
+/// Convert serde_json::Value to feuilletage::Value
+fn json_value_to_feuilletage_value(value: &serde_json::Value) -> FeuilletageValue {
+    match value {
+        serde_json::Value::Null => FeuilletageValue::Null,
+        serde_json::Value::Bool(b) => FeuilletageValue::Bool(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                FeuilletageValue::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                FeuilletageValue::Float(f)
+            } else {
+                FeuilletageValue::Null
+            }
+        }
+        serde_json::Value::String(s) => FeuilletageValue::String(s.clone()),
+        serde_json::Value::Array(arr) => {
+            let items: Vec<FeuilletageValue> =
+                arr.iter().map(json_value_to_feuilletage_value).collect();
+            FeuilletageValue::Array(items)
+        }
+        serde_json::Value::Object(map) => {
+            let items: indexmap::IndexMap<String, FeuilletageValue> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), json_value_to_feuilletage_value(v)))
+                .collect();
+            FeuilletageValue::Object(items)
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    transform = "self::normalize_prompts_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct PromptsConfigWire(Vec<PromptConfig>);
+
+fn normalize_prompts_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    if value.is_null() {
+        *value = feuilletage::ContextValue::array(Vec::new(), context.clone());
+    }
+    Ok(())
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transform = "self::normalize_prompt_config_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct PromptConfigWire {
+    id: PromptRequiredStringWire,
+    prompt: PromptRequiredStringWire,
+    #[feuilletage(default)]
+    default: Option<FeuilletageValue>,
+    #[feuilletage(default)]
+    scope: PromptScope,
+    #[feuilletage(default, rename = "if")]
+    if_condition: FeuilletageValue,
+    #[feuilletage(flatten)]
+    prompt_type: PromptType,
+}
+
+fn normalize_prompt_config_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    let feuilletage::ContextValue::Object(table, _) = value else {
+        return Ok(());
+    };
+    match table.get_mut("type") {
+        Some(feuilletage::ContextValue::String(value, _)) => {
+            *value = value.trim().to_lowercase();
+            if !is_known_prompt_type(value) {
+                table.shift_remove("type");
+            }
+        }
+        Some(_) => {
+            table.shift_remove("type");
+        }
+        None => {}
+    }
+    Ok(())
+}
+
+fn is_known_prompt_type(value: &str) -> bool {
+    matches!(
+        value,
+        "text"
+            | "password"
+            | "confirm"
+            | "boolean"
+            | "choice"
+            | "select"
+            | "choices"
+            | "multichoice"
+            | "multiselect"
+            | "int"
+            | "float"
+    )
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(transparent, skip_serialize, skip_deserialize)]
+struct PromptRequiredStringWire(FeuilletageValue);
+
+fn required_prompt_string(
+    value: FeuilletageValue,
+    field: &str,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<String, feuilletage::Error> {
+    tracker.push_field(field);
+    let result = match value {
+        FeuilletageValue::String(value) => {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                Err(feuilletage::Error::InvalidValue {
+                    message: format!("{field} cannot be empty"),
+                    path: tracker.current_path(),
+                })
+            } else {
+                Ok(value)
+            }
+        }
+        value => Err(feuilletage::Error::TypeMismatch {
+            expected: "string".to_string(),
+            actual: value.type_name().to_string(),
+            path: tracker.current_path(),
+        }),
+    };
+    tracker.pop();
+    result
+}
+
+fn record_prompt_type_diagnostic<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) {
+    let feuilletage::ContextValue::Object(table, _) = original else {
+        return;
+    };
+    match table.get("type") {
+        None => {}
+        Some(feuilletage::ContextValue::String(value, _)) => {
+            let value = value.trim().to_lowercase();
+            if value.is_empty() {
+                tracker.push_field("type");
+                tracker.record(feuilletage::Error::InvalidValue {
+                    message: "type cannot be empty".to_string(),
+                    path: tracker.current_path(),
+                });
+                tracker.pop();
+            } else if !is_known_prompt_type(&value) {
+                tracker.push_field("type");
+                tracker.record(feuilletage::Error::InvalidValue {
+                    message: format!(
+                        "invalid type '{}': expected text, password, confirm, choice, multichoice, int, or float",
+                        value
+                    ),
+                    path: tracker.current_path(),
+                });
+                tracker.pop();
+            }
+        }
+        Some(value) => {
+            tracker.push_field("type");
+            tracker.record(feuilletage::Error::TypeMismatch {
+                expected: "string".to_string(),
+                actual: value.type_name().to_string(),
+                path: tracker.current_path(),
+            });
+            tracker.pop();
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "normalize_prompt_scope_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct PromptScopeWire(String);
+
+fn normalize_prompt_scope_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    parsed: &mut PromptScopeWire,
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if !matches!(original, feuilletage::ContextValue::String(_, _)) {
+        return Err(feuilletage::Error::TypeMismatch {
+            expected: "string".to_string(),
+            actual: original.type_name().to_string(),
+            path: tracker.current_path(),
+        });
+    }
+    parsed.0 = parsed.0.trim().to_lowercase();
+    Ok(())
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(tag = "type", skip_serialize, skip_deserialize)]
+enum PromptTypeWire {
+    #[feuilletage(rename = "text", fallback)]
+    Text,
+    #[feuilletage(rename = "password")]
+    Password,
+    #[feuilletage(rename = "confirm", aliases = ["boolean"])]
+    Confirm,
+    #[feuilletage(rename = "choice", aliases = ["select"])]
+    Choice { choices: PromptChoicesConfig },
+    #[feuilletage(
+        rename = "multichoice",
+        aliases = ["choices", "multiselect"]
+    )]
+    MultiChoice { choices: PromptChoicesConfig },
+    #[feuilletage(rename = "int")]
+    Int {
+        #[feuilletage(default)]
+        min: FeuilletageValue,
+        #[feuilletage(default)]
+        max: FeuilletageValue,
+    },
+    #[feuilletage(rename = "float")]
+    Float {
+        #[feuilletage(default)]
+        min: FeuilletageValue,
+        #[feuilletage(default)]
+        max: FeuilletageValue,
+    },
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    transform = "self::normalize_prompt_choices_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct PromptChoicesWire(Vec<PromptChoiceConfig>);
+
+fn normalize_prompt_choices_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    match value {
+        feuilletage::ContextValue::Array(_, _) => Ok(()),
+        feuilletage::ContextValue::String(_, _) => {
+            *value = feuilletage::ContextValue::array(Vec::new(), context.clone());
+            Ok(())
+        }
+        _ => {
+            *value = feuilletage::ContextValue::array(Vec::new(), context.clone());
+            Ok(())
+        }
+    }
+}
+
+// The public types retain their custom serde shapes while these projections define parsing.
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptsConfigWire, S, L> for PromptsConfig
+{
+    fn from_parsed(
+        parsed: PromptsConfigWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        _tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        Ok(Self { prompts: parsed.0 })
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptConfigWire, S, L> for PromptConfig
+{
+    fn from_parsed(
+        parsed: PromptConfigWire,
+        original: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        let id = required_prompt_string(parsed.id.0, "id", tracker)?;
+        let prompt = required_prompt_string(parsed.prompt.0, "prompt", tracker)?;
+        record_prompt_type_diagnostic(original, tracker);
+        let if_condition = match parsed.if_condition {
+            FeuilletageValue::String(value) => Some(value),
+            FeuilletageValue::Bool(value) => Some(value.to_string()),
+            FeuilletageValue::Int(value) => Some(value.to_string()),
+            _ => None,
+        };
+        let has_default = matches!(
+            original,
+            feuilletage::ContextValue::Object(table, _) if table.contains_key("default")
+        );
+
+        Ok(Self {
+            id,
+            prompt,
+            default: if has_default {
+                parsed.default.unwrap_or(FeuilletageValue::Null)
+            } else {
+                FeuilletageValue::Null
+            },
+            prompt_type: parsed.prompt_type,
+            scope: parsed.scope,
+            if_condition,
+        })
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptScopeWire, S, L> for PromptScope
+{
+    fn from_parsed(
+        parsed: PromptScopeWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        match parsed.0.as_str() {
+            "repo" | "repository" => Ok(Self::Repository),
+            "org" | "organization" => Ok(Self::Organization),
+            scope => Err(feuilletage::Error::InvalidValue {
+                message: format!("invalid scope '{scope}': expected 'repo' or 'org'"),
+                path: tracker.current_path(),
+            }),
+        }
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptTypeWire, S, L> for PromptType
+{
+    fn from_parsed(
+        parsed: PromptTypeWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        _tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        Ok(match parsed {
+            PromptTypeWire::Text => Self::Text,
+            PromptTypeWire::Password => Self::Password,
+            PromptTypeWire::Confirm => Self::Confirm,
+            PromptTypeWire::Choice { choices } => Self::Choice { choices },
+            PromptTypeWire::MultiChoice { choices } => Self::MultiChoice { choices },
+            PromptTypeWire::Int { min, max } => Self::Int {
+                min: match min {
+                    FeuilletageValue::Int(value) => Some(value),
+                    _ => None,
+                },
+                max: match max {
+                    FeuilletageValue::Int(value) => Some(value),
+                    _ => None,
+                },
+            },
+            PromptTypeWire::Float { min, max } => Self::Float {
+                min: match min {
+                    FeuilletageValue::Float(value) => Some(value),
+                    FeuilletageValue::Int(value) => Some(value as f64),
+                    _ => None,
+                },
+                max: match max {
+                    FeuilletageValue::Float(value) => Some(value),
+                    FeuilletageValue::Int(value) => Some(value as f64),
+                    _ => None,
+                },
+            },
+        })
+    }
+}
+
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<PromptChoicesWire, S, L> for PromptChoicesConfig
+{
+    fn from_parsed(
+        parsed: PromptChoicesWire,
+        original: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        match original {
+            feuilletage::ContextValue::Array(_, _) => {
+                if parsed.0.is_empty() {
+                    Err(feuilletage::Error::InvalidValue {
+                        message: "choices cannot be empty".to_string(),
+                        path: tracker.current_path(),
+                    })
+                } else {
+                    Ok(Self::ChoicesAsArray(parsed.0))
+                }
+            }
+            feuilletage::ContextValue::String(template, _) => {
+                Ok(Self::ChoicesAsString(template.clone()))
+            }
+            value => Err(feuilletage::Error::TypeMismatch {
+                expected: "array or template string".to_string(),
+                actual: value.type_name().to_string(),
+                path: tracker.current_path(),
+            }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_prompts(yaml: &str) -> (PromptsConfig, Vec<feuilletage::Error>) {
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(
+            yaml,
+            FeuilletageConfigContext::new(
+                FeuilletageConfigSource::Programmatic,
+                FeuilletageConfigLevel::Local,
+            ),
+        );
+        let prompts = config.deserialize::<PromptsConfig>().unwrap();
+        (prompts, config.get_errors().to_vec())
+    }
+
+    #[test]
+    fn prompt_projection_preserves_aliases_bounds_and_coercions() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: " integer "
+  prompt: " Number "
+  type: " INT "
+  min: 1
+  max: 3
+  scope: repository
+  if: true
+- id: select
+  prompt: Pick
+  type: select
+  choices: [one, { id: two, choice: Two }]
+"#,
+        );
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(config.prompts.len(), 2);
+        assert_eq!(config.prompts[0].id, "integer");
+        assert_eq!(config.prompts[0].prompt, "Number");
+        assert!(matches!(config.prompts[0].scope, PromptScope::Repository));
+        assert_eq!(config.prompts[0].if_condition.as_deref(), Some("true"));
+        assert!(matches!(
+            config.prompts[0].prompt_type,
+            PromptType::Int {
+                min: Some(1),
+                max: Some(3)
+            }
+        ));
+        assert!(matches!(
+            &config.prompts[1].prompt_type,
+            PromptType::Choice {
+                choices: PromptChoicesConfig::ChoicesAsArray(choices)
+            } if choices.len() == 2 && choices[0].id == "one" && choices[1].choice == "Two"
+        ));
+    }
+
+    #[test]
+    fn prompt_projection_recovers_from_invalid_array_entries() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: false
+  prompt: Invalid
+- id: valid
+  prompt: Valid
+"#,
+        );
+
+        assert_eq!(config.prompts.len(), 1, "{errors:?}");
+        assert_eq!(config.prompts[0].id, "valid");
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].location(), "0.id");
+    }
+
+    #[test]
+    fn prompt_projection_defaults_invalid_scope_and_type() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: scope
+  prompt: Scope
+  scope: elsewhere
+- id: type
+  prompt: Type
+  type: unknown
+- id: empty-type
+  prompt: Empty type
+  type: ""
+- id: non-string-type
+  prompt: Non-string type
+  type: false
+"#,
+        );
+
+        assert_eq!(config.prompts.len(), 4, "{errors:?}");
+        assert!(matches!(config.prompts[0].scope, PromptScope::Repository));
+        assert!(matches!(config.prompts[1].prompt_type, PromptType::Text));
+        assert!(matches!(config.prompts[2].prompt_type, PromptType::Text));
+        assert!(matches!(config.prompts[3].prompt_type, PromptType::Text));
+        assert_eq!(errors.len(), 4, "{errors:?}");
+        assert_eq!(errors[0].location(), "0.scope");
+        assert_eq!(errors[1].location(), "1.type");
+        assert_eq!(errors[2].location(), "2.type");
+        assert_eq!(errors[3].location(), "3.type");
+    }
+
+    #[test]
+    fn prompt_projection_preserves_serialized_shape() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: choice
+  prompt: Pick
+  type: choice
+  choices: [one]
+"#,
+        );
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            serde_json::to_value(config).unwrap(),
+            serde_json::json!([{
+                "id": "choice",
+                "prompt": "Pick",
+                "type": "choice",
+                "choices": [{"id": "one", "choice": "one"}]
+            }])
+        );
+    }
+
+    #[test]
+    fn prompt_projection_accepts_null_as_an_empty_prompt_list() {
+        let (config, errors) = parse_prompts("null");
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(config.prompts.is_empty());
+    }
+
+    #[test]
+    fn prompt_projection_only_parses_choices_for_choice_types() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: text
+  prompt: Text
+  type: text
+  choices: false
+- id: choice
+  prompt: Choice
+  type: choice
+  choices: false
+"#,
+        );
+
+        assert_eq!(config.prompts.len(), 1);
+        assert_eq!(config.prompts[0].id, "text");
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].location(), "1.choices");
+    }
+
+    #[test]
+    fn prompt_projection_keeps_valid_choices_when_siblings_are_invalid() {
+        let (config, errors) = parse_prompts(
+            r#"
+- id: choice
+  prompt: Choice
+  type: choice
+  choices: [valid, { other: false }]
+"#,
+        );
+
+        assert_eq!(config.prompts.len(), 1);
+        assert!(matches!(
+            &config.prompts[0].prompt_type,
+            PromptType::Choice {
+                choices: PromptChoicesConfig::ChoicesAsArray(choices)
+            } if choices.len() == 1 && choices[0].id == "valid"
+        ));
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert_eq!(errors[0].location(), "0.choices.1", "{errors:?}");
+        assert_eq!(errors[1].location(), "0.choices.1");
     }
 }

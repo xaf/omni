@@ -4,10 +4,6 @@ pub trait Empty {
     fn is_empty(&self) -> bool;
 }
 
-pub fn set_true() -> bool {
-    true
-}
-
 pub fn is_true(value: &bool) -> bool {
     *value
 }

@@ -22,10 +22,7 @@ use crate::internal::commands::Command;
 use crate::internal::config::global_config;
 use crate::internal::config::parser::ParseArgsValue;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigExtendOptions;
-use crate::internal::config::ConfigExtendStrategy;
 use crate::internal::config::ConfigLoader;
-use crate::internal::config::ConfigValue;
 use crate::internal::config::OrgConfig;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgType;
@@ -244,35 +241,36 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
             org: orgs,
         };
 
-        if let Err(err) = ConfigLoader::edit_main_user_config_file(|config_value| {
-            // Dump our config object as yaml
-            let yaml = serde_yaml::to_string(&config);
-
-            // Now get a ConfigValue object from the yaml
-            let new_config_value = match yaml {
-                Ok(yaml) => match ConfigValue::from_str(&yaml) {
-                    Ok(config_value) => config_value,
-                    Err(err) => {
-                        omni_error!(format!("failed to parse configuration: {}", err));
-                        return false;
-                    }
-                },
-                Err(err) => {
-                    omni_error!(format!("failed to serialize configuration: {}", err));
+        if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|feuilletage_config| {
+            // Convert our config object to YAML using serde
+            let yaml = match serde_json::to_value(&config)
+                .ok()
+                .and_then(|v| serde_yaml::to_string(&v).ok())
+            {
+                Some(yaml) => yaml,
+                None => {
+                    omni_error!("failed to serialize configuration to YAML");
                     return false;
                 }
             };
 
-            // Apply it over the existing configuration
-            config_value.extend(
-                new_config_value,
-                ConfigExtendOptions::new()
-                    .with_strategy(ConfigExtendStrategy::Replace)
-                    .with_transform(false),
-                vec![],
+            // Parse the YAML into a feuilletage ConfigValue
+            let context = feuilletage::Context::new(
+                feuilletage::Source::Programmatic,
+                feuilletage::Level::User,
             );
+            let new_config_value = match feuilletage::loader::load_yaml(&yaml, context) {
+                Ok(value) => value,
+                Err(err) => {
+                    omni_error!(format!("failed to parse configuration: {}", err));
+                    return false;
+                }
+            };
 
-            // And return true to save the configuration
+            // Merge the new values into the existing config
+            feuilletage_config.merge(new_config_value);
+
+            // Return true to save the configuration
             true
         }) {
             return Err(format!("Failed to update user configuration: {err}"));

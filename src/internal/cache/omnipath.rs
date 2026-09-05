@@ -23,7 +23,7 @@ impl OmniPathCache {
             // Read the current updated_at timestamp
             let updated_at: Option<(bool, Option<String>)> = tx.query_one_optional(
                 include_str!("database/sql/omnipath_get_updated_at.sql"),
-                params![global_config().path_repo_updates.interval],
+                params![global_config().path_repo_updates.interval as i64],
             )?;
 
             let updated_at = match updated_at {

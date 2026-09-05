@@ -1,20 +1,24 @@
-use serde::Deserialize;
-use serde::Serialize;
-
-use crate::internal::config::parser::errors::ConfigErrorHandler;
-use crate::internal::config::parser::errors::ConfigErrorKind;
-use crate::internal::config::utils::parse_duration_or_default;
-use crate::internal::config::ConfigValue;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// UpEnvironmentCacheConfig using feuilletage's derive macro.
+///
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
+/// - `serde::Serialize` implementation for serialization
+#[derive(Debug, Clone, feuilletage::Config)]
 pub struct UpEnvironmentCacheConfig {
-    pub retention: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[feuilletage(duration, default = "7776000")]
+    pub retention: u64, // 90 days
+
     pub max_per_workdir: Option<usize>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+
     pub max_total: Option<usize>,
-    #[serde(default)]
-    pub retention_stale: u64,
+
+    #[feuilletage(duration, default = "15552000")]
+    pub retention_stale: u64, // 180 days (6 months)
+}
+
+impl UpEnvironmentCacheConfig {
+    const DEFAULT_RETENTION: u64 = 7776000; // 90 days
+    const DEFAULT_RETENTION_STALE: u64 = 15552000; // 180 days (6 months)
 }
 
 impl Default for UpEnvironmentCacheConfig {
@@ -24,72 +28,6 @@ impl Default for UpEnvironmentCacheConfig {
             max_per_workdir: None,
             max_total: None,
             retention_stale: Self::DEFAULT_RETENTION_STALE,
-        }
-    }
-}
-
-impl UpEnvironmentCacheConfig {
-    const DEFAULT_RETENTION: u64 = 7776000; // 90 days
-    const DEFAULT_RETENTION_STALE: u64 = 15552000; // 180 days (6 months)
-
-    pub fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        let retention = parse_duration_or_default(
-            config_value.get("retention").as_ref(),
-            Self::DEFAULT_RETENTION,
-            &error_handler.with_key("retention"),
-        );
-
-        let max_per_workdir = match config_value.get("max_per_workdir") {
-            Some(v) => match v.as_unsigned_integer() {
-                Some(v) => Some(v as usize),
-                None => {
-                    error_handler
-                        .with_key("max_per_workdir")
-                        .with_expected("unsigned integer")
-                        .with_actual(v)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    None
-                }
-            },
-            None => None,
-        };
-
-        let max_total = match config_value.get("max_total") {
-            Some(v) => match v.as_unsigned_integer() {
-                Some(v) => Some(v as usize),
-                None => {
-                    error_handler
-                        .with_key("max_total")
-                        .with_expected("unsigned integer")
-                        .with_actual(v)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    None
-                }
-            },
-            None => None,
-        };
-
-        let retention_stale = parse_duration_or_default(
-            config_value.get("retention_stale").as_ref(),
-            Self::DEFAULT_RETENTION_STALE,
-            &error_handler.with_key("retention_stale"),
-        );
-
-        Self {
-            retention,
-            max_per_workdir,
-            max_total,
-            retention_stale,
         }
     }
 }

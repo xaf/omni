@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use duct::cmd;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
@@ -16,8 +15,6 @@ use crate::internal::cache::CacheManagerError;
 use crate::internal::cache::HomebrewOperationCache;
 use crate::internal::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::up::utils::get_command_output;
 use crate::internal::config::up::utils::run_progress;
 use crate::internal::config::up::utils::ProgressHandler;
@@ -26,7 +23,6 @@ use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::is_executable;
-use crate::internal::config::ConfigValue;
 use crate::internal::env::homebrew_prefix;
 use crate::internal::user_interface::StringColor;
 use crate::omni_warning;
@@ -34,7 +30,164 @@ use crate::omni_warning;
 static LOCAL_TAP: &str = "omni/local";
 static BREW_UPDATED: OnceCell<bool> = OnceCell::new();
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged)]
+enum HomebrewStringWire {
+    String(String),
+}
+
+impl HomebrewStringWire {
+    fn into_inner(self) -> String {
+        match self {
+            Self::String(value) => value,
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged)]
+enum HomebrewBoolWire {
+    Bool(bool),
+}
+
+impl HomebrewBoolWire {
+    fn into_inner(self) -> bool {
+        match self {
+            Self::Bool(value) => value,
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged)]
+enum HomebrewInstallOptionsWire {
+    Detailed {
+        #[feuilletage(default)]
+        version: Option<HomebrewStringWire>,
+        #[feuilletage(default)]
+        upgrade: Option<HomebrewBoolWire>,
+    },
+    Version(HomebrewStringWire),
+}
+
+impl HomebrewInstallOptionsWire {
+    fn into_parts(self) -> (Option<String>, bool) {
+        match self {
+            Self::Detailed { version, upgrade } => (
+                version.map(HomebrewStringWire::into_inner),
+                upgrade.map(HomebrewBoolWire::into_inner).unwrap_or(false),
+            ),
+            Self::Version(version) => (Some(version.into_inner()), false),
+        }
+    }
+}
+
+fn homebrew_install_options_into_parts(
+    options: Option<HomebrewInstallOptionsWire>,
+) -> (Option<String>, bool) {
+    options
+        .map(HomebrewInstallOptionsWire::into_parts)
+        .unwrap_or((None, false))
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged)]
+enum HomebrewInstallWire {
+    Formula {
+        formula: HomebrewStringWire,
+        #[feuilletage(default)]
+        version: Option<HomebrewStringWire>,
+        #[feuilletage(default)]
+        upgrade: Option<HomebrewBoolWire>,
+    },
+    Cask {
+        cask: HomebrewStringWire,
+        #[feuilletage(default)]
+        version: Option<HomebrewStringWire>,
+        #[feuilletage(default)]
+        upgrade: Option<HomebrewBoolWire>,
+    },
+    Named(HashMap<String, Option<HomebrewInstallOptionsWire>>),
+    Name(HomebrewStringWire),
+}
+
+impl HomebrewInstallWire {
+    fn into_install(self) -> Option<HomebrewInstall> {
+        let (install_type, name, version, upgrade) = match self {
+            Self::Formula {
+                formula,
+                version,
+                upgrade,
+            } => (
+                HomebrewInstallType::Formula,
+                formula.into_inner(),
+                version.map(HomebrewStringWire::into_inner),
+                upgrade.map(HomebrewBoolWire::into_inner).unwrap_or(false),
+            ),
+            Self::Cask {
+                cask,
+                version,
+                upgrade,
+            } => (
+                HomebrewInstallType::Cask,
+                cask.into_inner(),
+                version.map(HomebrewStringWire::into_inner),
+                upgrade.map(HomebrewBoolWire::into_inner).unwrap_or(false),
+            ),
+            Self::Named(mut install) if install.len() == 1 => {
+                let (name, options) = install.drain().next().unwrap();
+                let (version, upgrade) = homebrew_install_options_into_parts(options);
+                (HomebrewInstallType::Formula, name, version, upgrade)
+            }
+            Self::Named(_) => return None,
+            Self::Name(name) => (HomebrewInstallType::Formula, name.into_inner(), None, false),
+        };
+
+        Some(HomebrewInstall {
+            install_type,
+            name,
+            version,
+            upgrade,
+            was_handled: OnceCell::new(),
+        })
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(allow_map(key = "repo", scalar_as = "url"), scalar_as = "repo")]
+struct HomebrewTapWire {
+    repo: HomebrewStringWire,
+    #[feuilletage(default)]
+    url: Option<HomebrewStringWire>,
+    #[feuilletage(default)]
+    upgrade: Option<HomebrewBoolWire>,
+}
+
+impl HomebrewTapWire {
+    fn into_tap(self) -> HomebrewTap {
+        HomebrewTap {
+            name: self.repo.into_inner(),
+            url: self.url.map(HomebrewStringWire::into_inner),
+            upgrade: self
+                .upgrade
+                .map(HomebrewBoolWire::into_inner)
+                .unwrap_or(false),
+            was_handled: OnceCell::new(),
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(scalar_as = "install", array_as = "install")]
+struct HomebrewConfigWire {
+    #[feuilletage(default, allow_single)]
+    install: Vec<HomebrewInstallWire>,
+    #[feuilletage(default, allow_single, allow_map)]
+    tap: Vec<HomebrewTapWire>,
+}
+
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "HomebrewConfigWire", skip_serialize, skip_deserialize)]
 pub struct UpConfigHomebrew {
     #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
     pub install: Vec<HomebrewInstall>,
@@ -43,16 +196,6 @@ pub struct UpConfigHomebrew {
 }
 
 impl UpConfigHomebrew {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let install = HomebrewInstall::from_config_value(config_value, error_handler);
-        let tap = HomebrewTap::from_config_value(config_value, &install, error_handler);
-
-        UpConfigHomebrew { install, tap }
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -346,7 +489,32 @@ impl UpConfigHomebrew {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<HomebrewConfigWire, S, L> for UpConfigHomebrew
+{
+    fn from_parsed(
+        parsed: HomebrewConfigWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        _error_tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        let install: Vec<HomebrewInstall> = parsed
+            .install
+            .into_iter()
+            .filter_map(HomebrewInstallWire::into_install)
+            .collect();
+        let tap = parsed
+            .tap
+            .into_iter()
+            .map(HomebrewTapWire::into_tap)
+            .collect();
+
+        let tap = HomebrewTap::add_implicit_taps(tap, &install);
+
+        Ok(UpConfigHomebrew { install, tap })
+    }
+}
+
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum HomebrewHandled {
     Handled,
     Noop,
@@ -354,7 +522,7 @@ pub enum HomebrewHandled {
     Unhandled,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Serialize, Clone, Eq, PartialEq)]
 pub struct HomebrewTap {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -379,151 +547,6 @@ impl Ord for HomebrewTap {
 }
 
 impl HomebrewTap {
-    fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        installs: &[HomebrewInstall],
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        #[allow(clippy::mutable_key_type)]
-        let mut taps = BTreeSet::new();
-
-        if let Some(config_value) = config_value {
-            if let Some(table) = config_value.as_table() {
-                if let Some(parsed_taps) = table.get("tap") {
-                    taps.extend(Self::parse_taps(
-                        parsed_taps,
-                        &error_handler.with_key("tap"),
-                    ));
-                }
-            }
-        }
-
-        for install in installs {
-            // If the formula name is `a/b/c`, then really the formula
-            // name is `c` and the tap is `a/b`. We can use this to
-            // force-add the tap to the list of taps if it was not
-            // explicitly defined in the configuration
-            let split = install.name.split('/').collect::<Vec<_>>();
-            if split.len() == 3 {
-                let tap_name = format!("{}/{}", split[0], split[1]);
-                taps.insert(Self::from_name(&tap_name));
-            }
-        }
-
-        taps.into_iter().collect()
-    }
-
-    fn parse_taps(taps: &ConfigValue, error_handler: &ConfigErrorHandler) -> Vec<Self> {
-        let mut parsed_taps = Vec::new();
-
-        if let Some(taps_array) = taps.as_array() {
-            for (idx, config_value) in taps_array.iter().enumerate() {
-                if let Some(tap) =
-                    Self::parse_tap(None, config_value, &error_handler.with_index(idx))
-                {
-                    parsed_taps.push(tap);
-                }
-            }
-        } else if let Some(taps_hash) = taps.as_table() {
-            for (tap_name, config_value) in taps_hash {
-                parsed_taps.push(Self::parse_config(
-                    tap_name.to_string(),
-                    &config_value,
-                    &error_handler.with_key(tap_name),
-                ));
-            }
-        } else if taps.as_str().is_some() {
-            if let Some(tap) = Self::parse_tap(None, taps, error_handler) {
-                parsed_taps.push(tap);
-            }
-        }
-
-        parsed_taps
-    }
-
-    fn parse_tap(
-        name: Option<String>,
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        if let Some(name) = name {
-            return Some(Self::parse_config(name, config_value, error_handler));
-        }
-
-        if let Some(tap_str) = config_value.as_str() {
-            return Some(Self {
-                name: tap_str.to_string(),
-                url: None,
-                upgrade: false,
-                was_handled: OnceCell::new(),
-            });
-        } else if let Some(tap_hash) = config_value.as_table() {
-            if let Some(name) = tap_hash.get("repo") {
-                if let Some(name) = name.as_str() {
-                    return Some(Self::parse_config(
-                        name,
-                        config_value,
-                        &error_handler.with_key("repo"),
-                    ));
-                }
-                return None;
-            }
-
-            if tap_hash.len() == 1 {
-                let (name, config_value) = tap_hash.iter().next().unwrap();
-                return Some(Self::parse_config(
-                    name.to_string(),
-                    config_value,
-                    &error_handler.with_key(name),
-                ));
-            }
-        } else {
-            error_handler
-                .with_expected("string or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-
-        None
-    }
-
-    fn parse_config(
-        name: String,
-        config_value: &ConfigValue,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut url = None;
-        let mut upgrade = false;
-
-        if let Some(tap_str) = config_value.as_str() {
-            url = Some(tap_str.to_string());
-        } else if config_value.is_table() {
-            if let Some(url_value) =
-                config_value.get_as_str_or_none("url", &error_handler.with_key("url"))
-            {
-                url = Some(url_value.to_string());
-            }
-
-            if let Some(upgrade_value) =
-                config_value.get_as_bool_or_none("upgrade", &error_handler.with_key("upgrade"))
-            {
-                upgrade = upgrade_value;
-            }
-        } else {
-            error_handler
-                .with_expected("string or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-        }
-
-        Self {
-            name,
-            url,
-            upgrade,
-            was_handled: OnceCell::new(),
-        }
-    }
-
     fn from_name(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -784,22 +807,43 @@ impl HomebrewTap {
             None => HomebrewHandled::Unhandled,
         }
     }
+
+    fn add_implicit_taps(mut taps: Vec<Self>, installs: &[HomebrewInstall]) -> Vec<Self> {
+        #[allow(clippy::mutable_key_type)]
+        let mut taps_set: BTreeSet<Self> = taps.drain(..).collect();
+        taps_set = Self::add_implicit_taps_set(taps_set, installs);
+        taps_set.into_iter().collect()
+    }
+
+    #[allow(clippy::mutable_key_type)]
+    fn add_implicit_taps_set(
+        mut taps: BTreeSet<Self>,
+        installs: &[HomebrewInstall],
+    ) -> BTreeSet<Self> {
+        for install in installs {
+            let split = install.name.split('/').collect::<Vec<_>>();
+            if split.len() == 3 {
+                let tap_name = format!("{}/{}", split[0], split[1]);
+                taps.insert(Self::from_name(&tap_name));
+            }
+        }
+        taps
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 pub enum HomebrewInstallType {
     Formula,
     Cask,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct HomebrewInstall {
     install_type: HomebrewInstallType,
     name: String,
     version: Option<String>,
     upgrade: bool,
 
-    #[serde(skip)]
     was_handled: OnceCell<HomebrewHandled>,
 }
 
@@ -844,116 +888,6 @@ impl HomebrewInstall {
             upgrade: false,
             was_handled: OnceCell::new(),
         }
-    }
-
-    fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        // TODO: maybe support "alternate" packages with `or`
-
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Vec::new();
-            }
-        };
-
-        let mut installs = Vec::new();
-
-        if let Some(table) = config_value.as_table() {
-            if let Some(formulae) = table.get("install") {
-                installs.extend(Self::parse_formulae(
-                    formulae,
-                    &error_handler.with_key("install"),
-                ));
-            }
-        } else {
-            installs.extend(Self::parse_formulae(config_value, error_handler));
-        }
-
-        installs
-    }
-
-    fn parse_formulae(formulae: &ConfigValue, error_handler: &ConfigErrorHandler) -> Vec<Self> {
-        let mut installs = Vec::new();
-
-        if let Some(array) = formulae.as_array() {
-            for (idx, formula_config_value) in array.iter().enumerate() {
-                let mut install_type = HomebrewInstallType::Formula;
-                let mut version = None;
-                let mut name = None;
-                let mut upgrade = false;
-                let mut error_handler = error_handler.with_index(idx);
-
-                if let Some(formula_table) = formula_config_value.as_table() {
-                    let mut rest_of_config = formula_config_value.clone();
-
-                    if let Some(formula) = formula_config_value
-                        .get_as_str_or_none("formula", &error_handler.with_key("formula"))
-                    {
-                        name = Some(formula.to_string());
-                    } else if let Some(cask) = formula_config_value
-                        .get_as_str_or_none("cask", &error_handler.with_key("cask"))
-                    {
-                        install_type = HomebrewInstallType::Cask;
-                        name = Some(cask.to_string());
-                    } else if formula_table.len() == 1 {
-                        let (key, value) = formula_table.iter().next().unwrap();
-                        name = Some(key.to_string());
-                        rest_of_config = value.clone();
-                        error_handler = error_handler.with_key(key);
-                    }
-
-                    if rest_of_config.is_table() {
-                        if let Some(upgrade_value) = rest_of_config
-                            .get_as_bool_or_none("upgrade", &error_handler.with_key("upgrade"))
-                        {
-                            upgrade = upgrade_value;
-                        }
-
-                        if let Some(version_value) = rest_of_config
-                            .get_as_str_or_none("version", &error_handler.with_key("version"))
-                        {
-                            version = Some(version_value.to_string());
-                        }
-                    } else if let Some(version_value) = rest_of_config.as_str_forced() {
-                        version = Some(version_value.to_string());
-                    } else {
-                        error_handler
-                            .with_expected("string or table")
-                            .with_actual(rest_of_config)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                } else if let Some(formula) = formula_config_value.as_str_forced() {
-                    name = Some(formula.to_string());
-                } else {
-                    error_handler
-                        .with_expected("string or table")
-                        .with_actual(formula_config_value)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-
-                if let Some(name) = name {
-                    installs.push(Self {
-                        install_type,
-                        name,
-                        version,
-                        upgrade,
-                        was_handled: OnceCell::new(),
-                    });
-                } else {
-                    error_handler
-                        .with_key("formula")
-                        .error(ConfigErrorKind::MissingKey);
-                }
-            }
-        } else if let Some(formula) = formulae.as_str() {
-            installs.push(Self::new_formula(&formula));
-        }
-
-        installs
     }
 
     fn from_cache(name: &str, version: Option<&str>, is_cask: bool) -> Self {
@@ -1661,5 +1595,123 @@ impl HomebrewInstall {
             Some(handled) => handled.clone(),
             None => HomebrewHandled::Unhandled,
         }
+    }
+}
+
+#[cfg(test)]
+mod feuilletage_projection_tests {
+    use feuilletage::FromContextValue;
+
+    use super::*;
+
+    fn parse(yaml: &str) -> (UpConfigHomebrew, feuilletage::ErrorTracker) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let parsed = UpConfigHomebrew::from_context_value(config.root(), &mut tracker).unwrap();
+        (parsed, tracker)
+    }
+
+    #[test]
+    fn preserves_compact_and_structured_install_forms() {
+        let (compact, compact_tracker) = parse("ripgrep\n");
+        let (structured, structured_tracker) = parse(
+            "install:\n  - jq\n  - ripgrep: 14.1.1\n  - cask: visual-studio-code\n    upgrade: true\n",
+        );
+
+        assert_eq!(compact.install.len(), 1);
+        assert_eq!(compact.install[0].name, "ripgrep");
+        assert_eq!(structured.install.len(), 3);
+        assert_eq!(structured.install[0].name, "jq");
+        assert_eq!(structured.install[1].version.as_deref(), Some("14.1.1"));
+        assert_eq!(
+            structured.install[2].install_type,
+            HomebrewInstallType::Cask
+        );
+        assert!(structured.install[2].upgrade);
+        assert!(compact_tracker.errors().is_empty());
+        assert!(structured_tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn keeps_valid_entries_and_fresh_callback_state_when_siblings_are_invalid() {
+        let (homebrew, tracker) = parse(
+            "install:\n  - valid-formula\n  - 42\n  - formula: another-formula\n  - cask: 99\ntap:\n  - valid/tap\n  - false\n",
+        );
+
+        assert_eq!(
+            homebrew
+                .install
+                .iter()
+                .map(|install| install.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["valid-formula", "another-formula"]
+        );
+        assert_eq!(
+            homebrew
+                .tap
+                .iter()
+                .map(|tap| tap.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["valid/tap"]
+        );
+        assert!(homebrew
+            .install
+            .iter()
+            .all(|install| install.handling() == HomebrewHandled::Unhandled));
+        assert!(homebrew
+            .tap
+            .iter()
+            .all(|tap| tap.handling() == HomebrewHandled::Unhandled));
+        assert!(!tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn preserves_tap_shorthand_and_structured_forms() {
+        let (homebrew, tracker) = parse(
+            "tap:\n  - simple/tap\n  - scalar/tap: https://example.test/scalar.git\n  - repo: structured/tap\n    url: https://example.test/structured.git\n    upgrade: true\n  - empty/tap:\n",
+        );
+
+        assert_eq!(
+            homebrew
+                .tap
+                .iter()
+                .map(|tap| (tap.name.as_str(), tap.url.as_deref(), tap.upgrade))
+                .collect::<Vec<_>>(),
+            vec![
+                ("empty/tap", None, false),
+                ("scalar/tap", Some("https://example.test/scalar.git"), false),
+                ("simple/tap", None, false),
+                (
+                    "structured/tap",
+                    Some("https://example.test/structured.git"),
+                    true,
+                ),
+            ]
+        );
+        assert!(tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn adds_implicit_taps_without_changing_serialization() {
+        let (homebrew, tracker) = parse(
+            "install:\n  - owner/repository/formula\ntap:\n  explicit/tap:\n    url: https://example.test/tap.git\n    upgrade: true\n",
+        );
+
+        assert_eq!(
+            homebrew
+                .tap
+                .iter()
+                .map(|tap| tap.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["explicit/tap", "owner/repository"]
+        );
+        assert_eq!(
+            serde_yaml::to_string(&homebrew).unwrap(),
+            "install:\n- owner/repository/formula\ntap:\n- name: explicit/tap\n  url: https://example.test/tap.git\n  upgrade: true\n- name: owner/repository\n"
+        );
+        assert!(tracker.errors().is_empty());
     }
 }

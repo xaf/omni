@@ -4,7 +4,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use itertools::Itertools;
-use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
@@ -13,13 +12,10 @@ use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::up_environments::UpVersionParams;
-use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::CargoInstallOperationCache;
 use crate::internal::cache::CargoInstallVersions;
 use crate::internal::config::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::up::mise::mise_path;
 use crate::internal::config::up::mise_tool_path;
 use crate::internal::config::up::utils::cleanup_path;
@@ -35,7 +31,6 @@ use crate::internal::config::up::UpConfigMise;
 use crate::internal::config::up::UpConfigTool;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::env::data_home;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::StringColor;
@@ -60,9 +55,22 @@ pub fn cargo_install_tool_path(crate_name: &str, version: &str) -> PathBuf {
     cargo_install_bin_path().join(crate_name).join(version)
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+// ============================================================================
+// UpConfigCargoInstalls - Wrapper for polymorphic input handling
+// ============================================================================
+//
+// Supports the following input formats:
+// 1. String: "crate@1.0.0" -> single crate
+// 2. Array: ["crate1", "crate2"] -> multiple crates
+// 3. Object with "crate" key: {crate: "tool", version: "1.0"} -> single crate
+// 4. Object without "crate" key: {"tool1": "v1", "tool2": {version: "v2"}} -> map-to-vec
+//
+// Uses feuilletage's transparent + allow_single + allow_map to handle all formats.
+// ============================================================================
+#[derive(Debug, Clone, Default, feuilletage::Config)]
+#[feuilletage(transparent, skip_serialize)]
 pub struct UpConfigCargoInstalls {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[feuilletage(default, allow_single, allow_map(order_by = "crate_name"))]
     crates: Vec<UpConfigCargoInstall>,
 }
 
@@ -80,102 +88,6 @@ impl Serialize for UpConfigCargoInstalls {
 }
 
 impl UpConfigCargoInstalls {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Self::default();
-            }
-        };
-
-        if config_value.as_str_forced().is_some() {
-            return Self {
-                crates: vec![UpConfigCargoInstall::from_config_value(
-                    Some(config_value),
-                    error_handler,
-                )],
-            };
-        }
-
-        if let Some(array) = config_value.as_array() {
-            return Self {
-                crates: array
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, config_value)| {
-                        UpConfigCargoInstall::from_config_value(
-                            Some(config_value),
-                            &error_handler.with_index(idx),
-                        )
-                    })
-                    .collect(),
-            };
-        }
-
-        if let Some(table) = config_value.as_table() {
-            // Check if there is a 'crate' key, in which case it's a single
-            // crate and we can just parse it and return it
-            if table.contains_key("crate") {
-                return Self {
-                    crates: vec![UpConfigCargoInstall::from_config_value(
-                        Some(config_value),
-                        error_handler,
-                    )],
-                };
-            }
-
-            // Otherwise, we have a table of crates, where crates are
-            // the keys and the values are the configuration for the crate;
-            // we want to go over them in lexico-graphical order to ensure that
-            // the order is consistent
-            let mut crates = Vec::new();
-            for crate_name_str in table.keys().sorted() {
-                let value = table.get(crate_name_str).expect("crate config not found");
-                let crate_name = match ConfigValue::from_str(crate_name_str) {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
-
-                let mut crate_config = if let Some(table) = value.as_table() {
-                    table.clone()
-                } else if let Some(version) = value.as_str_forced() {
-                    let mut crate_config = HashMap::new();
-                    let value = match ConfigValue::from_str(&version) {
-                        Ok(value) => value,
-                        Err(_) => continue,
-                    };
-                    crate_config.insert("version".to_string(), value);
-                    crate_config
-                } else {
-                    HashMap::new()
-                };
-
-                crate_config.insert("crate".to_string(), crate_name.clone());
-                crates.push(UpConfigCargoInstall::from_table(
-                    &crate_config,
-                    &error_handler.with_key(crate_name_str),
-                ));
-            }
-
-            if crates.is_empty() {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-            }
-
-            return Self { crates };
-        }
-
-        error_handler
-            .with_expected(vec!["string", "array", "table"])
-            .with_actual(config_value)
-            .error(ConfigErrorKind::InvalidValueType);
-
-        UpConfigCargoInstalls::default()
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -423,7 +335,7 @@ impl UpConfigCargoInstalls {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum CargoInstallHandled {
     Handled,
     Noop,
@@ -436,61 +348,131 @@ pub enum CargoInstallError {
     InvalidCrateName(String),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Helper function for conditional default: exact defaults to version.is_some()
+fn default_exact_from_version(version: &Option<String>) -> bool {
+    version.is_some()
+}
+
+// ============================================================================
+// UpConfigCargoInstall - Using feuilletage derive with post_process
+// ============================================================================
+//
+// Input formats supported via feuilletage attributes:
+// - String: "crate@1.0.0" -> {crate_name: "crate", version: "1.0.0"}
+// - allow_map format: {"crate": "1.0.0"} -> {crate_name, version}
+// - Object format: {crate: "...", version: "...", ...}
+//
+// The post_process function handles:
+// 1. Splitting crate_name@version into separate crate_name and version fields
+// 2. Checking for version conflict (version in both name and field)
+// 3. Setting config_error on parse failure
+// ============================================================================
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(
+    allow_map(key = crate_name, scalar_as = version),
+    scalar_as = "crate_name",
+    post_process = "finalize_cargo_install",
+    skip_serialize,
+)]
 struct UpConfigCargoInstall {
     /// The name of the crate to install
+    #[feuilletage(rename = "crate")]
     pub crate_name: String,
 
     /// The version of the crate to install
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[feuilletage(default)]
     pub version: Option<String>,
 
     /// Whether to install the exact version specified in the `version` field;
     /// if `true`, there will be no check for the available versions and the
     /// `cargo install` command will be called with the version specified;
     /// if `false`, the latest version that matches the version will be installed.
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    /// Defaults to `version.is_some()` (set via default_fn).
+    #[feuilletage(default_fn = "default_exact_from_version(version)")]
     pub exact: bool,
 
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub build: bool,
 
     /// The URL of the Crates API; this is only used for testing purposes
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[feuilletage(default)]
     pub api_url: Option<String>,
 
     /// A list of directories to make the binary available for
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    #[feuilletage(default, rename = "dir", allow_single)]
     pub dirs: BTreeSet<String>,
 
     /// In case there was an error while parsing the configuration, this field
     /// will contain the error message
-    #[serde(default, skip)]
+    #[feuilletage(skip)]
     config_error: Option<String>,
 
-    #[serde(default, skip)]
+    /// The actual version that was installed
+    #[feuilletage(skip)]
     actual_version: OnceCell<String>,
 
-    #[serde(default, skip)]
+    /// Whether this tool was handled during the up operation
+    #[feuilletage(skip)]
     was_handled: OnceCell<CargoInstallHandled>,
+}
+
+/// Post-process function for UpConfigCargoInstall.
+/// Handles crate_name@version splitting, validation, and version conflict detection.
+fn finalize_cargo_install<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    config: &mut UpConfigCargoInstall,
+    _source: &feuilletage::ContextValue<S, L>,
+    error_tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    // Handle crate_name@version splitting
+    match parse_cargo_crate_name(&config.crate_name) {
+        Ok((parsed_name, parsed_version)) => {
+            if let Some(parsed_version) = parsed_version {
+                if config.version.is_some() {
+                    error_tracker.record_invalid_value(
+                        "version should not be specified in both crate@version format and version field",
+                    );
+                    config.config_error = Some(
+                        "version should not be specified in both crate and version fields"
+                            .to_string(),
+                    );
+                    config.crate_name = parsed_name;
+                    return Ok(());
+                }
+
+                config.version = Some(parsed_version);
+                config.crate_name = parsed_name;
+
+                // Recalculate exact since version was just set from the name
+                config.exact = true;
+            } else {
+                config.crate_name = parsed_name;
+            }
+        }
+        Err(err) => {
+            error_tracker.record_invalid_value(format!("invalid crate name: {}", err));
+            config.config_error = Some(err.to_string());
+        }
+    }
+
+    Ok(())
 }
 
 impl Default for UpConfigCargoInstall {
     fn default() -> Self {
-        UpConfigCargoInstall {
-            crate_name: "".to_string(),
+        Self {
+            crate_name: String::new(),
             version: None,
             exact: false,
             upgrade: false,
@@ -505,206 +487,68 @@ impl Default for UpConfigCargoInstall {
     }
 }
 
+impl Serialize for UpConfigCargoInstall {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        // Count non-default fields to determine map size
+        let mut field_count = 1; // crate is always included
+        if self.version.is_some() {
+            field_count += 1;
+        }
+        if self.exact {
+            field_count += 1;
+        }
+        if self.upgrade {
+            field_count += 1;
+        }
+        if self.prerelease {
+            field_count += 1;
+        }
+        if self.build {
+            field_count += 1;
+        }
+        if self.api_url.is_some() {
+            field_count += 1;
+        }
+        if !self.dirs.is_empty() {
+            field_count += 1;
+        }
+
+        let mut map = serializer.serialize_map(Some(field_count))?;
+
+        map.serialize_entry("crate", &self.crate_name)?;
+
+        if self.version.is_some() {
+            map.serialize_entry("version", &self.version)?;
+        }
+        if self.exact {
+            map.serialize_entry("exact", &self.exact)?;
+        }
+        if self.upgrade {
+            map.serialize_entry("upgrade", &self.upgrade)?;
+        }
+        if self.prerelease {
+            map.serialize_entry("prerelease", &self.prerelease)?;
+        }
+        if self.build {
+            map.serialize_entry("build", &self.build)?;
+        }
+        if self.api_url.is_some() {
+            map.serialize_entry("api_url", &self.api_url)?;
+        }
+        if !self.dirs.is_empty() {
+            map.serialize_entry("dir", &self.dirs)?;
+        }
+
+        map.end()
+    }
+}
+
 impl UpConfigCargoInstall {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                return Self {
-                    config_error: Some("no configuration provided".to_string()),
-                    ..Default::default()
-                }
-            }
-        };
-
-        if let Some(table) = config_value.as_table() {
-            Self::from_table(&table, error_handler)
-        } else if let Some(crate_name) = config_value.as_str_forced() {
-            let (crate_name, version) = match parse_cargo_crate_name(&crate_name) {
-                Ok((crate_name, version)) => (crate_name, version),
-                Err(err) => {
-                    error_handler
-                        .with_context("error", err.to_string())
-                        .with_actual(crate_name.clone())
-                        .error(ConfigErrorKind::ParsingError);
-
-                    return Self {
-                        crate_name: crate_name.to_string(),
-                        config_error: Some(err.to_string()),
-                        ..Default::default()
-                    };
-                }
-            };
-
-            // If version is set through the path, it is exact
-            let exact = version.is_some();
-
-            UpConfigCargoInstall {
-                crate_name,
-                version,
-                exact,
-                ..UpConfigCargoInstall::default()
-            }
-        } else {
-            Self {
-                config_error: Some("no crate provided".to_string()),
-                ..Default::default()
-            }
-        }
-    }
-
-    fn from_table(
-        table: &HashMap<String, ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = ConfigValue::from_table(table.clone());
-
-        let crate_name = match table.get("crate") {
-            Some(crate_name) => {
-                if let Some(crate_name) = crate_name.as_str_forced() {
-                    crate_name.to_string()
-                } else {
-                    error_handler
-                        .with_expected("string")
-                        .with_actual(crate_name)
-                        .error(ConfigErrorKind::InvalidValueType);
-                    return UpConfigCargoInstall {
-                        config_error: Some("crate_name must be a string".to_string()),
-                        ..Default::default()
-                    };
-                }
-            }
-            None => {
-                if table.len() == 1 {
-                    let (key, value) = table.iter().next().unwrap();
-                    if let Some(version) = value.as_str_forced() {
-                        return UpConfigCargoInstall {
-                            crate_name: key.clone(),
-                            version: Some(version.to_string()),
-                            ..UpConfigCargoInstall::default()
-                        };
-                    } else if let (Some(table), Ok(crate_name_config_value)) =
-                        (value.as_table(), ConfigValue::from_str(key))
-                    {
-                        let mut crate_name_config = table.clone();
-                        crate_name_config.insert("crate_name".to_string(), crate_name_config_value);
-                        return UpConfigCargoInstall::from_table(&crate_name_config, error_handler);
-                    } else if let (true, Ok(crate_name_config_value)) =
-                        (value.is_null(), ConfigValue::from_str(key))
-                    {
-                        let crate_name_config = HashMap::from_iter(vec![(
-                            "crate".to_string(),
-                            crate_name_config_value,
-                        )]);
-                        return UpConfigCargoInstall::from_table(&crate_name_config, error_handler);
-                    }
-                }
-
-                error_handler
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::NotExactlyOneKeyInTable);
-
-                return UpConfigCargoInstall {
-                    config_error: Some("crate is required".to_string()),
-                    ..Default::default()
-                };
-            }
-        };
-
-        let (crate_name, version) = match parse_cargo_crate_name(&crate_name) {
-            Ok((crate_name, version)) => (crate_name, version),
-            Err(err) => {
-                error_handler
-                    .with_context("error", err.to_string())
-                    .with_actual(crate_name.clone())
-                    .error(ConfigErrorKind::ParsingError);
-
-                return UpConfigCargoInstall {
-                    crate_name,
-                    config_error: Some(err.to_string()),
-                    ..Default::default()
-                };
-            }
-        };
-
-        let exact = match table.get("exact") {
-            Some(value) => match value.as_bool_forced() {
-                Some(exact) => exact,
-                None => {
-                    error_handler
-                        .with_key("exact")
-                        .with_expected("bool")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    version.is_some()
-                }
-            },
-            None => version.is_some(),
-        };
-
-        // If version is specified, and version is also specified in the path,
-        // then we raise an error as the version should not be specified in both
-        let version = match table
-            .get("version")
-            .map(|v| v.as_str_forced())
-            .unwrap_or(None)
-        {
-            Some(version_field) => {
-                if version.is_some() {
-                    error_handler
-                        .with_key("version")
-                        .with_actual(version_field)
-                        .error(ConfigErrorKind::UnsupportedValueInContext);
-
-                    return UpConfigCargoInstall {
-                        crate_name,
-                        config_error: Some(
-                            "version should not be specified in both crate and version fields"
-                                .to_string(),
-                        ),
-                        ..Default::default()
-                    };
-                }
-                Some(version_field.to_string())
-            }
-            None => version,
-        };
-
-        let upgrade = config_value.get_as_bool_or_default(
-            "upgrade",
-            false,
-            &error_handler.with_key("upgrade"),
-        );
-        let prerelease = config_value.get_as_bool_or_default(
-            "prerelease",
-            false,
-            &error_handler.with_key("prerelease"),
-        );
-        let build =
-            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
-
-        let dirs = config_value
-            .get_as_str_array("dir", &error_handler.with_key("dir"))
-            .iter()
-            .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
-            .collect::<BTreeSet<_>>();
-
-        UpConfigCargoInstall {
-            crate_name,
-            version,
-            exact,
-            upgrade,
-            prerelease,
-            build,
-            dirs,
-            ..Default::default()
-        }
-    }
-
     fn update_cache(
         &self,
         _options: &UpOptions,
@@ -1403,7 +1247,7 @@ struct CratesApiVersion {
     yanked: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 struct CargoBin {
     bin: PathBuf,
     version: String,

@@ -1,3 +1,34 @@
+// ============================================================================
+// NEW IMPLEMENTATION USING FEUILLETAGE
+// ============================================================================
+
+/// ConfigCommandsConfig using feuilletage's derive macro.
+///
+/// The feuilletage::Config derive macro automatically generates:
+/// - `FromConfigValue` implementation for deserialization from feuilletage's Config
+/// - `serde::Serialize` implementation for serialization
+#[derive(Debug, Clone, feuilletage::Config)]
+pub struct ConfigCommandsConfig {
+    #[feuilletage(default = "true")]
+    pub split_on_dash: bool,
+
+    #[feuilletage(default = "true")]
+    pub split_on_slash: bool,
+}
+
+impl Default for ConfigCommandsConfig {
+    fn default() -> Self {
+        Self {
+            split_on_dash: true,
+            split_on_slash: true,
+        }
+    }
+}
+
+// ============================================================================
+// OLD IMPLEMENTATION (COMMENTED OUT FOR REFERENCE)
+// ============================================================================
+/*
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -23,7 +54,7 @@ impl ConfigCommandsConfig {
     const DEFAULT_SPLIT_ON_DASH: bool = true;
     const DEFAULT_SPLIT_ON_SLASH: bool = true;
 
-    pub(super) fn from_config_value(
+    pub(super) fn from_context_value(
         config_value: Option<ConfigValue>,
         error_handler: &ConfigErrorHandler,
     ) -> Self {
@@ -46,3 +77,4 @@ impl ConfigCommandsConfig {
         }
     }
 }
+*/

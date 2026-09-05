@@ -5,9 +5,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use itertools::Itertools;
-use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 use time::macros::format_description;
@@ -16,13 +14,10 @@ use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::up_environments::UpVersionParams;
-use crate::internal::cache::utils as cache_utils;
 use crate::internal::cache::GoInstallOperationCache;
 use crate::internal::cache::GoInstallVersions;
 use crate::internal::config::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::up::mise_tool_path;
 use crate::internal::config::up::utils::cleanup_path;
 use crate::internal::config::up::utils::directory::force_remove_all;
@@ -39,7 +34,6 @@ use crate::internal::config::up::UpConfigGolang;
 use crate::internal::config::up::UpConfigTool;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::env::data_home;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::StringColor;
@@ -64,122 +58,26 @@ pub fn go_install_tool_path(package: &str, version: &str) -> PathBuf {
     go_install_bin_path().join(package).join(version)
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+// ============================================================================
+// UpConfigGoInstalls - Wrapper for polymorphic input handling
+// ============================================================================
+//
+// Supports the following input formats:
+// 1. String: "github.com/owner/tool@v1.0.0" -> single tool
+// 2. Array: ["tool1", "tool2"] -> multiple tools
+// 3. Object with "path" key: {path: "tool", version: "1.0"} -> single tool
+// 4. Object without "path" key: {"tool1": "v1", "tool2": {version: "v2"}} -> map-to-vec
+//
+// Uses feuilletage's transparent + allow_single + allow_map to handle all formats.
+// ============================================================================
+#[derive(Debug, Clone, Default, feuilletage::Config)]
+#[feuilletage(transparent)]
 pub struct UpConfigGoInstalls {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[feuilletage(default, allow_single, allow_map(order_by = "path"))]
     tools: Vec<UpConfigGoInstall>,
 }
 
-impl Serialize for UpConfigGoInstalls {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.tools.len() {
-            0 => serializer.serialize_none(),
-            1 => serializer.serialize_newtype_struct("UpConfigGoInstalls", &self.tools[0]),
-            _ => serializer.collect_seq(self.tools.iter()),
-        }
-    }
-}
-
 impl UpConfigGoInstalls {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Self::default();
-            }
-        };
-
-        if config_value.as_str_forced().is_some() {
-            return Self {
-                tools: vec![UpConfigGoInstall::from_config_value(
-                    Some(config_value),
-                    error_handler,
-                )],
-            };
-        }
-
-        if let Some(array) = config_value.as_array() {
-            return Self {
-                tools: array
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, config_value)| {
-                        UpConfigGoInstall::from_config_value(
-                            Some(config_value),
-                            &error_handler.with_index(idx),
-                        )
-                    })
-                    .collect(),
-            };
-        }
-
-        if let Some(table) = config_value.as_table() {
-            // Check if there is a 'path' key, in which case it's a single
-            // path and we can just parse it and return it
-            if table.contains_key("path") {
-                return Self {
-                    tools: vec![UpConfigGoInstall::from_config_value(
-                        Some(config_value),
-                        error_handler,
-                    )],
-                };
-            }
-
-            // Otherwise, we have a table of paths, where paths are
-            // the keys and the values are the configuration for the path;
-            // we want to go over them in lexico-graphical order to ensure that
-            // the order is consistent
-            let mut tools = Vec::new();
-            for path_str in table.keys().sorted() {
-                let value = table.get(path_str).expect("path config not found");
-                let path = match ConfigValue::from_str(path_str) {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
-
-                let mut path_config = if let Some(table) = value.as_table() {
-                    table.clone()
-                } else if let Some(version) = value.as_str_forced() {
-                    let mut path_config = HashMap::new();
-                    let value = match ConfigValue::from_str(&version) {
-                        Ok(value) => value,
-                        Err(_) => continue,
-                    };
-                    path_config.insert("version".to_string(), value);
-                    path_config
-                } else {
-                    HashMap::new()
-                };
-
-                path_config.insert("path".to_string(), path.clone());
-                tools.push(UpConfigGoInstall::from_table(
-                    &path_config,
-                    &error_handler.with_key(path_str),
-                ));
-            }
-
-            if tools.is_empty() {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-            }
-
-            return Self { tools };
-        }
-
-        error_handler
-            .with_expected(vec!["string", "array", "table"])
-            .with_actual(config_value)
-            .error(ConfigErrorKind::InvalidValueType);
-
-        Self::default()
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -430,7 +328,7 @@ impl UpConfigGoInstalls {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum GoInstallHandled {
     Handled,
     Noop,
@@ -443,59 +341,135 @@ pub enum GoInstallError {
     InvalidImportPath(String),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+// ============================================================================
+// UpConfigGoInstall - Using feuilletage derive with post_process
+// ============================================================================
+//
+// Input formats supported via feuilletage attributes:
+// - String: "github.com/foo@v1.0" -> {path: "github.com/foo", version: "v1.0"}
+// - allow_map format: {"github.com/foo": "v1.0"} -> {path, version}
+// - Object format: {path: "...", version: "...", ...}
+//
+// The post_process function handles:
+// 1. Splitting path@version into separate path and version fields
+// 2. Validating the import path format
+// ============================================================================
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(
+    allow_map(key = path, scalar_as = version),
+    scalar_as = "path",
+    post_process = "finalize_go_install"
+)]
 struct UpConfigGoInstall {
-    /// The path to the path to call the `go install` command on,
+    /// The path to call the `go install` command on,
     /// e.g. `github.com/owner/path`
     pub path: String,
 
     /// The version of the tool to install, which will be used after the `@` in the
     /// `go install` command, e.g. `github.com/owner/path@<version>`
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[feuilletage(default)]
     pub version: Option<String>,
 
     /// Whether to install the exact version specified in the `version` field;
     /// if `true`, there will be no check for the available versions and the
     /// `go install` command will be called with the version specified;
     /// if `false`, the latest version that matches the version will be installed.
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    /// Defaults to `false` so version prefixes resolve to the latest match.
+    #[feuilletage(default)]
     pub exact: bool,
 
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
-    #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub build: bool,
 
     /// A list of directories to make the binary available for
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    #[feuilletage(default, rename = "dir", allow_single)]
     pub dirs: BTreeSet<String>,
 
     /// In case there was an error while parsing the configuration, this field
     /// will contain the error message
-    #[serde(default, skip)]
+    #[feuilletage(skip)]
     config_error: Option<String>,
 
-    #[serde(default, skip)]
+    /// The actual version that was installed
+    #[feuilletage(skip)]
     actual_version: OnceCell<String>,
 
-    #[serde(default, skip)]
+    /// Whether this tool was handled during the up operation
+    #[feuilletage(skip)]
     was_handled: OnceCell<GoInstallHandled>,
+}
+
+/// Post-process function for UpConfigGoInstall.
+/// Handles path@version splitting and validation.
+fn finalize_go_install<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    config: &mut UpConfigGoInstall,
+    source: &feuilletage::ContextValue<S, L>,
+    error_tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    // Handle path@version splitting
+    if let Some(at_pos) = config.path.find('@') {
+        let (path, ver) = config.path.split_at(at_pos);
+        let ver = &ver[1..]; // Skip the '@'
+
+        if config.version.is_some() {
+            error_tracker.record_invalid_value(
+                "version should not be specified in both path@version format and version field",
+            );
+            config.config_error = Some(
+                "version should not be specified in both path@version format and version field"
+                    .to_string(),
+            );
+            // Still update the path to the cleaned version
+            config.path = path.to_string();
+            return Ok(());
+        }
+
+        // Validate the version part
+        if let Err(e) = validate_go_install_version(ver) {
+            error_tracker.record_invalid_value(format!("invalid version in path: {}", e));
+            config.config_error = Some(e.to_string());
+            config.path = path.to_string();
+            return Ok(());
+        }
+
+        config.version = Some(ver.to_string());
+        if !matches!(source, feuilletage::ContextValue::Object(map, _) if map.contains_key("exact")) {
+            config.exact = true;
+        }
+        config.path = path.to_string();
+    }
+
+    // Validate and clean the import path format
+    match validate_go_install_path(&config.path) {
+        Ok(cleaned_path) => {
+            config.path = cleaned_path;
+        }
+        Err(e) => {
+            error_tracker.record_invalid_value(format!("invalid go install path: {}", e));
+            config.config_error = Some(e.to_string());
+            return Ok(());
+        }
+    }
+
+    Ok(())
 }
 
 impl Default for UpConfigGoInstall {
     fn default() -> Self {
         UpConfigGoInstall {
-            path: "".to_string(),
+            path: String::new(),
             version: None,
             exact: false,
             upgrade: false,
@@ -510,205 +484,6 @@ impl Default for UpConfigGoInstall {
 }
 
 impl UpConfigGoInstall {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                return Self {
-                    config_error: Some("no configuration provided".to_string()),
-                    ..Default::default()
-                }
-            }
-        };
-
-        if let Some(table) = config_value.as_table() {
-            Self::from_table(&table, error_handler)
-        } else if let Some(path) = config_value.as_str_forced() {
-            let (path, version) = match parse_go_install_path(&path) {
-                Ok((path, version)) => (path, version),
-                Err(err) => {
-                    error_handler
-                        .with_context("error", err.to_string())
-                        .with_actual(path.clone())
-                        .error(ConfigErrorKind::ParsingError);
-
-                    return Self {
-                        path: path.to_string(),
-                        config_error: Some(err.to_string()),
-                        ..Default::default()
-                    };
-                }
-            };
-
-            // If version is set through the path, it is exact
-            let exact = version.is_some();
-
-            UpConfigGoInstall {
-                path,
-                version,
-                exact,
-                ..UpConfigGoInstall::default()
-            }
-        } else {
-            Self {
-                config_error: Some("no import path provided".to_string()),
-                ..Default::default()
-            }
-        }
-    }
-
-    fn from_table(
-        table: &HashMap<String, ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = ConfigValue::from_table(table.clone());
-
-        let path = match table.get("path") {
-            Some(path) => {
-                if let Some(path) = path.as_str_forced() {
-                    path.to_string()
-                } else {
-                    error_handler
-                        .with_key("path")
-                        .with_expected("string")
-                        .with_actual(path)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    return UpConfigGoInstall {
-                        config_error: Some("path must be a string".to_string()),
-                        ..Default::default()
-                    };
-                }
-            }
-            None => {
-                if table.len() == 1 {
-                    let (key, value) = table.iter().next().unwrap();
-                    if let Some(version) = value.as_str_forced() {
-                        return UpConfigGoInstall {
-                            path: key.clone(),
-                            version: Some(version.to_string()),
-                            ..UpConfigGoInstall::default()
-                        };
-                    } else if let (Some(table), Ok(path_config_value)) =
-                        (value.as_table(), ConfigValue::from_str(key))
-                    {
-                        let mut path_config = table.clone();
-                        path_config.insert("path".to_string(), path_config_value);
-                        return UpConfigGoInstall::from_table(&path_config, error_handler);
-                    } else if let (true, Ok(path_config_value)) =
-                        (value.is_null(), ConfigValue::from_str(key))
-                    {
-                        let path_config =
-                            HashMap::from_iter(vec![("path".to_string(), path_config_value)]);
-                        return UpConfigGoInstall::from_table(&path_config, error_handler);
-                    }
-                }
-
-                error_handler
-                    .with_actual(config_value)
-                    .error(ConfigErrorKind::NotExactlyOneKeyInTable);
-
-                return UpConfigGoInstall {
-                    config_error: Some("path is required".to_string()),
-                    ..Default::default()
-                };
-            }
-        };
-
-        let (path, version) = match parse_go_install_path(&path) {
-            Ok((path, version)) => (path, version),
-            Err(err) => {
-                error_handler
-                    .with_context("error", err.to_string())
-                    .with_actual(path.clone())
-                    .error(ConfigErrorKind::ParsingError);
-
-                return UpConfigGoInstall {
-                    path,
-                    config_error: Some(err.to_string()),
-                    ..Default::default()
-                };
-            }
-        };
-
-        let exact = match table.get("exact") {
-            Some(value) => match value.as_bool_forced() {
-                Some(exact) => exact,
-                None => {
-                    error_handler
-                        .with_key("exact")
-                        .with_expected("bool")
-                        .with_actual(value)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    version.is_some()
-                }
-            },
-            None => version.is_some(),
-        };
-
-        // If version is specified, and version is also specified in the path,
-        // then we raise an error as the version should not be specified in both
-        let version = match table
-            .get("version")
-            .map(|v| v.as_str_forced())
-            .unwrap_or(None)
-        {
-            Some(version_field) => {
-                if version.is_some() {
-                    error_handler
-                        .with_key("version")
-                        .with_actual(version_field)
-                        .error(ConfigErrorKind::UnsupportedValueInContext);
-
-                    return UpConfigGoInstall {
-                        path,
-                        config_error: Some(
-                            "version should not be specified in both path and version fields"
-                                .to_string(),
-                        ),
-                        ..Default::default()
-                    };
-                }
-                Some(version_field.to_string())
-            }
-            None => version,
-        };
-
-        let upgrade = config_value.get_as_bool_or_default(
-            "upgrade",
-            false,
-            &error_handler.with_key("upgrade"),
-        );
-        let prerelease = config_value.get_as_bool_or_default(
-            "prerelease",
-            false,
-            &error_handler.with_key("prerelease"),
-        );
-        let build =
-            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
-
-        let dirs = config_value
-            .get_as_str_array("dir", &error_handler.with_key("dir"))
-            .iter()
-            .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
-            .collect::<BTreeSet<_>>();
-
-        UpConfigGoInstall {
-            path,
-            version,
-            exact,
-            upgrade,
-            prerelease,
-            build,
-            dirs,
-            ..Default::default()
-        }
-    }
-
     fn update_cache(
         &self,
         _options: &UpOptions,
@@ -1361,31 +1136,6 @@ fn validate_go_install_path(path: &str) -> Result<String, GoInstallError> {
     Ok(segments.join("/"))
 }
 
-/// Main function that parses and validates a complete go install string
-fn parse_go_install_path<T>(input: T) -> Result<(String, Option<String>), GoInstallError>
-where
-    T: AsRef<str>,
-{
-    let input = input.as_ref();
-    let parts: Vec<&str> = input.split('@').collect();
-    if parts.len() > 2 {
-        return Err(GoInstallError::InvalidImportPath(
-            "multiple @ symbols found".to_string(),
-        ));
-    }
-
-    let cleaned_path = validate_go_install_path(parts[0])?;
-
-    let version = if parts.len() == 2 {
-        validate_go_install_version(parts[1])?;
-        Some(parts[1].to_string())
-    } else {
-        None
-    };
-
-    Ok((cleaned_path, version))
-}
-
 // This returns true if the provided version is in the format of a go pseudo-version
 // e.g.:
 //   - v0.0.0-20191109021931-daa7c04131f5
@@ -1446,7 +1196,7 @@ fn is_go_pseudo_version(version: &str) -> bool {
     true
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 struct GoBin {
     bin: PathBuf,
     version: String,

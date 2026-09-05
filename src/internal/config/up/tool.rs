@@ -3,15 +3,11 @@ use std::path::PathBuf;
 
 use itertools::any;
 use itertools::Itertools;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::up::utils::UpProgressHandler;
-use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpConfigBundler;
 use crate::internal::config::up::UpConfigCargoInstalls;
 use crate::internal::config::up::UpConfigCustom;
@@ -20,20 +16,63 @@ use crate::internal::config::up::UpConfigGoInstalls;
 use crate::internal::config::up::UpConfigGolang;
 use crate::internal::config::up::UpConfigHomebrew;
 use crate::internal::config::up::UpConfigMise;
-use crate::internal::config::up::UpConfigMiseParams;
 use crate::internal::config::up::UpConfigNix;
 use crate::internal::config::up::UpConfigNodejs;
 use crate::internal::config::up::UpConfigPython;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
+
+// ============================================================================
+// UpConfigBash: wrapper around UpConfigMise that sets the bash-specific tool_url
+// ============================================================================
+
+/// Wrapper around UpConfigMise that sets the bash-specific tool_url.
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "finalize_up_config_bash",
+    skip_serialize,
+    skip_deserialize
+)]
+pub struct UpConfigBash(pub UpConfigMise);
+
+impl Default for UpConfigBash {
+    fn default() -> Self {
+        let mut mise = UpConfigMise::default();
+        mise.tool_url = Some("https://github.com/xaf/asdf-bash".into());
+        UpConfigBash(mise)
+    }
+}
+
+fn finalize_up_config_bash<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    config: &mut UpConfigBash,
+    _value: &feuilletage::ContextValue<S, L>,
+    _tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    config.0.tool_url = Some("https://github.com/xaf/asdf-bash".into());
+    config.0.requested_tool = "bash".to_string();
+    config.0.process_from_tag();
+    Ok(())
+}
+
+impl Serialize for UpConfigBash {
+    fn serialize<Ser: serde::Serializer>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+// ============================================================================
+// UpConfigTool enum with feuilletage derive
+// ============================================================================
 
 /// UpConfigTool represents a tool that can be upped or downed.
 /// It can be a single tool or a combination of tools.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(external_tag, skip_serialize)]
 pub enum UpConfigTool {
     /// And represents a combination of tools that must all be upped.
+    #[feuilletage(rename = "and", variant = "and")]
     And(Vec<UpConfigTool>),
 
     /// Any represents a combination of tools where at least one must
@@ -42,58 +81,140 @@ pub enum UpConfigTool {
     /// the others in the order they are defined. If the selected tool
     /// fails to up, it will try the next one until one is successful
     /// or all have been tried.
+    #[feuilletage(rename = "any", variant = "any")]
     Any(Vec<UpConfigTool>),
 
     // TODO: Apt(UpConfigApt),
     /// Bash represents the bash tool.
-    Bash(UpConfigMise),
+    #[feuilletage(rename = "bash", variant = "bash")]
+    Bash(UpConfigBash),
 
     /// Bundler represents the bundler tool.
+    #[feuilletage(
+        rename = "bundler",
+        alias = "bundle",
+        variant = "bundler",
+        variant = "bundle"
+    )]
     Bundler(UpConfigBundler),
 
     /// CargoInstall represents a tool that can be installed from
     /// a call to `cargo install`.
+    #[feuilletage(
+        rename = "cargo-install",
+        alias = "cargo_install",
+        alias = "cargoinstall",
+        alias = "cargo-install-crates",
+        alias = "cargo-install-crate",
+        alias = "cargo-crates",
+        alias = "cargo-crate",
+        variant = "cargo-install",
+        variant = "cargo_install",
+        variant = "cargoinstall",
+        variant = "cargo-install-crates",
+        variant = "cargo-install-crate",
+        variant = "cargo-crates",
+        variant = "cargo-crate"
+    )]
     CargoInstall(UpConfigCargoInstalls),
 
     /// Custom represents a custom tool, where the user can define
     /// a custom command to run to up/down the tool.
+    #[feuilletage(rename = "custom", variant = "custom")]
     Custom(UpConfigCustom),
 
     // TODO: Dnf(UpConfigDnf),
     /// GithubRelease represents a tool that can be installed from
     /// a github release.
+    #[feuilletage(
+        rename = "github-release",
+        alias = "github_release",
+        alias = "githubrelease",
+        alias = "ghrelease",
+        alias = "github-releases",
+        alias = "github_releases",
+        alias = "githubreleases",
+        alias = "ghreleases",
+        alias = "github",
+        alias = "gh-release",
+        alias = "gh-releases",
+        variant = "github-release",
+        variant = "github_release",
+        variant = "githubrelease",
+        variant = "ghrelease",
+        variant = "github-releases",
+        variant = "github_releases",
+        variant = "githubreleases",
+        variant = "ghreleases",
+        variant = "github",
+        variant = "gh-release",
+        variant = "gh-releases"
+    )]
     GithubRelease(UpConfigGithubReleases),
 
     /// Go represents the golang tool.
+    #[feuilletage(rename = "go", alias = "golang", variant = "go", variant = "golang")]
     Go(UpConfigGolang),
 
     /// GoInstall represents a tool that can be installed from
     /// a call to `go install`.
+    #[feuilletage(
+        rename = "go-install",
+        alias = "go_install",
+        alias = "goinstall",
+        alias = "go-install-tools",
+        alias = "go-install-tool",
+        alias = "go-tools",
+        alias = "go-tool",
+        variant = "go-install",
+        variant = "go_install",
+        variant = "goinstall",
+        variant = "go-install-tools",
+        variant = "go-install-tool",
+        variant = "go-tools",
+        variant = "go-tool"
+    )]
     GoInstall(UpConfigGoInstalls),
 
     /// Homebrew represents the homebrew tool.
+    #[feuilletage(
+        rename = "homebrew",
+        alias = "brew",
+        variant = "homebrew",
+        variant = "brew"
+    )]
     Homebrew(UpConfigHomebrew),
 
     // TODO: Java(UpConfigMise), // JAVA_HOME
     // TODO: Kotlin(UpConfigMise), // KOTLIN_HOME
     /// Mise represents any generic mise tool that is not specifically
     /// defined in the other types for special handling.
+    #[feuilletage(fallback, from_tag = "requested_tool")]
     Mise(UpConfigMise),
 
     /// Nix represents the nix tool, which can be used to install
     /// packages from the nix package manager.
+    #[feuilletage(rename = "nix", variant = "nix")]
     Nix(UpConfigNix),
 
     /// Nodejs represents the nodejs tool.
+    #[feuilletage(
+        rename = "nodejs",
+        alias = "node",
+        variant = "nodejs",
+        variant = "node"
+    )]
     Nodejs(UpConfigNodejs),
 
     /// Or represents a combination of tools where at least one must
     /// be upped. It will up the first tool that is available, and
     /// only try the others if the first one fails.
+    #[feuilletage(rename = "or", variant = "or")]
     Or(Vec<UpConfigTool>),
 
     // TODO: Pacman(UpConfigPacman),
     /// Python represents the python tool.
+    #[feuilletage(rename = "python", variant = "python")]
     Python(UpConfigPython),
 }
 
@@ -114,7 +235,7 @@ impl Serialize for UpConfigTool {
         match self {
             UpConfigTool::And(configs) => create_hashmap("and", configs).serialize(serializer),
             UpConfigTool::Any(configs) => create_hashmap("any", configs).serialize(serializer),
-            UpConfigTool::Bash(config) => create_hashmap("bash", config).serialize(serializer),
+            UpConfigTool::Bash(config) => create_hashmap("bash", &config.0).serialize(serializer),
             UpConfigTool::Bundler(config) => {
                 create_hashmap("bundler", config).serialize(serializer)
             }
@@ -144,90 +265,6 @@ impl Serialize for UpConfigTool {
 }
 
 impl UpConfigTool {
-    pub fn from_config_value(
-        up_name: &str,
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        match up_name {
-            "and" | "any" | "or" => {
-                if config_value.is_none() {
-                    // If there is no config value, we can't proceed
-                    error_handler.error(ConfigErrorKind::EmptyKey);
-                    return None;
-                }
-
-                let upconfig = UpConfig::from_config_value(config_value.cloned(), error_handler)?;
-
-                if upconfig.steps.is_empty() {
-                    error_handler.error(ConfigErrorKind::EmptyKey);
-
-                    None
-                } else {
-                    match up_name {
-                        "and" => Some(UpConfigTool::And(upconfig.steps)),
-                        "any" => Some(UpConfigTool::Any(upconfig.steps)),
-                        "or" => Some(UpConfigTool::Or(upconfig.steps)),
-                        _ => None,
-                    }
-                }
-            }
-            "bash" => Some(UpConfigTool::Bash(
-                UpConfigMise::from_config_value_with_params(
-                    "bash",
-                    config_value,
-                    UpConfigMiseParams {
-                        tool_url: Some("https://github.com/xaf/asdf-bash".into()),
-                    },
-                    error_handler,
-                ),
-            )),
-            "bundler" | "bundle" => Some(UpConfigTool::Bundler(
-                UpConfigBundler::from_config_value(config_value, error_handler),
-            )),
-            "cargo-install" | "cargo_install" | "cargoinstall" => Some(UpConfigTool::CargoInstall(
-                UpConfigCargoInstalls::from_config_value(config_value, error_handler),
-            )),
-            "custom" => Some(UpConfigTool::Custom(UpConfigCustom::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            "github-release" | "github_release" | "githubrelease" | "ghrelease"
-            | "github-releases" | "github_releases" | "githubreleases" | "ghreleases" => {
-                Some(UpConfigTool::GithubRelease(
-                    UpConfigGithubReleases::from_config_value(config_value, error_handler),
-                ))
-            }
-            "go" | "golang" => Some(UpConfigTool::Go(UpConfigGolang::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            "go-install" | "go_install" | "goinstall" => Some(UpConfigTool::GoInstall(
-                UpConfigGoInstalls::from_config_value(config_value, error_handler),
-            )),
-            "homebrew" | "brew" => Some(UpConfigTool::Homebrew(
-                UpConfigHomebrew::from_config_value(config_value, error_handler),
-            )),
-            "nix" => Some(UpConfigTool::Nix(UpConfigNix::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            "nodejs" | "node" => Some(UpConfigTool::Nodejs(UpConfigNodejs::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            "python" => Some(UpConfigTool::Python(UpConfigPython::from_config_value(
-                config_value,
-                error_handler,
-            ))),
-            _ => Some(UpConfigTool::Mise(UpConfigMise::from_config_value(
-                up_name,
-                config_value,
-                error_handler,
-            ))),
-        }
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -262,7 +299,7 @@ impl UpConfigTool {
                 }
                 result
             }
-            UpConfigTool::Bash(config) => config.up(options, environment, progress_handler),
+            UpConfigTool::Bash(config) => config.0.up(options, environment, progress_handler),
             UpConfigTool::Bundler(config) => config.up(options, environment, progress_handler),
             UpConfigTool::CargoInstall(config) => config.up(options, environment, progress_handler),
             UpConfigTool::Custom(config) => config.up(options, environment, progress_handler),
@@ -301,8 +338,8 @@ impl UpConfigTool {
                 }
             }
             UpConfigTool::Bash(config) => {
-                if config.was_upped() {
-                    config.commit(options, env_version_id)?;
+                if config.0.was_upped() {
+                    config.0.commit(options, env_version_id)?;
                 }
             }
             UpConfigTool::Bundler(_config) => {}
@@ -361,7 +398,7 @@ impl UpConfigTool {
                 }
                 Ok(())
             }
-            UpConfigTool::Bash(config) => config.down(progress_handler),
+            UpConfigTool::Bash(config) => config.0.down(progress_handler),
             UpConfigTool::Bundler(config) => config.down(progress_handler),
             UpConfigTool::CargoInstall(config) => config.down(progress_handler),
             UpConfigTool::Custom(config) => config.down(progress_handler),
@@ -399,7 +436,7 @@ impl UpConfigTool {
             UpConfigTool::And(configs) | UpConfigTool::Any(configs) | UpConfigTool::Or(configs) => {
                 any(configs, |config| config.was_upped())
             }
-            UpConfigTool::Bash(config) => config.was_upped(),
+            UpConfigTool::Bash(config) => config.0.was_upped(),
             // UpConfigTool::Bundler(config) => config.was_upped(),
             UpConfigTool::CargoInstall(config) => config.was_upped(),
             UpConfigTool::Custom(config) => config.was_upped(),
@@ -430,7 +467,7 @@ impl UpConfigTool {
                     None => vec![],
                 }
             }
-            UpConfigTool::Bash(config) => config.data_paths(),
+            UpConfigTool::Bash(config) => config.0.data_paths(),
             // UpConfigTool::Bundler(config) => config.data_paths(),
             // UpConfigTool::CargoInstall(config) => config.data_paths(),
             UpConfigTool::Custom(config) => config.data_paths(),
@@ -503,4 +540,49 @@ fn ordered_configs(configs: &[UpConfigTool]) -> Vec<&UpConfigTool> {
         .iter()
         .sorted_by(|a, b| a.sort_value().cmp(&b.sort_value()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use feuilletage::FromContextValue;
+
+    use super::*;
+
+    fn parse_bash(yaml: &str) -> (UpConfigBash, feuilletage::ErrorTracker) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let bash = UpConfigBash::from_context_value(config.root(), &mut tracker).unwrap();
+        (bash, tracker)
+    }
+
+    #[test]
+    fn bash_scalar_and_object_forms_apply_backend_identity() {
+        for (yaml, version) in [
+            ("5.2", "5.2"),
+            ("version: latest\nupgrade: true\n", "latest"),
+        ] {
+            let (bash, tracker) = parse_bash(yaml);
+
+            assert_eq!(bash.0.requested_tool, "bash");
+            assert_eq!(bash.0.version, version);
+            assert_eq!(
+                bash.0.tool_url.as_deref(),
+                Some("https://github.com/xaf/asdf-bash")
+            );
+            assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+        }
+    }
+
+    #[test]
+    fn bash_serialization_remains_transparent() {
+        let (bash, _) = parse_bash("version: 5.2\nupgrade: true\n");
+        let value = serde_json::to_value(&bash).unwrap();
+
+        assert_eq!(value["version"], "5.2");
+        assert_eq!(value["upgrade"], true);
+        assert!(value.get("0").is_none());
+    }
 }
