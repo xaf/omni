@@ -131,10 +131,10 @@ pub struct OmniConfig {
     #[feuilletage(default, nested)]
     pub up_command: UpCommandConfig,
 
-    #[feuilletage(default_fn = "get_default_sandbox", skip_if_empty)]
+    #[feuilletage(default_fn = "get_default_sandbox", skip_if_empty, expand_home)]
     pub sandbox: String,
 
-    #[feuilletage(default_fn = "get_default_worktree", skip_if_empty)]
+    #[feuilletage(default_fn = "get_default_worktree", skip_if_empty, expand_home)]
     pub worktree: String,
 }
 

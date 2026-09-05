@@ -738,9 +738,9 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "feuilletage"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95c933f4c9edd21b056025a877bb4492f2439a7de9fa60f31d7dde8701bac72a"
+checksum = "82c66fdace49a38d906ecdc0e9ed5aa93bdef36e49ea1b4d7d2121d2878ca143"
 dependencies = [
  "atomic-write-file",
  "chrono",
@@ -757,9 +757,9 @@ dependencies = [
 
 [[package]]
 name = "feuilletage-macros"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38d2cb1eb9f2cef9ca03166fec888ac9c10c96402714450340fa72c372da5b34"
+checksum = "3e3eb5454e46b7d4670130a795480bdfcfb9db4d0516491e94b9292fb4fe3cdc"
 dependencies = [
  "proc-macro2",
  "quote",
