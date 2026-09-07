@@ -10,6 +10,7 @@ use crate::internal::config::parser::MatchSkipPromptIfConfig;
 /// - `FromContextValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` and `serde::Deserialize` implementations
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct CdConfig {
     #[feuilletage(default = "true")]
     pub fast_search: bool,

@@ -4,6 +4,7 @@
 /// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct MiseCacheConfig {
     #[feuilletage(duration, default = "86400")]
     pub update_expire: u64, // 1 day

@@ -4,6 +4,7 @@
 /// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct UpEnvironmentCacheConfig {
     #[feuilletage(duration, default = "7776000")]
     pub retention: u64, // 90 days

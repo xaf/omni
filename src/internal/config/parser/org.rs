@@ -16,7 +16,7 @@ pub struct OrgConfig {
     #[feuilletage(default = "false")]
     pub trusted: bool,
 
-    #[feuilletage(expand_home)]
+    #[feuilletage(expand_home, serialize_compact_home)]
     pub worktree: Option<String>,
 
     pub repo_path_format: Option<String>,

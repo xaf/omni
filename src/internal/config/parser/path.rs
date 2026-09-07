@@ -19,6 +19,7 @@ use crate::internal::git::package_root_path;
 /// We still need manual `serde::Deserialize` for compatibility with the existing
 /// codebase that uses serde for some operations.
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 #[derive(Default)]
 pub struct PathConfig {
     #[feuilletage(default = "Vec::new()", skip_if_empty)]

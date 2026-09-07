@@ -7,6 +7,7 @@
 /// We still need manual `serde::Deserialize` for compatibility with the existing
 /// codebase that uses serde for some operations (e.g., cache files).
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct CloneConfig {
     #[feuilletage(default = "true")]
     pub auto_up: bool,

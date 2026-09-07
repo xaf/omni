@@ -64,6 +64,7 @@ fn get_default_repo_path_format() -> String {
 }
 
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct OmniConfig {
     #[feuilletage(default)]
     pub askpass: AskPassConfig,
@@ -131,10 +132,10 @@ pub struct OmniConfig {
     #[feuilletage(default, nested)]
     pub up_command: UpCommandConfig,
 
-    #[feuilletage(default_fn = "get_default_sandbox", skip_if_empty, expand_home)]
+    #[feuilletage(default_fn = "get_default_sandbox", skip_if_empty, expand_home, serialize_compact_home)]
     pub sandbox: String,
 
-    #[feuilletage(default_fn = "get_default_worktree", skip_if_empty, expand_home)]
+    #[feuilletage(default_fn = "get_default_worktree", skip_if_empty, expand_home, serialize_compact_home)]
     pub worktree: String,
 }
 

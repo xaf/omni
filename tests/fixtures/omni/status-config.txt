@@ -8,6 +8,8 @@ cache:
     versions_expire: 86400
     versions_retention: 7776000
   environment:
+    max_per_workdir: null
+    max_total: null
     retention: 7776000
     retention_stale: 15552000
   github_release:
@@ -55,17 +57,17 @@ makefile_commands:
   split_on_slash: true
 path: {}
 path_repo_updates:
-  background_updates: true
-  background_updates_timeout: 3600
   enabled: true
-  interval: 43200
+  self_update: ask
   on_command_not_found: ask
   pre_auth: true
   pre_auth_timeout: 120
+  background_updates: true
+  background_updates_timeout: 3600
+  interval: 43200
   ref_type: branch
-  self_update: ask
-repo_path_format: '%{host}/%{org}/%{repo}'
-sandbox: <BATS_TEST_TMPDIR>/sandbox
+repo_path_format: "%{host}/%{org}/%{repo}"
+sandbox: ~/sandbox
 up_command:
   attach_kill_timeout: 600
   attach_lock_timeout: 5
@@ -75,4 +77,4 @@ up_command:
   notify_workdir_config_updated: true
   upgrade: false
   uv_version: latest
-worktree: <BATS_TEST_TMPDIR>/git
+worktree: ~/git

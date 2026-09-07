@@ -7,6 +7,7 @@
 /// We still need manual `serde::Deserialize` for compatibility with the existing
 /// codebase that uses serde for some operations (e.g., loading from cache files).
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct MakefileCommandsConfig {
     #[feuilletage(default = "true")]
     pub enabled: bool,

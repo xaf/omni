@@ -12,6 +12,7 @@ use crate::internal::env::cache_home;
 /// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct CacheConfig {
     #[feuilletage(default_fn = "cache_home")]
     pub path: String,

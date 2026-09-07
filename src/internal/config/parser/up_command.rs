@@ -26,6 +26,7 @@ use crate::internal::config::utils::check_allowed;
 ///   - upgrade
 ///   - operations (nested struct)
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct UpCommandConfig {
     #[feuilletage(default = "true", mutable_by = ["system", "user"])]
     pub auto_bootstrap: bool,

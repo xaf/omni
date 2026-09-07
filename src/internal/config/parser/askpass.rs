@@ -17,6 +17,7 @@
 /// - `FromConfigValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` implementation for serialization
 #[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(serialize_sort)]
 pub struct AskPassConfig {
     #[feuilletage(default = "true", mutable_by = ["system", "user"])]
     pub enabled: bool,
