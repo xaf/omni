@@ -50,6 +50,9 @@ sanitize_output() {
   output=$(echo "$output" | perl -pe "s|${real_tmpdir}|<TMPDIR>|g")
   output=$(echo "$output" | perl -pe "s|${TMPDIR}|<TMPDIR>|g")
 
+  # YAML may fold the cache path when the test directory is long enough.
+  output=$(echo "$output" | perl -0pe 's|^(\s*path: )>-\n\s+([^\n]*)|$1$2|gm')
+
   # Replace references to the fixtures directory
   local real_fixtures_dir="$(cd -P "$FIXTURES_DIR" && pwd)"
   output=$(echo "$output" | perl -pe "s|${real_fixtures_dir}|<FIXTURES_DIR>|g")
