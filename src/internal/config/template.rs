@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use crate::internal::git::ParsedRepoUrl;
-use serde::Deserialize;
 use serde::Serialize;
 use tera::Kwargs;
 use tera::Tera;
@@ -15,7 +14,7 @@ use crate::internal::git::Repo;
 use crate::internal::git_env;
 use crate::internal::workdir;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct TemplateRepo {
     pub handle: String,
     pub host: String,
@@ -123,6 +122,13 @@ pub fn render_config_template(
     Ok("".to_string())
 }
 
+pub fn register_partial_resolve_placeholder(template: &mut Tera) {
+    template.register_function(
+        "partial_resolve",
+        |_args: tera::Kwargs, _state: &tera::State| tera::Value::none(),
+    );
+}
+
 pub fn make_partial_resolve_fn(
     arc_context: Arc<RwLock<tera::Context>>,
 ) -> impl tera::Function<tera::TeraResult<Value>> + 'static {
@@ -132,9 +138,7 @@ pub fn make_partial_resolve_fn(
                 .must_get::<String>("handle")
                 .map_err(|_| tera::Error::message("partial_resolve: could not parse handle"))?;
 
-            // Get the context from the arc pointer
             let context = arc_context.read().unwrap();
-
             let repo_object = match context.get("repo") {
                 Some(value) => match value.as_map() {
                     Some(value) => value,
@@ -200,4 +204,64 @@ pub fn filter_escape_multiline_command(
             .replace('"', "\\\"");
     }
     Ok(Value::from_serializable(&escaped))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn renders_documented_variables_and_conditionals() {
+        let mut template = Tera::default();
+        template
+            .add_raw_template(
+                "documented",
+                r#"{% if prompts.team == "team1" or prompts.team == "team2" %}{{ id }}|{{ root }}|{{ repo.host }}/{{ repo.org }}/{{ repo.name }}|{{ env.HOME }}{% endif %}"#,
+            )
+            .unwrap();
+
+        let mut context = tera::Context::new();
+        context.insert("id", "omni");
+        context.insert("root", "/work/omni");
+        context.insert(
+            "repo",
+            &json!({
+                "handle": "https://github.com/omnicli/omni.git",
+                "host": "github.com",
+                "org": "omnicli",
+                "name": "omni",
+            }),
+        );
+        context.insert("env", &json!({"HOME": "/home/test"}));
+        context.insert("prompts", &json!({"team": "team1"}));
+
+        assert_eq!(
+            render_config_template(&template, &context).unwrap(),
+            "omni|/work/omni|github.com/omnicli/omni|/home/test"
+        );
+    }
+
+    #[test]
+    fn partial_resolve_can_be_registered_before_template_parsing() {
+        let mut template = Tera::default();
+        register_partial_resolve_placeholder(&mut template);
+        template
+            .add_raw_template(
+                "partial_resolve",
+                r#"{{ partial_resolve(handle="other-repo") }}"#,
+            )
+            .unwrap();
+
+        let mut context = tera::Context::new();
+        context.insert(
+            "repo",
+            &json!({"handle": "https://github.com/omnicli/omni.git"}),
+        );
+
+        assert_eq!(
+            render_config_template(&template, &context).unwrap(),
+            "https://github.com/omnicli/other-repo"
+        );
+    }
 }

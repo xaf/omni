@@ -10,6 +10,6 @@ VALUES (
 )
 ON CONFLICT (key) DO UPDATE
 SET
-    value = ?1;
+    value = ?1
 WHERE
     key = 'omnipath.update_error_log';

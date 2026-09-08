@@ -7,13 +7,11 @@ use std::path::PathBuf;
 
 use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use serde::Serialize;
 
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::utils as cache_utils;
 use crate::internal::commands::utils::abs_path;
-use crate::internal::config::parser::ConfigErrorHandler;
 use crate::internal::config::up::mise::PostInstallFuncArgs;
 use crate::internal::config::up::utils::data_path_dir_hash;
 use crate::internal::config::up::utils::UpProgressHandler;
@@ -22,9 +20,8 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::env::current_dir;
 use crate::internal::workdir;
-use crate::internal::ConfigValue;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 struct UpConfigGolangSerialized {
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
@@ -36,13 +33,30 @@ struct UpConfigGolangSerialized {
     dirs: BTreeSet<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+fn normalize_dir(value: &mut String) -> Result<(), feuilletage::Error> {
+    *value = PathBuf::from(&*value)
+        .normalize()
+        .to_string_lossy()
+        .to_string();
+    Ok(())
+}
+
+/// Configuration for Go/Golang tool installation.
+///
+/// Accepts:
+/// - A string or number: interpreted as version (via scalar_as)
+/// - An object with version, version_file, upgrade, and dir fields
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(scalar_as = "version", skip_serialize)]
 pub struct UpConfigGolang {
+    #[feuilletage(coerce)]
     pub version: Option<String>,
     pub version_file: Option<String>,
+    #[feuilletage(default)]
     pub upgrade: bool,
+    #[feuilletage(allow_single, default, rename = "dir", transform_each_after = "normalize_dir")]
     pub dirs: BTreeSet<String>,
-    #[serde(skip)]
+    #[feuilletage(skip)]
     pub backend: OnceCell<UpConfigMise>,
 }
 
@@ -86,61 +100,16 @@ impl UpConfigGolang {
         }
     }
 
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut version = None;
-        let mut version_file = None;
-        let mut dirs = BTreeSet::new();
-        let mut upgrade = false;
-
-        if let Some(config_value) = config_value {
-            if let Some(value) = config_value.as_str() {
-                version = Some(value.to_string());
-            } else if let Some(value) = config_value.as_float() {
-                version = Some(value.to_string());
-            } else if let Some(value) = config_value.as_integer() {
-                version = Some(value.to_string());
-            } else {
-                if let Some(value) =
-                    config_value.get_as_str_or_none("version", &error_handler.with_key("version"))
-                {
-                    version = Some(value.to_string());
-                } else if let Some(value) = config_value
-                    .get_as_str_or_none("version_file", &error_handler.with_key("version_file"))
-                {
-                    version_file = Some(value.to_string());
-                }
-
-                let list_dirs =
-                    config_value.get_as_str_array("dir", &error_handler.with_key("dir"));
-                for value in list_dirs {
-                    dirs.insert(
-                        PathBuf::from(value)
-                            .normalize()
-                            .to_string_lossy()
-                            .to_string(),
-                    );
-                }
-
-                if let Some(value) =
-                    config_value.get_as_bool_or_none("upgrade", &error_handler.with_key("upgrade"))
-                {
-                    upgrade = value;
-                }
-            }
+    fn extract_version_from_gomod(&self) -> Result<Option<String>, UpError> {
+        if self.version_file.is_none() {
+            return Ok(None);
         }
 
-        Self {
-            backend: OnceCell::new(),
-            version,
-            version_file,
-            upgrade,
-            dirs,
-        }
+        extract_version_from_gomod_file(self.version_file.as_ref().unwrap().clone())
     }
+}
 
+impl UpConfigGolang {
     pub fn up(
         &self,
         options: &UpOptions,
@@ -188,14 +157,6 @@ impl UpConfigGolang {
 
     pub fn version(&self) -> Result<String, UpError> {
         self.backend()?.version()
-    }
-
-    fn extract_version_from_gomod(&self) -> Result<Option<String>, UpError> {
-        if self.version_file.is_none() {
-            return Ok(None);
-        }
-
-        extract_version_from_gomod_file(self.version_file.as_ref().unwrap().clone())
     }
 }
 

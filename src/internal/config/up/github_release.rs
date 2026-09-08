@@ -12,7 +12,6 @@ use std::process::Command as ProcessCommand;
 
 use itertools::Itertools;
 use md5::Md5;
-use normalize_path::NormalizePath;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::Serialize;
@@ -36,8 +35,6 @@ use crate::internal::cache::GithubReleaseVersion;
 use crate::internal::cache::GithubReleases;
 use crate::internal::config;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::EnvConfig;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::parser::GithubAuthConfig;
@@ -54,7 +51,6 @@ use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::utils::check_allowed;
 use crate::internal::config::utils::is_executable;
-use crate::internal::config::ConfigValue;
 use crate::internal::dynenv::update_dynamic_env_for_command_from_env;
 use crate::internal::env::data_home;
 use crate::internal::user_interface::StringColor;
@@ -121,10 +117,30 @@ struct ReleaseMetadata {
     immutable: bool,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Default, feuilletage::Config)]
+#[feuilletage(transparent, skip_serialize, post_process = "reorder_gh_releases")]
 pub struct UpConfigGithubReleases {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[feuilletage(
+        default,
+        allow_single,
+        allow_map(key = "repository", scalar_as = "version")
+    )]
     releases: Vec<UpConfigGithubRelease>,
+}
+
+/// Post-process: bump the "gh" tool to the front so it's installed first (needed for auth).
+fn reorder_gh_releases<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    config: &mut UpConfigGithubReleases,
+    _source: &feuilletage::ContextValue<S, L>,
+    _error_tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if let Some(pos) = config.releases.iter().position(|r| r.is_gh()) {
+        if pos > 0 {
+            let gh_release = config.releases.remove(pos);
+            config.releases.insert(0, gh_release);
+        }
+    }
+    Ok(())
 }
 
 impl Serialize for UpConfigGithubReleases {
@@ -141,113 +157,6 @@ impl Serialize for UpConfigGithubReleases {
 }
 
 impl UpConfigGithubReleases {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Self::default();
-            }
-        };
-
-        if config_value.as_str_forced().is_some() {
-            return Self {
-                releases: vec![UpConfigGithubRelease::from_config_value(
-                    Some(config_value),
-                    error_handler,
-                )],
-            };
-        }
-
-        if let Some(array) = config_value.as_array() {
-            return Self {
-                releases: array
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, config_value)| {
-                        UpConfigGithubRelease::from_config_value(
-                            Some(config_value),
-                            &error_handler.with_index(idx),
-                        )
-                    })
-                    .collect(),
-            };
-        }
-
-        if let Some(table) = config_value.as_table() {
-            // Check if there is a 'repository' key, in which case it's a single
-            // repository and we can just parse it and return it
-            if ["repository", "repo"]
-                .iter()
-                .find_map(|key| table.get(*key))
-                .is_some()
-            {
-                return Self {
-                    releases: vec![UpConfigGithubRelease::from_config_value(
-                        Some(config_value),
-                        error_handler,
-                    )],
-                };
-            }
-
-            // Otherwise, we have a table of repositories, where repositories are
-            // the keys and the values are the configuration for the repository;
-            // we want to go over them in lexico-graphical order to ensure that
-            // the order is consistent
-            let mut releases = Vec::new();
-            for repo in table.keys().sorted() {
-                let value = table.get(repo).expect("repo config not found");
-                let repository = match ConfigValue::from_str(repo) {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
-
-                let mut repo_config = if let Some(table) = value.as_table() {
-                    table.clone()
-                } else if let Some(version) = value.as_str_forced() {
-                    let mut repo_config = HashMap::new();
-                    let value = match ConfigValue::from_str(&version) {
-                        Ok(value) => value,
-                        Err(_) => continue,
-                    };
-                    repo_config.insert("version".to_string(), value);
-                    repo_config
-                } else {
-                    HashMap::new()
-                };
-
-                repo_config.insert("repository".to_string(), repository);
-                let release =
-                    UpConfigGithubRelease::from_table(&repo_config, &error_handler.with_key(repo));
-
-                if release.is_gh() {
-                    // Special case for the `gh` tool, we want to bump that to the top
-                    // of the list so that if `gh` is requested to be installed, it can
-                    // be used for the follow-up installations of github releases
-                    releases.insert(0, release);
-                } else {
-                    releases.push(release);
-                }
-            }
-
-            if releases.is_empty() {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-            }
-
-            return Self { releases };
-        }
-
-        error_handler
-            .with_expected(vec!["string", "array", "table"])
-            .with_actual(config_value)
-            .error(ConfigErrorKind::InvalidValueType);
-
-        Self::default()
-    }
-
     pub fn up(
         &self,
         options: &UpOptions,
@@ -513,17 +422,58 @@ impl UpConfigGithubReleases {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+/// Pre-deserialization transform for repository field.
+/// Converts `{owner: "x", name: "y"}` objects into `"x/y"` strings.
+/// Passes through string values unchanged.
+fn transform_repository<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    value: &mut feuilletage::ContextValue<S, L>,
+    _context: &feuilletage::Context<S, L>,
+) -> Result<(), feuilletage::Error> {
+    if let feuilletage::ContextValue::Object(ref map, _) = value {
+        let owner = map.get("owner").and_then(|v| {
+            if let feuilletage::ContextValue::String(s, _) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        });
+        let name = map.get("name").and_then(|v| {
+            if let feuilletage::ContextValue::String(s, _) = v {
+                Some(s.clone())
+            } else {
+                None
+            }
+        });
+        if let (Some(owner), Some(name)) = (owner, name) {
+            *value = feuilletage::ContextValue::string(
+                format!("{}/{}", owner, name),
+                value.context().clone(),
+            );
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Clone, Eq, PartialEq, Hash)]
 pub enum GithubReleaseHandled {
     Handled,
     Noop,
     Unhandled,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(
+    scalar_as = "repository",
+    skip_serialize,
+    allow_map(key = "repository", scalar_as = "version")
+)]
 pub struct UpConfigGithubRelease {
     /// The repository to install the tool from, should
     /// be in the format `owner/repo`
+    #[feuilletage(
+        alias = "repo",
+        transform = "crate::internal::config::up::github_release::transform_repository"
+    )]
     pub repository: String,
 
     /// The version of the tool to install
@@ -533,16 +483,19 @@ pub struct UpConfigGithubRelease {
     /// Whether to always upgrade the tool or use the latest matching
     /// already installed version.
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub upgrade: bool,
 
     /// Whether to install the pre-release version of the tool
     /// if it is the most recent matching version
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub prerelease: bool,
 
     /// Whether to allow versions containing build details
     /// (e.g. 1.2.3+build)
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub build: bool,
 
     /// Whether to only install immutable releases. When set to true,
@@ -550,15 +503,14 @@ pub struct UpConfigGithubRelease {
     /// When set to false (default), both immutable and non-immutable
     /// releases are accepted.
     #[serde(default, skip_serializing_if = "cache_utils::is_false")]
+    #[feuilletage(default)]
     pub immutable: bool,
 
     /// Whether to install a file that is not currently in an
     /// archive. This is useful for tools that are being
     /// distributed as a single binary file outside of an archive.
-    #[serde(
-        default = "cache_utils::set_true",
-        skip_serializing_if = "cache_utils::is_true"
-    )]
+    #[serde(skip_serializing_if = "cache_utils::is_true")]
+    #[feuilletage(default = "true")]
     pub binary: bool,
 
     /// The name of the asset to download from the release. All
@@ -567,6 +519,7 @@ pub struct UpConfigGithubRelease {
     /// patterns, e.g. `*.tar.gz` or `special-asset-*`. If not
     /// set, will be similar as being set to `*`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[feuilletage(allow_single)]
     pub asset_name: Vec<AssetNameMatcher>,
 
     /// Whether to skip the OS matching when downloading the
@@ -576,6 +529,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
+    #[feuilletage(default)]
     pub skip_os_matching: bool,
 
     /// Whether to skip the architecture matching when downloading
@@ -585,6 +539,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
+    #[feuilletage(default)]
     pub skip_arch_matching: bool,
 
     /// Whether to prefer the 'dist' assets over the 'bin' assets.
@@ -593,6 +548,7 @@ pub struct UpConfigGithubRelease {
         default = "cache_utils::set_false",
         skip_serializing_if = "cache_utils::is_false"
     )]
+    #[feuilletage(default)]
     pub prefer_dist: bool,
 
     /// The URL of the GitHub API; this is only required if downloading
@@ -610,6 +566,7 @@ pub struct UpConfigGithubRelease {
         default,
         skip_serializing_if = "GithubReleaseChecksumConfig::is_default"
     )]
+    #[feuilletage(default)]
     pub checksum: GithubReleaseChecksumConfig,
 
     /// The authentication configuration for this specific
@@ -620,23 +577,29 @@ pub struct UpConfigGithubRelease {
         with = "serde_yaml::with::singleton_map",
         skip_serializing_if = "GithubAuthConfig::is_default"
     )]
+    #[feuilletage(default)]
     pub auth: GithubAuthConfig,
 
     /// Environment variables to set when using this release
     #[serde(default, skip_serializing_if = "EnvConfig::is_empty")]
+    #[feuilletage(default)]
     pub env: EnvConfig,
 
     /// A list of directories to make the release available for
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    #[feuilletage(rename = "dir", allow_single, transform_each = "normalize_path")]
     pub dirs: BTreeSet<String>,
 
     #[serde(default, skip)]
+    #[feuilletage(skip)]
     actual_version: OnceCell<String>,
 
     #[serde(default, skip)]
+    #[feuilletage(skip)]
     actual_metadata: RefCell<Option<ReleaseMetadata>>,
 
     #[serde(default, skip)]
+    #[feuilletage(skip)]
     was_handled: OnceCell<GithubReleaseHandled>,
 }
 
@@ -682,203 +645,6 @@ impl UpConfigGithubRelease {
             version: Some(version.to_string()),
             upgrade,
             immutable: true,
-            ..UpConfigGithubRelease::default()
-        }
-    }
-
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        if let Some(table) = config_value.as_table() {
-            Self::from_table(&table, error_handler)
-        } else if let Some(repository) = config_value.as_str_forced() {
-            Self {
-                repository,
-                ..Self::default()
-            }
-        } else {
-            error_handler
-                .with_expected("string or table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-            Self::default()
-        }
-    }
-
-    fn from_table(
-        table: &HashMap<String, ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = ConfigValue::from_table(table.clone());
-
-        let repository = ["repository", "repo"]
-            .iter()
-            .find_map(|key| table.get(*key));
-
-        let repository = match repository {
-            Some(repository) => repository,
-            None => {
-                if table.len() == 1 {
-                    let (key, value) = table.iter().next().unwrap();
-                    if let Some(version) = value.as_str_forced() {
-                        return Self {
-                            repository: key.clone(),
-                            version: Some(version.to_string()),
-                            ..Self::default()
-                        };
-                    } else if let (Some(table), Ok(repo_config_value)) =
-                        (value.as_table(), ConfigValue::from_str(key))
-                    {
-                        let mut repo_config = table.clone();
-                        repo_config.insert("repository".to_string(), repo_config_value);
-                        return Self::from_table(&repo_config, error_handler);
-                    } else if let (true, Ok(repo_config_value)) =
-                        (value.is_null(), ConfigValue::from_str(key))
-                    {
-                        let repo_config =
-                            HashMap::from_iter(vec![("repository".to_string(), repo_config_value)]);
-                        return Self::from_table(&repo_config, error_handler);
-                    }
-                }
-
-                error_handler
-                    .with_key("repository")
-                    .error(ConfigErrorKind::MissingKey);
-
-                return Self::default();
-            }
-        };
-
-        let repository = if repository.is_table() {
-            let owner = repository
-                .get_as_str_or_none(
-                    "owner",
-                    &error_handler.with_key("repository").with_key("owner"),
-                )
-                .unwrap_or_else(|| {
-                    error_handler
-                        .with_key("repository")
-                        .with_key("owner")
-                        .error(ConfigErrorKind::MissingKey);
-
-                    "".to_string()
-                });
-
-            let name = repository
-                .get_as_str_or_none(
-                    "name",
-                    &error_handler.with_key("repository").with_key("name"),
-                )
-                .unwrap_or_else(|| {
-                    error_handler
-                        .with_key("repository")
-                        .with_key("name")
-                        .error(ConfigErrorKind::MissingKey);
-
-                    "".to_string()
-                });
-
-            format!("{owner}/{name}")
-        } else if let Some(repository) = repository.as_str_forced() {
-            repository.to_string()
-        } else {
-            error_handler
-                .with_key("repository")
-                .with_expected("string or table")
-                .with_actual(repository)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            "".to_string()
-        };
-
-        if repository.is_empty() {
-            error_handler
-                .with_key("repository")
-                .error(ConfigErrorKind::EmptyKey);
-        }
-
-        let version =
-            config_value.get_as_str_or_none("version", &error_handler.with_key("version"));
-        let upgrade = config_value.get_as_bool_or_default(
-            "upgrade",
-            false,
-            &error_handler.with_key("upgrade"),
-        );
-        let prerelease = config_value.get_as_bool_or_default(
-            "prerelease",
-            false,
-            &error_handler.with_key("prerelease"),
-        );
-        let build =
-            config_value.get_as_bool_or_default("build", false, &error_handler.with_key("build"));
-        let binary =
-            config_value.get_as_bool_or_default("binary", true, &error_handler.with_key("binary"));
-        let immutable = config_value.get_as_bool_or_default(
-            "immutable",
-            false,
-            &error_handler.with_key("immutable"),
-        );
-        let asset_name = AssetNameMatcher::from_config_value_multi(
-            table.get("asset_name"),
-            &error_handler.with_key("asset_name"),
-        );
-        let skip_os_matching = config_value.get_as_bool_or_default(
-            "skip_os_matching",
-            false,
-            &error_handler.with_key("skip_os_matching"),
-        );
-        let skip_arch_matching = config_value.get_as_bool_or_default(
-            "skip_arch_matching",
-            false,
-            &error_handler.with_key("skip_arch_matching"),
-        );
-        let prefer_dist = config_value.get_as_bool_or_default(
-            "prefer_dist",
-            false,
-            &error_handler.with_key("prefer_dist"),
-        );
-        let api_url =
-            config_value.get_as_str_or_none("api_url", &error_handler.with_key("api_url"));
-        let checksum = GithubReleaseChecksumConfig::from_config_value(
-            table.get("checksum"),
-            &error_handler.with_key("checksum"),
-        );
-        let auth = GithubAuthConfig::from_config_value(
-            table.get("auth").cloned(),
-            &error_handler.with_key("auth"),
-        );
-        let env =
-            EnvConfig::from_config_value(table.get("env").cloned(), &error_handler.with_key("env"));
-
-        let dirs = config_value
-            .get_as_str_array("dir", &error_handler.with_key("dir"))
-            .iter()
-            .map(|dir| PathBuf::from(dir).normalize().to_string_lossy().to_string())
-            .collect::<BTreeSet<_>>();
-
-        UpConfigGithubRelease {
-            repository,
-            version,
-            upgrade,
-            prerelease,
-            build,
-            binary,
-            immutable,
-            asset_name,
-            skip_os_matching,
-            skip_arch_matching,
-            prefer_dist,
-            api_url,
-            env,
-            dirs,
-            checksum,
-            auth,
             ..UpConfigGithubRelease::default()
         }
     }
@@ -1264,7 +1030,7 @@ impl UpConfigGithubRelease {
                 let token = std::env::var(env_var).ok()?;
                 return Some(token);
             }
-            GithubAuthConfig::GhCli { hostname, user } => (hostname, user),
+            GithubAuthConfig::GhCli(config) => (config.hostname, config.user),
         };
 
         // If we get here, we need to use the `gh` command to get the token
@@ -2083,11 +1849,51 @@ impl UpConfigGithubRelease {
 
                 // Perform the extraction
                 if asset_type.is_zip() {
-                    zip_extract::extract(&archive_file, &target_dir, true).map_err(|err| {
-                        let errmsg = format!("failed to extract {asset_name}: {err}");
+                    let mut archive = zip::ZipArchive::new(archive_file).map_err(|err| {
+                        let errmsg = format!("failed to read {asset_name} as a zip archive: {err}");
                         progress_handler.error_with_message(errmsg.clone());
                         UpError::Exec(errmsg)
                     })?;
+
+                    for index in 0..archive.len() {
+                        let mut entry = archive.by_index(index).map_err(|err| {
+                            let errmsg = format!("failed to read {asset_name} zip entry: {err}");
+                            progress_handler.error_with_message(errmsg.clone());
+                            UpError::Exec(errmsg)
+                        })?;
+                        let entry_path = entry.enclosed_name().ok_or_else(|| {
+                            let errmsg = format!("refusing to extract unsafe path from {asset_name}");
+                            progress_handler.error_with_message(errmsg.clone());
+                            UpError::Exec(errmsg)
+                        })?;
+                        let output_path = target_dir.join(entry_path);
+
+                        if entry.is_dir() {
+                            std::fs::create_dir_all(&output_path).map_err(|err| {
+                                let errmsg = format!("failed to create directory for {asset_name}: {err}");
+                                progress_handler.error_with_message(errmsg.clone());
+                                UpError::Exec(errmsg)
+                            })?;
+                        } else {
+                            if let Some(parent) = output_path.parent() {
+                                std::fs::create_dir_all(parent).map_err(|err| {
+                                    let errmsg = format!("failed to create directory for {asset_name}: {err}");
+                                    progress_handler.error_with_message(errmsg.clone());
+                                    UpError::Exec(errmsg)
+                                })?;
+                            }
+                            let mut output_file = std::fs::File::create(&output_path).map_err(|err| {
+                                let errmsg = format!("failed to create extracted file for {asset_name}: {err}");
+                                progress_handler.error_with_message(errmsg.clone());
+                                UpError::Exec(errmsg)
+                            })?;
+                            std::io::copy(&mut entry, &mut output_file).map_err(|err| {
+                                let errmsg = format!("failed to extract {asset_name}: {err}");
+                                progress_handler.error_with_message(errmsg.clone());
+                                UpError::Exec(errmsg)
+                            })?;
+                        }
+                    }
                 } else if asset_type.is_tgz() {
                     let tar = flate2::read::GzDecoder::new(archive_file);
                     let mut archive = tar::Archive::new(tar);
@@ -2097,7 +1903,7 @@ impl UpConfigGithubRelease {
                         UpError::Exec(errmsg)
                     })?;
                 } else if asset_type.is_txz() {
-                    let tar = xz2::read::XzDecoder::new(archive_file);
+                    let tar = liblzma::read::XzDecoder::new(archive_file);
                     let mut archive = tar::Archive::new(tar);
                     archive.unpack(&target_dir).map_err(|err| {
                         let errmsg = format!("failed to extract {asset_name}: {err}");
@@ -2416,7 +2222,8 @@ impl UpConfigGithubRelease {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(scalar_as = "value", skip_serialize)]
 pub struct GithubReleaseChecksumConfig {
     /// Whether checksum verification is enabled; if set to
     /// `false`, checksum verification will be skipped.
@@ -2445,6 +2252,7 @@ pub struct GithubReleaseChecksumConfig {
     /// The name of the asset containing the checksum value to
     /// compare against the downloaded release assets.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[feuilletage(allow_single)]
     asset_name: Vec<AssetNameMatcher>,
 }
 
@@ -2455,61 +2263,6 @@ impl GithubReleaseChecksumConfig {
             && self.algorithm.is_none()
             && self.value.is_none()
             && self.asset_name.is_empty()
-    }
-
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        if let Some(table) = config_value.as_table() {
-            Self::from_table(&table, error_handler)
-        } else if let Some(string) = config_value.as_str() {
-            Self {
-                value: Some(string.to_string()),
-                ..Self::default()
-            }
-        } else {
-            error_handler
-                .with_expected("table or string")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            Self::default()
-        }
-    }
-
-    fn from_table(
-        table: &HashMap<String, ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = ConfigValue::from_table(table.clone());
-
-        let enabled =
-            config_value.get_as_bool_or_none("enabled", &error_handler.with_key("enabled"));
-        let required =
-            config_value.get_as_bool_or_none("required", &error_handler.with_key("required"));
-        let algorithm = config_value
-            .get_as_str_or_none("algorithm", &error_handler.with_key("algorithm"))
-            .map(|v| GithubReleaseChecksumAlgorithm::from_str(&v))
-            .unwrap_or(None);
-        let value = config_value.get_as_str_or_none("value", &error_handler.with_key("value"));
-        let asset_name = AssetNameMatcher::from_config_value_multi(
-            config_value.get("asset_name").as_ref(),
-            &error_handler.with_key("asset_name"),
-        );
-
-        GithubReleaseChecksumConfig {
-            enabled,
-            required,
-            algorithm,
-            value,
-            asset_name,
-        }
     }
 
     fn is_enabled(&self) -> bool {
@@ -2525,16 +2278,22 @@ impl GithubReleaseChecksumConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(value_matched, skip_serialize)]
 enum GithubReleaseChecksumAlgorithm {
+    #[feuilletage(variant = "md5")]
     #[serde(rename = "md5")]
     Md5,
+    #[feuilletage(variant = "sha1")]
     #[serde(rename = "sha1")]
     Sha1,
+    #[feuilletage(variant = "sha256")]
     #[serde(rename = "sha256")]
     Sha256,
+    #[feuilletage(variant = "sha384")]
     #[serde(rename = "sha384")]
     Sha384,
+    #[feuilletage(variant = "sha512")]
     #[serde(rename = "sha512")]
     Sha512,
 }
@@ -2553,17 +2312,6 @@ impl GithubReleaseChecksumAlgorithm {
             64 => Some(GithubReleaseChecksumAlgorithm::Sha256),
             96 => Some(GithubReleaseChecksumAlgorithm::Sha384),
             128 => Some(GithubReleaseChecksumAlgorithm::Sha512),
-            _ => None,
-        }
-    }
-
-    pub fn from_str(algorithm: &str) -> Option<Self> {
-        match algorithm.to_lowercase().as_str() {
-            "md5" => Some(GithubReleaseChecksumAlgorithm::Md5),
-            "sha1" => Some(GithubReleaseChecksumAlgorithm::Sha1),
-            "sha256" => Some(GithubReleaseChecksumAlgorithm::Sha256),
-            "sha384" => Some(GithubReleaseChecksumAlgorithm::Sha384),
-            "sha512" => Some(GithubReleaseChecksumAlgorithm::Sha512),
             _ => None,
         }
     }
@@ -2611,7 +2359,102 @@ impl GithubReleaseChecksumAlgorithm {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(
+    transparent,
+    post_process = "validate_asset_name_pattern_wire",
+    skip_serialize,
+    skip_deserialize
+)]
+struct AssetNamePatternWire(String);
+
+fn validate_asset_name_pattern_wire<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    _parsed: &mut AssetNamePatternWire,
+    original: &feuilletage::ContextValue<S, L>,
+    tracker: &mut feuilletage::ErrorTracker,
+) -> Result<(), feuilletage::Error> {
+    if matches!(original, feuilletage::ContextValue::String(_, _)) {
+        return Ok(());
+    }
+
+    tracker.record_type_mismatch("string", original.type_name());
+    Err(feuilletage::Error::TypeMismatch {
+        path: tracker.current_path(),
+        expected: "string".to_string(),
+        actual: original.type_name().to_string(),
+    })
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[allow(dead_code)]
+enum AssetNamePatternArrayElementWire {
+    String(AssetNamePatternWire),
+    InvalidBool(bool),
+    InvalidInt(i64),
+    InvalidFloat(f64),
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[allow(dead_code)]
+enum AssetNamePatternsWire {
+    String(AssetNamePatternWire),
+    StringArray(Vec<AssetNamePatternArrayElementWire>),
+    InvalidBool(bool),
+    InvalidInt(i64),
+    InvalidFloat(f64),
+}
+
+impl AssetNamePatternsWire {
+    fn into_patterns(self) -> Result<Vec<String>, &'static str> {
+        match self {
+            Self::String(pattern) => Ok(AssetNameMatcher::patterns_from_string(&pattern.0)),
+            Self::StringArray(patterns) => Ok(patterns
+                .into_iter()
+                .filter_map(|pattern| match pattern {
+                    AssetNamePatternArrayElementWire::String(pattern) => {
+                        Some(pattern.0.trim().to_string())
+                    }
+                    _ => None,
+                })
+                .filter(|pattern| !pattern.is_empty())
+                .collect()),
+            Self::InvalidBool(_) => Err("bool"),
+            Self::InvalidInt(_) => Err("int"),
+            Self::InvalidFloat(_) => Err("float"),
+        }
+    }
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[allow(dead_code)]
+enum AssetNameOptionalStringWire {
+    String(AssetNamePatternWire),
+    InvalidBool(bool),
+    InvalidInt(i64),
+    InvalidFloat(f64),
+}
+
+#[derive(Debug, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize, skip_deserialize)]
+#[allow(dead_code)]
+enum AssetNameMatcherWire {
+    String(AssetNamePatternWire),
+    StringArray(Vec<AssetNamePatternArrayElementWire>),
+    Object {
+        os: Option<AssetNameOptionalStringWire>,
+        arch: Option<AssetNameOptionalStringWire>,
+        patterns: Option<AssetNamePatternsWire>,
+    },
+    InvalidBool(bool),
+    InvalidInt(i64),
+    InvalidFloat(f64),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(parse_as = "AssetNameMatcherWire", skip_serialize, skip_deserialize)]
 pub struct AssetNameMatcher {
     /// This matcher will only match if the current OS matches the given OS.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2626,130 +2469,124 @@ pub struct AssetNameMatcher {
     disabled: bool,
 }
 
-impl AssetNameMatcher {
-    fn from_config_value_multi(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Vec<Self> {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return vec![],
-        };
-
-        if let Some(string) = config_value.as_str() {
-            vec![Self {
-                patterns: Self::patterns_from_string(&string),
-                ..Self::default()
-            }]
-        } else if let Some(array) = config_value.as_array() {
-            array
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, value)| {
-                    Self::from_config_value_unit(Some(value), &error_handler.with_index(idx))
-                })
-                .collect()
-        } else {
-            error_handler
-                .with_expected(vec!["string", "array"])
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            vec![]
-        }
-    }
-
-    fn from_config_value_unit(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Option<Self> {
-        let config_value = config_value?;
-
-        if let Some(string) = config_value.as_str() {
-            Some(Self {
-                patterns: Self::patterns_from_string(&string),
-                ..Self::default()
-            })
-        } else if let Some(array) = config_value.as_array() {
-            Some(Self {
-                patterns: Self::patterns_from_array(&array),
-                ..Self::default()
-            })
-        } else if config_value.is_table() {
-            let os = config_value.get_as_str_or_none("os", &error_handler.with_key("os"));
-            let arch = config_value.get_as_str_or_none("arch", &error_handler.with_key("arch"));
-
-            let patterns = if let Some(patterns) = config_value.get("patterns") {
-                if let Some(string) = patterns.as_str_forced() {
-                    Self::patterns_from_string(&string)
-                } else if let Some(array) = patterns.as_array() {
-                    Self::patterns_from_array(&array)
-                } else {
-                    error_handler
-                        .with_key("patterns")
-                        .with_expected(vec!["string", "array"])
-                        .with_actual(patterns)
-                        .error(ConfigErrorKind::InvalidValueType);
-
-                    return None;
-                }
-            } else {
-                error_handler
-                    .with_key("patterns")
-                    .error(ConfigErrorKind::MissingKey);
-
-                return None;
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<AssetNameMatcherWire, S, L> for AssetNameMatcher
+{
+    fn from_parsed(
+        parsed: AssetNameMatcherWire,
+        _original: &feuilletage::ContextValue<S, L>,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        let type_mismatch =
+            |actual: &str, tracker: &feuilletage::ErrorTracker| feuilletage::Error::TypeMismatch {
+                path: tracker.current_path(),
+                expected: "string, array, or object".to_string(),
+                actual: actual.to_string(),
             };
 
-            let mut disabled = false;
+        match parsed {
+            AssetNameMatcherWire::String(pattern) => Ok(Self {
+                patterns: Self::patterns_from_string(&pattern.0),
+                ..Self::default()
+            }),
+            AssetNameMatcherWire::StringArray(patterns) => Ok(Self {
+                patterns: patterns
+                    .into_iter()
+                    .filter_map(|pattern| match pattern {
+                        AssetNamePatternArrayElementWire::String(pattern) => {
+                            Some(pattern.0.trim().to_string())
+                        }
+                        _ => None,
+                    })
+                    .filter(|pattern| !pattern.is_empty())
+                    .collect(),
+                ..Self::default()
+            }),
+            AssetNameMatcherWire::Object { os, arch, patterns } => {
+                let os = Self::optional_string_from_wire(os, "os", tracker);
+                let arch = Self::optional_string_from_wire(arch, "arch", tracker);
+                let Some(patterns) = patterns else {
+                    tracker.push_field("patterns");
+                    tracker.record_invalid_value("missing key");
+                    tracker.pop();
+                    return Err(type_mismatch("object", tracker));
+                };
+                let patterns = match patterns.into_patterns() {
+                    Ok(patterns) => patterns,
+                    Err(actual) => {
+                        tracker.push_field("patterns");
+                        tracker.record_type_mismatch("string or array", actual);
+                        tracker.pop();
+                        return Err(type_mismatch("object", tracker));
+                    }
+                };
 
-            // If 'os' is set, we can ignore this filter if the current OS
-            // does not match the given OS
-            if let Some(ref os) = os {
-                if os.to_lowercase() != current_os().to_lowercase() {
-                    disabled = true;
-                }
+                let disabled = os
+                    .as_ref()
+                    .is_some_and(|os| !os.eq_ignore_ascii_case(&current_os()))
+                    || arch
+                        .as_ref()
+                        .is_some_and(|arch| !arch.eq_ignore_ascii_case(&current_arch()));
+
+                Ok(Self {
+                    os,
+                    arch,
+                    patterns,
+                    disabled,
+                })
             }
-
-            // If 'arch' is set, we can ignore this filter if the current
-            // architecture does not match the given architecture
-            if let Some(ref arch) = arch {
-                if arch.to_lowercase() != current_arch().to_lowercase() {
-                    disabled = true;
-                }
+            AssetNameMatcherWire::InvalidBool(_) => {
+                tracker.record_type_mismatch("string, array, or object", "bool");
+                Err(type_mismatch("bool", tracker))
             }
-
-            Some(Self {
-                os,
-                arch,
-                patterns,
-                disabled,
-            })
-        } else {
-            error_handler
-                .with_expected(vec!["string", "array", "table"])
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            None
+            AssetNameMatcherWire::InvalidInt(_) => {
+                tracker.record_type_mismatch("string, array, or object", "int");
+                Err(type_mismatch("int", tracker))
+            }
+            AssetNameMatcherWire::InvalidFloat(_) => {
+                tracker.record_type_mismatch("string, array, or object", "float");
+                Err(type_mismatch("float", tracker))
+            }
         }
     }
+}
 
-    fn patterns_from_array(array: &[ConfigValue]) -> Vec<String> {
-        array
-            .iter()
-            .filter_map(|value| value.as_str())
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .collect()
-    }
-
+impl AssetNameMatcher {
     fn patterns_from_string(string: &str) -> Vec<String> {
         string
             .split('\n')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect()
+    }
+
+    fn optional_string_from_wire(
+        value: Option<AssetNameOptionalStringWire>,
+        field: &str,
+        tracker: &mut feuilletage::ErrorTracker,
+    ) -> Option<String> {
+        match value {
+            None => None,
+            Some(AssetNameOptionalStringWire::String(value)) => Some(value.0),
+            Some(AssetNameOptionalStringWire::InvalidBool(_)) => {
+                tracker.push_field(field);
+                tracker.record_type_mismatch("string", "bool");
+                tracker.pop();
+                None
+            }
+            Some(AssetNameOptionalStringWire::InvalidInt(_)) => {
+                tracker.push_field(field);
+                tracker.record_type_mismatch("string", "int");
+                tracker.pop();
+                None
+            }
+            Some(AssetNameOptionalStringWire::InvalidFloat(_)) => {
+                tracker.push_field(field);
+                tracker.record_type_mismatch("string", "float");
+                tracker.pop();
+                None
+            }
+        }
     }
 
     pub fn enabled(&self) -> bool {

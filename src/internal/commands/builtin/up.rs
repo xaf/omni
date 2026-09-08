@@ -7,10 +7,11 @@ use std::process::exit;
 use std::str::FromStr;
 
 use blake3::Hasher as Blake3Hasher;
-use imara_diff::diff;
-use imara_diff::intern::InternedInput;
 use imara_diff::Algorithm;
-use imara_diff::UnifiedDiffBuilder;
+use imara_diff::BasicLineDiffPrinter;
+use imara_diff::Diff;
+use imara_diff::InternedInput;
+use imara_diff::UnifiedDiffConfig;
 use once_cell::sync::OnceCell;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
@@ -37,9 +38,8 @@ use crate::internal::config::up::utils::SyncUpdateOperation;
 use crate::internal::config::up::UpConfig;
 use crate::internal::config::up::UpOptions;
 use crate::internal::config::CommandSyntax;
-use crate::internal::config::ConfigExtendOptions;
+use crate::internal::config::FeuilletageConfigValue;
 use crate::internal::config::ConfigLoader;
-use crate::internal::config::ConfigValue;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
 use crate::internal::config::SyntaxOptArgType;
@@ -367,7 +367,7 @@ impl UpCommand {
         self.cli_args().clone_suggested.auto_bootstrap()
     }
 
-    fn suggest_config(&self, suggest_config: ConfigValue) {
+    fn suggest_config(&self, suggest_config: FeuilletageConfigValue) {
         if !self.should_suggest_config() && !self.auto_bootstrap_config() {
             return;
         }
@@ -375,43 +375,40 @@ impl UpCommand {
         let mut any_change_to_apply = false;
         let mut any_change_applied = false;
 
-        let result = ConfigLoader::edit_main_user_config_file(|config_value| {
-            let before = config_value.clone();
+        let result = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
+            // Clone root for comparison
+            let before_root = config.root().clone();
 
-            let suggest_config = suggest_config.clone();
-            let mut after = config_value.clone();
-            after.extend(suggest_config.clone(), ConfigExtendOptions::new(), vec![]);
+            // Create a copy for after
+            let mut after_config = feuilletage::Config::default();
+            after_config.merge(before_root.clone());
+            after_config.merge(suggest_config.clone());
 
             // Get the yaml representation of the before and after config
-            let before_yaml = before.as_yaml();
-            let after_yaml = after.as_yaml();
+            let before_yaml = config.to_yaml().unwrap_or_default();
+            let after_yaml = after_config.to_yaml().unwrap_or_default();
 
             // Prepare the unified diff
-            let input = InternedInput::new(before_yaml.as_str(), after_yaml.as_str());
-            let diff = diff(
-                Algorithm::Histogram,
-                &input,
-                UnifiedDiffBuilder::new(&input),
-            );
+            let diff_result = unified_diff(&before_yaml, &after_yaml);
 
-            if diff.is_empty() {
+            if diff_result.is_empty() {
                 // No diff, nothing to do!
                 return false;
             }
             any_change_to_apply = true;
 
             // If we got there, there is a diff, so color the lines
-            let diff = color_diff(&diff);
+            let diff_result = color_diff(&diff_result);
 
             omni_info!("The current repository is suggesting configuration changes.");
             omni_info!(format!(
                 "The following is going to be changed in your {} configuration:",
                 "omni".underline()
             ));
-            eprintln!("  {}", diff.replace('\n', "\n  "));
+            eprintln!("  {}", diff_result.replace('\n', "\n  "));
 
             if self.cli_args().update_user_config == UpCommandArgsUpdateUserConfigOptions::Yes {
-                *config_value = after;
+                config.merge(suggest_config.clone());
                 any_change_applied = true;
                 return true;
             }
@@ -433,16 +430,19 @@ impl UpCommand {
                 Ok(answer) => match answer {
                     requestty::Answer::ExpandItem(expanditem) => match expanditem.key {
                         'y' => {
-                            *config_value = after;
+                            config.merge(suggest_config.clone());
                             any_change_applied = true;
                             true
                         }
                         'n' => false,
                         's' => {
-                            let after =
-                                self.suggest_config_split(before.clone(), suggest_config.clone());
-                            if after != before {
-                                *config_value = after;
+                            // Use the split function which returns the changes to apply
+                            let changes_to_apply =
+                                self.suggest_config_split_feuilletage(config, &suggest_config);
+                            if !changes_to_apply.is_empty() {
+                                for change in changes_to_apply {
+                                    config.merge(change);
+                                }
                                 any_change_applied = true;
                                 true
                             } else {
@@ -483,46 +483,42 @@ impl UpCommand {
         }
     }
 
-    fn suggest_config_split(
+    /// Helper to split config suggestions using feuilletage's API
+    /// Returns a list of feuilletage ConfigValues to apply
+    fn suggest_config_split_feuilletage(
         &self,
-        before: ConfigValue,
-        suggest_config: ConfigValue,
-    ) -> ConfigValue {
-        // We can consider this unwrap safe, since we checked the value before
-        let table = suggest_config.as_table().unwrap();
-        let keys = table.keys().collect::<Vec<_>>();
-
-        let before_yaml = before.as_yaml();
+        before_config: &feuilletage::Config,
+        suggest_config: &feuilletage::ContextValue,
+    ) -> Vec<feuilletage::ContextValue> {
+        let before_yaml = before_config.to_yaml().unwrap_or_default();
 
         let mut choices = vec![];
         let mut split_suggestions = vec![];
-        for key in keys.iter() {
-            if let Some(key_suggest_config) = suggest_config.select_keys(vec![key.to_string()]) {
-                let mut after = before.clone();
-                after.extend(
-                    key_suggest_config.clone(),
-                    ConfigExtendOptions::new(),
-                    vec![],
-                );
+
+        // Create a temporary Config from suggest_config to use split_by_key
+        let mut suggest_config_container = feuilletage::Config::default();
+        suggest_config_container.merge(suggest_config.clone());
+
+        // Use split_by_key to iterate over each key as a separate Config
+        if let Some(parts) = suggest_config_container.split_by_key() {
+            for (_key, key_suggest_config) in parts {
+                let mut after_config = feuilletage::Config::default();
+                after_config.merge(before_config.root().clone());
+                after_config.merge(key_suggest_config.root().clone());
 
                 // Get the yaml representation of the specific change
-                let after_yaml = after.as_yaml();
+                let after_yaml = after_config.to_yaml().unwrap_or_default();
 
                 // Prepare the unified diff
-                let input = InternedInput::new(before_yaml.as_str(), after_yaml.as_str());
-                let diff = diff(
-                    Algorithm::Histogram,
-                    &input,
-                    UnifiedDiffBuilder::new(&input),
-                );
+                let diff_result = unified_diff(&before_yaml, &after_yaml);
 
-                if diff.is_empty() {
+                if diff_result.is_empty() {
                     // No diff, nothing to do!
                     continue;
                 }
 
-                choices.push((color_diff(&diff), true));
-                split_suggestions.push(key_suggest_config.clone());
+                choices.push((color_diff(&diff_result), true));
+                split_suggestions.push(key_suggest_config.root().clone());
             }
         }
 
@@ -537,16 +533,12 @@ impl UpCommand {
             .should_loop(false)
             .build();
 
-        let mut after = before.clone();
+        let mut selected = vec![];
         match requestty::prompt_one(question) {
             Ok(answer) => match answer {
                 requestty::Answer::ListItems(items) => {
                     for item in items {
-                        after.extend(
-                            split_suggestions[item.index].clone(),
-                            ConfigExtendOptions::new(),
-                            vec![],
-                        );
+                        selected.push(split_suggestions[item.index].clone());
                     }
                 }
                 _ => unreachable!(),
@@ -556,7 +548,7 @@ impl UpCommand {
             }
         };
 
-        after
+        selected
     }
 
     fn suggest_clone(&self) {
@@ -1103,10 +1095,11 @@ impl UpCommand {
 
     fn handle_suggestions(
         &self,
-        suggest_config: Option<ConfigValue>,
+        suggest_config: Option<FeuilletageConfigValue>,
         suggest_clone: bool,
         suggest_config_updated: bool,
         suggest_clone_updated: bool,
+        exit_code: i32,
         options: &UpOptions,
     ) {
         if let Some(suggested) = suggest_config {
@@ -1136,7 +1129,7 @@ impl UpCommand {
             }
         }
 
-        self.handle_sync_operation(SyncUpdateOperation::Exit(0), options);
+        self.handle_sync_operation(SyncUpdateOperation::Exit(exit_code), options);
     }
 
     fn handle_sync_operation(&self, operation: SyncUpdateOperation, options: &UpOptions) {
@@ -1415,7 +1408,7 @@ impl BuiltinCommand for UpCommand {
 
         let mut suggest_config = None;
         let mut suggest_config_updated = false;
-        let suggest_config_value = cfg.suggest_config.config();
+        let suggest_config_value = cfg.suggest_config.feuilletage_config_value();
         if self.is_up() && !suggest_config_value.is_null() {
             if self.should_suggest_config() {
                 suggest_config = Some(suggest_config_value);
@@ -1471,6 +1464,7 @@ impl BuiltinCommand for UpCommand {
         }
 
         let has_up_config = up_config.is_some() && up_config.clone().unwrap().has_steps();
+        let has_up_errors = up_config.as_ref().is_some_and(UpConfig::has_errors);
         let has_clone_suggested = !suggest_clone_repositories.is_empty();
         if !has_up_config
             && suggest_config.is_none()
@@ -1482,7 +1476,7 @@ impl BuiltinCommand for UpCommand {
                 "up".italic(),
             ));
             UpConfig::clear_cache();
-            exit(0);
+            exit(if has_up_errors { 1 } else { 0 });
         }
 
         let trust = self.trust();
@@ -1546,6 +1540,7 @@ impl BuiltinCommand for UpCommand {
                     suggest_clone,
                     suggest_config_updated,
                     suggest_clone_updated,
+                    if has_up_errors { 1 } else { 0 },
                     &UpOptions::new(),
                 );
                 exit(0);
@@ -1650,6 +1645,7 @@ impl BuiltinCommand for UpCommand {
             suggest_clone,
             suggest_config_updated,
             suggest_clone_updated,
+            if has_up_errors { 1 } else { 0 },
             &options,
         );
     }
@@ -1695,8 +1691,20 @@ fn color_diff(diff: &str) -> String {
         .join("\n")
 }
 
+fn unified_diff(before: &str, after: &str) -> String {
+    let input = InternedInput::new(before, after);
+    let mut diff = Diff::compute(Algorithm::Histogram, &input);
+    diff.postprocess_lines(&input);
+    diff.unified_diff(
+        &BasicLineDiffPrinter(&input.interner),
+        UnifiedDiffConfig::default(),
+        &input,
+    )
+    .to_string()
+}
+
 fn fingerprint<T: Serialize>(value: &T) -> u64 {
-    let string = match serde_yaml::to_string(value) {
+    let string = match feuilletage::to_yaml(value) {
         Ok(string) => string,
         Err(_err) => return 0,
     };

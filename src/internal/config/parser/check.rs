@@ -7,21 +7,89 @@ use serde::Serialize;
 
 use crate::internal::cache::utils::Empty;
 use crate::internal::commands::utils::abs_path_from_path;
-use crate::internal::config::parser::errors::ConfigErrorHandler;
-use crate::internal::config::parser::errors::ConfigErrorKind;
 use crate::internal::config::parser::github::StringFilter;
-use crate::internal::config::ConfigScope;
-use crate::internal::config::ConfigValue;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+// ============================================================================
+// CheckPattern: A pattern string that captures its source context
+// ============================================================================
+//
+// This type captures the source path and level from the ConfigValue during
+// parsing, so that pattern resolution can happen correctly later.
+//
+// - source_path: Used to resolve relative patterns to absolute paths
+// - is_global: Determines if the pattern is from system/user config (global)
+//              vs workdir config (local), which affects path interpretation
+//
+// ============================================================================
+
+fn check_pattern_is_global<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
+    ctx: &feuilletage::Context<S, L>,
+) -> bool {
+    ctx.level.name() != "local"
+}
+
+/// A check pattern that captures its source context during parsing
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(scalar_as = "pattern", skip_serialize, skip_deserialize)]
+pub struct CheckPattern {
+    #[feuilletage(default)]
+    pub pattern: String,
+    #[feuilletage(from_context = "source.file_path")]
+    pub source_path: Option<PathBuf>,
+    #[feuilletage(from_context_fn = "check_pattern_is_global")]
+    pub is_global: bool,
+}
+
+impl CheckPattern {
+    /// Convert to the resolved pattern string
+    pub fn resolve(&self) -> String {
+        match &self.source_path {
+            Some(path) => {
+                let parent = path.parent().unwrap_or(path);
+                let parent_str = parent.to_string_lossy();
+                path_pattern_from_str(&self.pattern, Some(&parent_str), self.is_global)
+            }
+            None => self.pattern.clone(),
+        }
+    }
+}
+
+// Serialize as just the pattern string
+impl Serialize for CheckPattern {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.pattern.serialize(serializer)
+    }
+}
+
+// Deserialize from string (for cache compatibility)
+impl<'de> Deserialize<'de> for CheckPattern {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let pattern = String::deserialize(deserializer)?;
+        // When deserializing from cache, we don't have source context
+        // This is fine because patterns should already be resolved when cached
+        Ok(Self {
+            pattern,
+            source_path: None,
+            is_global: false,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, feuilletage::Config)]
 pub struct CheckConfig {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    patterns: Vec<ConfigValue>,
-    #[serde(skip_serializing_if = "HashSet::is_empty")]
+    #[feuilletage(default, allow_single, skip_if_empty)]
+    patterns: Vec<CheckPattern>,
+    #[feuilletage(default, skip_if_empty)]
     pub ignore: HashSet<String>,
-    #[serde(skip_serializing_if = "HashSet::is_empty")]
+    #[feuilletage(default, skip_if_empty)]
     pub select: HashSet<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[feuilletage(default, allow_list, skip_if_empty)]
     pub tags: HashMap<String, StringFilter>,
 }
 
@@ -31,142 +99,15 @@ impl Empty for CheckConfig {
     }
 }
 
-impl CheckConfig {
-    pub(super) fn from_config_value(
-        config_value: Option<ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => return Self::default(),
-        };
-
-        if !config_value.is_table() {
-            error_handler
-                .with_expected("table")
-                .with_actual(config_value)
-                .error(ConfigErrorKind::InvalidValueType);
-
-            return Self::default();
-        }
-
-        let mut patterns = Vec::new();
-        if let Some(value) = config_value.get("patterns") {
-            if value.as_str_forced().is_some() {
-                patterns.push(value.clone());
-            } else if let Some(array) = value.as_array() {
-                for (idx, value) in array.iter().enumerate() {
-                    if value.as_str_forced().is_some() {
-                        patterns.push(value.clone());
-                    } else {
-                        error_handler
-                            .with_key("patterns")
-                            .with_index(idx)
-                            .with_expected("string")
-                            .with_actual(value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                }
-            } else {
-                error_handler
-                    .with_key("patterns")
-                    .with_expected("string or array of strings")
-                    .with_actual(value)
-                    .error(ConfigErrorKind::InvalidValueType);
-            }
-        }
-
-        let ignore = config_value
-            .get_as_str_array("ignore", &error_handler.with_key("ignore"))
-            .into_iter()
-            .collect();
-        let select = config_value
-            .get_as_str_array("select", &error_handler.with_key("select"))
-            .into_iter()
-            .collect();
-
-        let tags = if let Some(value) = config_value.get("tags") {
-            if let Some(table) = value.as_table() {
-                table
-                    .into_iter()
-                    .map(|(key, value)| {
-                        let filter = StringFilter::from_config_value(
-                            Some(value),
-                            &error_handler.with_key("tags").with_key(&key),
-                        );
-                        (key.clone(), filter)
-                    })
-                    .collect()
-            } else if let Some(array) = value.as_array() {
-                let mut tags = HashMap::new();
-                for (idx, value) in array.iter().enumerate() {
-                    if let Some(value) = value.as_str_forced() {
-                        tags.insert(value.to_string(), StringFilter::default());
-                    } else if let Some(table) = value.as_table() {
-                        for (key, value) in table {
-                            let filter = StringFilter::from_config_value(
-                                Some(value),
-                                &error_handler
-                                    .with_key("tags")
-                                    .with_index(idx)
-                                    .with_key(&key),
-                            );
-                            tags.insert(key.clone(), filter);
-                        }
-                    } else {
-                        error_handler
-                            .with_key("tags")
-                            .with_index(idx)
-                            .with_expected(vec!["string", "table"])
-                            .with_actual(value)
-                            .error(ConfigErrorKind::InvalidValueType);
-                    }
-                }
-                tags
-            } else {
-                error_handler
-                    .with_key("tags")
-                    .with_expected(vec!["table", "array"])
-                    .with_actual(value)
-                    .error(ConfigErrorKind::InvalidValueType);
-
-                HashMap::new()
-            }
-        } else {
-            HashMap::new()
-        };
-
-        Self {
-            patterns,
-            ignore,
-            select,
-            tags,
-        }
-    }
-
-    pub fn patterns(&self) -> Vec<String> {
-        self.patterns
-            .iter()
-            .map(path_pattern_from_config_value)
-            .collect()
+impl feuilletage::IsEmpty for CheckConfig {
+    fn is_empty(&self) -> bool {
+        Empty::is_empty(self)
     }
 }
 
-fn path_pattern_from_config_value(value: &ConfigValue) -> String {
-    let pattern = value.as_str_forced().expect("value should be a string");
-    match value.get_source().path() {
-        Some(path) => {
-            let as_path = PathBuf::from(path);
-            let parent = as_path.parent().unwrap_or(&as_path);
-            let as_str = parent.to_string_lossy();
-
-            path_pattern_from_str(
-                &pattern,
-                Some(&as_str),
-                !matches!(value.get_scope(), ConfigScope::Workdir),
-            )
-        }
-        None => pattern.to_string(),
+impl CheckConfig {
+    pub fn patterns(&self) -> Vec<String> {
+        self.patterns.iter().map(|p| p.resolve()).collect()
     }
 }
 

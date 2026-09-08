@@ -1,15 +1,12 @@
 use std::path::PathBuf;
 
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use serde::Serialize;
 use tokio::process::Command as TokioCommand;
 
 use crate::internal::cache::up_environments::UpEnvVar;
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::EnvOperationEnum;
 use crate::internal::config::up::utils::data_path_dir_hash;
 use crate::internal::config::up::utils::run_progress;
@@ -19,14 +16,16 @@ use crate::internal::config::up::utils::RunConfig;
 use crate::internal::config::up::utils::UpProgressHandler;
 use crate::internal::config::up::UpError;
 use crate::internal::config::up::UpOptions;
-use crate::internal::config::ConfigValue;
 use crate::internal::user_interface::StringColor;
 use crate::internal::workdir;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone, feuilletage::Config)]
+#[feuilletage(skip_serialize)]
 pub struct UpConfigCustom {
+    #[feuilletage(default = "true")]
     pub meet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[feuilletage(rename = "met?")]
     pub met: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unmeet: Option<String>,
@@ -36,6 +35,7 @@ pub struct UpConfigCustom {
     pub dir: Option<String>,
 
     #[serde(skip)]
+    #[feuilletage(skip)]
     data_paths: OnceCell<Vec<PathBuf>>,
 }
 
@@ -54,42 +54,6 @@ impl Default for UpConfigCustom {
 
 impl UpConfigCustom {
     const DEFAULT_MEET: &str = "true";
-
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let config_value = match config_value {
-            Some(config_value) => config_value,
-            None => {
-                error_handler.error(ConfigErrorKind::EmptyKey);
-                return Self::default();
-            }
-        };
-
-        let meet = config_value
-            .get_as_str_or_none("meet", &error_handler.with_key("meet"))
-            .unwrap_or_else(|| {
-                error_handler
-                    .with_key("meet")
-                    .error(ConfigErrorKind::MissingKey);
-
-                Self::DEFAULT_MEET.to_string()
-            });
-        let met = config_value.get_as_str_or_none("met?", &error_handler.with_key("met?"));
-        let unmeet = config_value.get_as_str_or_none("unmeet", &error_handler.with_key("unmeet"));
-        let name = config_value.get_as_str_or_none("name", &error_handler.with_key("name"));
-        let dir = config_value.get_as_str_or_none("dir", &error_handler.with_key("dir"));
-
-        UpConfigCustom {
-            meet,
-            met,
-            unmeet,
-            name,
-            dir,
-            ..Self::default()
-        }
-    }
 
     pub fn dir(&self) -> Option<String> {
         self.dir.as_ref().map(|dir| dir.to_string())

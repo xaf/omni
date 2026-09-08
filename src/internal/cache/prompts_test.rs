@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::internal::testutils::run_with_env;
+use serde_json::json;
 
 mod prompts_cache {
     use super::*;
@@ -12,9 +13,9 @@ mod prompts_cache {
             let org = "testorg";
             let repo = "testrepo";
 
-            // Create test answers
-            let answer1 = serde_yaml::Value::String("answer1".to_string());
-            let answer2 = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
+            // Create test answers using serde_json::Value
+            let answer1 = json!("answer1");
+            let answer2 = json!({});
 
             // Add answers
             assert!(cache
@@ -49,8 +50,8 @@ mod prompts_cache {
             let org = "testorg";
             let repo = "testrepo";
 
-            let org_answer = serde_yaml::Value::String("org_answer".to_string());
-            let repo_answer = serde_yaml::Value::String("repo_answer".to_string());
+            let org_answer = json!("org_answer");
+            let repo_answer = json!("repo_answer");
 
             // Add org-level answer
             assert!(cache
@@ -83,8 +84,8 @@ mod prompts_cache {
             let repo = "testrepo";
             let prompt_id = "prompt1";
 
-            let org_answer = serde_yaml::Value::String("org_answer".to_string());
-            let repo_answer = serde_yaml::Value::String("repo_answer".to_string());
+            let org_answer = json!("org_answer");
+            let repo_answer = json!("repo_answer");
 
             // Add org-level answer
             assert!(cache
@@ -138,8 +139,8 @@ mod prompts_cache {
             let repo = "testrepo";
             let prompt_id = "prompt1";
 
-            let answer1 = serde_yaml::Value::String("answer1".to_string());
-            let answer2 = serde_yaml::Value::String("answer2".to_string());
+            let answer1 = json!("answer1");
+            let answer2 = json!("answer2");
 
             // Add multiple answers for same prompt
             assert!(cache
@@ -168,7 +169,7 @@ mod prompts_cache {
             let org = "testorg";
 
             // Add answer with no repo
-            let answer = serde_yaml::Value::String("org_level".to_string());
+            let answer = json!("org_level");
             assert!(cache
                 .add_answer("prompt1", org.to_string(), None, answer.clone())
                 .expect("Failed to add org-level answer"));
@@ -186,7 +187,7 @@ mod prompts_cache {
             let cache = PromptsCache::get();
             let org = "TestOrg";
             let repo = "TestRepo";
-            let answer = serde_yaml::Value::String("test".to_string());
+            let answer = json!("test");
 
             // Add answer with uppercase
             assert!(cache
@@ -220,7 +221,7 @@ mod prompts_cache {
 
             // Non-existent repo for existing org
             let org = "testorg";
-            let answer = serde_yaml::Value::String("test".to_string());
+            let answer = json!("test");
             assert!(cache
                 .add_answer("prompt1", org.to_string(), None, answer)
                 .expect("Failed to add answer"));
@@ -231,34 +232,24 @@ mod prompts_cache {
     }
 
     #[test]
-    fn test_yaml_value_types() {
+    fn test_json_value_types() {
         run_with_env(&[], || {
             let cache = PromptsCache::get();
             let org = "testorg";
             let repo = "testrepo";
 
-            // Test different YAML value types
-            let values = [
+            // Test different Value types using serde_json::Value
+            let values = vec![
                 // Array
-                serde_yaml::Value::Sequence(vec![
-                    serde_yaml::Value::String("item1".to_string()),
-                    serde_yaml::Value::String("item2".to_string()),
-                ]),
-                // Number
-                serde_yaml::Value::Number(serde_yaml::Number::from(42)),
+                json!(["item1", "item2"]),
+                // Number (integer)
+                json!(42),
                 // Boolean
-                serde_yaml::Value::Bool(true),
+                json!(true),
                 // Null
-                serde_yaml::Value::Null,
-                // Complex mapping
-                {
-                    let mut map = serde_yaml::Mapping::new();
-                    map.insert(
-                        serde_yaml::Value::String("key".to_string()),
-                        serde_yaml::Value::String("value".to_string()),
-                    );
-                    serde_yaml::Value::Mapping(map)
-                },
+                json!(null),
+                // Complex object
+                json!({"key": "value"}),
             ];
 
             // Add and verify each type

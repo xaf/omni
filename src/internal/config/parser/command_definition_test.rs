@@ -2678,144 +2678,294 @@ mod parse_arg_name {
     }
 }
 
-mod syntax_opt_arg_type {
+mod command_syntax_feuilletage_projection {
+    use feuilletage::FromContextValue;
+
     use super::*;
-    use crate::internal::config::ConfigValue;
+
+    fn parse(
+        yaml: &str,
+    ) -> (
+        Result<CommandSyntax, feuilletage::Error>,
+        FeuilletageErrorTracker,
+    ) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let result = CommandSyntax::from_context_value(config.root(), &mut tracker);
+        (result, tracker)
+    }
+
+    fn parse_parameter_type(yaml: &str) -> (SyntaxOptArgType, FeuilletageErrorTracker) {
+        let (syntax, tracker) = parse(yaml);
+        let mut syntax = syntax.unwrap();
+        (syntax.parameters.remove(0).arg_type, tracker)
+    }
 
     #[test]
-    fn test_from_config_value_list_as_enum() {
-        let error_handler = ConfigErrorHandler::default();
+    fn parses_basic_parameter_types_through_typed_projection() {
+        for (name, expected) in [
+            ("int", SyntaxOptArgType::Integer),
+            ("float", SyntaxOptArgType::Float),
+            ("bool", SyntaxOptArgType::Boolean),
+            ("flag", SyntaxOptArgType::Flag),
+            ("count", SyntaxOptArgType::Counter),
+            ("string", SyntaxOptArgType::String),
+            ("path", SyntaxOptArgType::DirPath),
+            ("file", SyntaxOptArgType::FilePath),
+            ("repopath", SyntaxOptArgType::RepoPath),
+            (
+                "array/int",
+                SyntaxOptArgType::Array(Box::new(SyntaxOptArgType::Integer)),
+            ),
+        ] {
+            let (actual, tracker) =
+                parse_parameter_type(&format!("parameters:\n  - name: value\n    type: {name}\n"));
+            assert_eq!(actual, expected, "{name}");
+            assert!(
+                tracker.errors().is_empty(),
+                "{name}: {:?}",
+                tracker.errors()
+            );
+        }
+    }
 
-        // Test with array of strings as type
-        let type_value = ConfigValue::from_str("[debug, info, warn, error]").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+    #[test]
+    fn parses_empty_type_list_as_empty_enum() {
+        let (arg_type, tracker) =
+            parse_parameter_type("parameters:\n  - name: value\n    type: []\n");
+
+        assert_eq!(arg_type, SyntaxOptArgType::Enum(Vec::new()));
+        assert!(tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn parses_single_item_type_list_as_enum() {
+        let (arg_type, tracker) =
+            parse_parameter_type("parameters:\n  - name: value\n    type: [int]\n");
+
+        assert_eq!(arg_type, SyntaxOptArgType::Enum(vec!["int".to_string()]));
+        assert!(tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn parses_type_list_as_enum() {
+        let (arg_type, tracker) =
+            parse_parameter_type("parameters:\n  - name: value\n    type: [one, two]\n");
 
         assert_eq!(
-            result,
-            Some(SyntaxOptArgType::Enum(vec![
-                "debug".to_string(),
-                "info".to_string(),
-                "warn".to_string(),
-                "error".to_string(),
-            ]))
+            arg_type,
+            SyntaxOptArgType::Enum(vec!["one".to_string(), "two".to_string()])
         );
+        assert!(tracker.errors().is_empty());
     }
 
     #[test]
-    fn test_from_config_value_traditional_enum() {
-        let error_handler = ConfigErrorHandler::default();
+    fn parses_inline_enum_type() {
+        let (arg_type, tracker) =
+            parse_parameter_type("parameters:\n  - name: value\n    type: enum(one, two)\n");
 
-        // Test traditional enum syntax with separate values
-        let type_value = ConfigValue::from_str("enum").unwrap();
-        let values_value = ConfigValue::from_str("[one, two, three]").unwrap();
-        let result = SyntaxOptArgType::from_config_value(
-            Some(&type_value),
-            Some(&values_value),
-            None,
-            &error_handler,
+        assert_eq!(
+            arg_type,
+            SyntaxOptArgType::Enum(vec!["one".to_string(), "two".to_string()])
+        );
+        assert!(tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn parses_traditional_enum_type_and_values() {
+        let (arg_type, tracker) = parse_parameter_type(
+            "parameters:\n  - name: value\n    type: enum\n    values: [one, two]\n",
         );
 
         assert_eq!(
-            result,
-            Some(SyntaxOptArgType::Enum(vec![
-                "one".to_string(),
-                "two".to_string(),
-                "three".to_string(),
-            ]))
+            arg_type,
+            SyntaxOptArgType::Enum(vec!["one".to_string(), "two".to_string()])
         );
+        assert!(tracker.errors().is_empty());
     }
 
     #[test]
-    fn test_from_config_value_inline_enum() {
-        let error_handler = ConfigErrorHandler::default();
-
-        // Test inline enum syntax
-        let type_value = ConfigValue::from_str("enum(fast, safe, rollback)").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+    fn type_list_takes_precedence_over_values_field() {
+        let (arg_type, tracker) = parse_parameter_type(
+            "parameters:\n  - name: value\n    type: [one, two]\n    values: [ignored]\n",
+        );
 
         assert_eq!(
-            result,
-            Some(SyntaxOptArgType::Enum(vec![
-                "fast".to_string(),
-                "safe".to_string(),
-                "rollback".to_string(),
-            ]))
+            arg_type,
+            SyntaxOptArgType::Enum(vec!["one".to_string(), "two".to_string()])
         );
+        assert!(tracker.errors().is_empty());
     }
 
     #[test]
-    fn test_from_config_value_basic_types() {
-        let error_handler = ConfigErrorHandler::default();
+    fn preserves_scalar_object_and_array_input_forms() {
+        let (scalar, scalar_tracker) = parse("deploy [TARGET]\n");
+        let (object, object_tracker) = parse(
+            "usage: deploy [TARGET]\narguments:\n  TARGET: deployment target\noptions:\n  --force: force deployment\n",
+        );
+        let (array, array_tracker) = parse("- TARGET\n- --force\n");
 
-        // Test basic string type
-        let type_value = ConfigValue::from_str("str").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
-        assert_eq!(result, Some(SyntaxOptArgType::String));
-
-        // Test integer type
-        let type_value = ConfigValue::from_str("int").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
-        assert_eq!(result, Some(SyntaxOptArgType::Integer));
-
-        // Test boolean type
-        let type_value = ConfigValue::from_str("bool").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
-        assert_eq!(result, Some(SyntaxOptArgType::Boolean));
+        assert_eq!(scalar.unwrap().usage.as_deref(), Some("deploy [TARGET]"));
+        let object = object.unwrap();
+        assert_eq!(object.usage.as_deref(), Some("deploy [TARGET]"));
+        assert_eq!(object.parameters.len(), 2);
+        assert!(object.parameters[0].required);
+        assert!(!object.parameters[1].required);
+        assert_eq!(array.unwrap().parameters.len(), 2);
+        assert!(scalar_tracker.errors().is_empty());
+        assert!(object_tracker.errors().is_empty());
+        assert!(array_tracker.errors().is_empty());
     }
 
     #[test]
-    fn test_from_config_value_empty_list() {
-        let error_handler = ConfigErrorHandler::default();
-
-        // Test with empty array
-        let type_value = ConfigValue::from_str("[]").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
-
-        assert_eq!(result, Some(SyntaxOptArgType::Enum(vec![])));
-    }
-
-    #[test]
-    fn test_from_config_value_single_item_list() {
-        let error_handler = ConfigErrorHandler::default();
-
-        // Test with single item array
-        let type_value = ConfigValue::from_str("[debug]").unwrap();
-        let result =
-            SyntaxOptArgType::from_config_value(Some(&type_value), None, None, &error_handler);
+    fn keeps_valid_parameters_when_a_sibling_is_invalid() {
+        let (syntax, tracker) =
+            parse("parameters:\n  - --valid\n  - name: [not, a, string]\n  - --also-valid\n");
+        let syntax = syntax.unwrap();
 
         assert_eq!(
-            result,
-            Some(SyntaxOptArgType::Enum(vec!["debug".to_string()]))
+            syntax
+                .parameters
+                .iter()
+                .map(SyntaxOptArg::name)
+                .collect::<Vec<_>>(),
+            vec!["--valid", "--also-valid"]
+        );
+        assert_eq!(tracker.errors().len(), 1, "{:?}", tracker.errors());
+        assert_eq!(tracker.errors()[0].location(), "parameters.1.name");
+    }
+
+    #[test]
+    fn preserves_parameter_aliases_and_required_defaults() {
+        let (syntax, tracker) = parse(
+            "parameters: --parameter\narguments: ARGUMENT\nargument: ARG\noptions: --options\noption: --option\noptional: --optional\n",
+        );
+        let syntax = syntax.unwrap();
+
+        assert_eq!(
+            syntax
+                .parameters
+                .iter()
+                .map(|parameter| (parameter.name(), parameter.required))
+                .collect::<Vec<_>>(),
+            vec![
+                ("--parameter".to_string(), false),
+                ("ARGUMENT".to_string(), true),
+                ("ARG".to_string(), true),
+                ("--options".to_string(), false),
+                ("--option".to_string(), false),
+                ("--optional".to_string(), false),
+            ]
+        );
+        assert!(tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn parses_compact_parameters_groups_and_nested_options() {
+        let (syntax, tracker) = parse(
+            "parameters:\n  --mode:\n    aliases: -m\n    type: enum\n    values: debug,info\n    delimiter: ','\n    num_values: 1..=2\n    default_missing_value: debug\n    required_if_eq:\n      format: json\n  --format: string\ngroups:\n  output:\n    parameters: [--mode, --format]\n    multiple: true\n    required: true\n    requires: --mode\n    conflicts_with: legacy\n",
+        );
+        let syntax = syntax.unwrap();
+        let mode = syntax
+            .parameters
+            .iter()
+            .find(|parameter| parameter.name() == "--mode")
+            .unwrap();
+
+        assert_eq!(mode.names, vec!["--mode", "-m"]);
+        assert_eq!(
+            mode.arg_type,
+            SyntaxOptArgType::Enum(vec!["debug".to_string(), "info".to_string()])
+        );
+        assert_eq!(mode.num_values, Some(SyntaxOptArgNumValues::Between(1, 2)));
+        assert_eq!(mode.value_delimiter, Some(','));
+        assert_eq!(
+            mode.required_if_eq,
+            HashMap::from([("format".to_string(), "json".to_string())])
+        );
+        assert_eq!(syntax.groups.len(), 1);
+        assert_eq!(syntax.groups[0].name, "output");
+        assert!(syntax.groups[0].multiple);
+        assert!(syntax.groups[0].required);
+        assert_eq!(syntax.groups[0].requires, vec!["--mode"]);
+        assert_eq!(syntax.groups[0].conflicts_with, vec!["legacy"]);
+        assert!(tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn semantic_diagnostics_keep_the_parameter_path_and_partial_success() {
+        let (syntax, tracker) = parse(
+            "parameters:\n  - name: --bad-type\n    type: mystery\n  - name: --bad-range\n    num_values: 3..2\n  - --valid\n",
+        );
+        let syntax = syntax.unwrap();
+
+        assert_eq!(
+            syntax
+                .parameters
+                .iter()
+                .map(SyntaxOptArg::name)
+                .collect::<Vec<_>>(),
+            vec!["--bad-type", "--bad-range", "--valid"]
+        );
+        assert_eq!(
+            tracker
+                .errors()
+                .iter()
+                .map(feuilletage::Error::location)
+                .collect::<Vec<_>>(),
+            vec!["parameters.0.type", "parameters.1.num_values"]
         );
     }
 
     #[test]
-    fn test_from_config_value_precedence() {
-        let error_handler = ConfigErrorHandler::default();
+    fn preserves_shape_dependent_defaults_and_scalar_compact_values() {
+        let (scalar, scalar_tracker) = parse("arguments: FILES...\n");
+        let (object, object_tracker) =
+            parse("arguments:\n  FILES...:\n    required: false\noptions:\n  --count: 123\n");
 
-        // Test that list syntax takes precedence over values field
-        let type_value = ConfigValue::from_str("[debug, info]").unwrap();
-        let values_value = ConfigValue::from_str("[ignored, values]").unwrap();
-        let result = SyntaxOptArgType::from_config_value(
-            Some(&type_value),
-            Some(&values_value),
-            None,
-            &error_handler,
+        assert!(scalar.unwrap().parameters[0].leftovers);
+        let object = object.unwrap();
+        assert!(!object.parameters[0].leftovers);
+        assert!(!object.parameters[0].required);
+        assert_eq!(object.parameters[1].desc, None);
+        assert!(scalar_tracker.errors().is_empty());
+        assert!(object_tracker.errors().is_empty());
+    }
+
+    #[test]
+    fn group_semantic_diagnostics_keep_the_group_index() {
+        let (syntax, tracker) =
+            parse("usage: test\ngroups:\n  - name: empty\n    parameters: []\n");
+
+        assert!(syntax.unwrap().groups.is_empty());
+        assert_eq!(tracker.errors().len(), 1, "{:?}", tracker.errors());
+        assert_eq!(tracker.errors()[0].location(), "groups.0.parameters");
+    }
+
+    #[test]
+    fn strict_scalar_diagnostics_are_not_duplicated() {
+        let (syntax, tracker) = parse(
+            "usage: false\nparameters:\n  - name: --flag\n    required: string\n  - --valid\n",
         );
 
-        // Should use the list from type, not values
+        assert_eq!(syntax.unwrap().parameters.len(), 2);
+        assert_eq!(tracker.errors().len(), 2, "{:?}", tracker.errors());
+        assert_eq!(tracker.errors()[0].location(), "usage");
+        assert_eq!(tracker.errors()[1].location(), "parameters.0.required");
+    }
+
+    #[test]
+    fn serialization_keeps_the_public_command_syntax_shape() {
+        let (syntax, tracker) = parse("usage: deploy\noptions: --force\n");
+        let syntax = syntax.unwrap();
+
         assert_eq!(
-            result,
-            Some(SyntaxOptArgType::Enum(vec![
-                "debug".to_string(),
-                "info".to_string(),
-            ]))
+            serde_yaml::to_string(&syntax).unwrap(),
+            "usage: deploy\nparameters:\n- names:\n  - --force\n"
         );
+        assert!(tracker.errors().is_empty());
     }
 }

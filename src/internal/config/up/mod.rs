@@ -42,7 +42,6 @@ pub(crate) mod mise;
 pub(crate) use mise::mise_tool_path;
 pub(crate) use mise::MiseToolUpVersion;
 pub(crate) use mise::UpConfigMise;
-pub(crate) use mise::UpConfigMiseParams;
 
 pub(crate) mod error;
 pub(crate) use error::UpError;

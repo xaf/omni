@@ -98,7 +98,7 @@ impl UpEnvironmentsCache {
             .prepare(include_str!(
                 "database/sql/up_environments_get_stale_open_workdir_ids.sql"
             ))?
-            .query_map(params![retention_stale], |row| row.get(0))?
+            .query_map(params![retention_stale as i64], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
 
         if stale_workdir_ids.is_empty() {
@@ -142,7 +142,8 @@ impl UpEnvironmentsCache {
         let mut db = CacheManager::get();
         db.transaction(|tx| {
             // Check if the environment with the given id already exists
-            new_env = match tx.query_one::<bool>(
+            new_env = match RowExt::query_one::<bool>(
+                tx,
                 include_str!("database/sql/up_environments_check_env_version_exists.sql"),
                 params![&env_version_id],
             ) {
@@ -167,7 +168,8 @@ impl UpEnvironmentsCache {
             }
 
             // Check if this is a new active environment for the work directory
-            replace_env = match tx.query_one::<String>(
+            replace_env = match RowExt::query_one::<String>(
+                tx,
                 include_str!("database/sql/up_environments_get_workdir_env.sql"),
                 params![&workdir_id],
             ) {
@@ -187,7 +189,8 @@ impl UpEnvironmentsCache {
             // Check if the currently active open entry is for a different
             // env_version_id or head_sha, in which case we can close the current
             // entry and open a new one
-            let replace_history: bool = match tx.query_one::<(String, Option<String>)>(
+            let replace_history: bool = match RowExt::query_one::<(String, Option<String>)>(
+                tx,
                 include_str!("database/sql/up_environments_get_workdir_history_open.sql"),
                 params![&workdir_id],
             ) {
@@ -225,17 +228,17 @@ impl UpEnvironmentsCache {
             if cache_env_config.retention > 0 {
                 tx.execute(
                     include_str!("database/sql/up_environments_cleanup_history_retention.sql"),
-                    params![&cache_env_config.retention],
+                    params![cache_env_config.retention as i64],
                 )?;
             }
 
             tx.execute(
                 include_str!("database/sql/up_environments_cleanup_history_max_per_workdir.sql"),
-                params![&cache_env_config.max_per_workdir],
+                params![cache_env_config.max_per_workdir.map(|value| value as i64)],
             )?;
             tx.execute(
                 include_str!("database/sql/up_environments_cleanup_history_max_total.sql"),
-                params![&cache_env_config.max_total],
+                params![cache_env_config.max_total.map(|value| value as i64)],
             )?;
             tx.execute(
                 include_str!("database/sql/up_environments_delete_orphaned_env.sql"),

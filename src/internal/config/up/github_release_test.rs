@@ -1,27 +1,156 @@
 use super::*;
 
-mod multi_from_config_value {
+mod asset_name_matcher_from_context_value {
+    use feuilletage::FromContextValue;
+
     use super::*;
+
+    fn parse(
+        yaml: &str,
+    ) -> (
+        Result<AssetNameMatcher, feuilletage::Error>,
+        feuilletage::ErrorTracker,
+    ) {
+        let context =
+            feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User);
+        let mut config = feuilletage::Config::default();
+        config.load_yaml(yaml, context);
+        let mut tracker = feuilletage::ErrorTracker::new();
+        let result = AssetNameMatcher::from_context_value(config.root(), &mut tracker);
+        (result, tracker)
+    }
+
+    #[test]
+    fn accepts_string_array_and_object_forms() {
+        let (string, tracker) = parse("|-\n  *.tar.gz\n  *.zip\n");
+        let string = string.unwrap();
+        assert_eq!(string.patterns, vec!["*.tar.gz", "*.zip"]);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+
+        let (array, tracker) = parse("['*.tar.gz', 42, '  ', '*.zip']");
+        let array = array.unwrap();
+        assert_eq!(array.patterns, vec!["*.tar.gz", "*.zip"]);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+
+        let yaml = format!(
+            "os: {}\narch: {}\npatterns: |-\n  *.tar.gz\n  *.zip\n",
+            current_os(),
+            current_arch()
+        );
+        let (object, tracker) = parse(&yaml);
+        let object = object.unwrap();
+        assert!(object.enabled());
+        assert_eq!(object.patterns, vec!["*.tar.gz", "*.zip"]);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+
+        let (object_array, tracker) = parse("patterns: ['*.tar.gz', '  ', '*.zip']\n");
+        let object_array = object_array.unwrap();
+        assert_eq!(object_array.patterns, vec!["*.tar.gz", "*.zip"]);
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn os_and_arch_mismatches_disable_matcher() {
+        for yaml in [
+            "os: definitely-not-this-os\npatterns: '*'\n",
+            "arch: definitely-not-this-arch\npatterns: '*'\n",
+        ] {
+            let (matcher, tracker) = parse(yaml);
+            let matcher = matcher.unwrap();
+            assert!(!matcher.enabled());
+            assert!(!matcher.matches("anything"));
+            assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+        }
+    }
+
+    #[test]
+    fn preserves_serialized_shape_without_runtime_state() {
+        let yaml = format!(
+            "os: definitely-not-this-os\narch: {}\npatterns: |\n  *.tar.gz\n  *.zip\n",
+            current_arch(),
+        );
+        let (matcher, tracker) = parse(&yaml);
+        let matcher = matcher.unwrap();
+        assert!(!matcher.enabled());
+
+        assert_eq!(
+            serde_json::to_value(matcher).unwrap(),
+            serde_json::json!({
+                "os": "definitely-not-this-os",
+                "arch": current_arch(),
+                "patterns": ["*.tar.gz", "*.zip"]
+            })
+        );
+        assert!(tracker.errors().is_empty(), "{:#?}", tracker.errors());
+    }
+
+    #[test]
+    fn preserves_top_level_and_nested_diagnostics() {
+        let (invalid, tracker) = parse("true");
+        assert!(matches!(
+            invalid,
+            Err(feuilletage::Error::TypeMismatch {
+                expected,
+                actual,
+                ..
+            }) if expected == "string, array, or object" && actual == "bool"
+        ));
+        assert_eq!(tracker.errors().len(), 1);
+
+        let (invalid, tracker) = parse("patterns: true\n");
+        assert!(matches!(
+            invalid,
+            Err(feuilletage::Error::TypeMismatch { .. })
+        ));
+        let diagnostics = format!("{:#?}", tracker.errors());
+        assert!(diagnostics.contains("patterns"), "{diagnostics}");
+        assert!(diagnostics.contains("string or array"), "{diagnostics}");
+    }
+}
+
+mod multi_from_context_value {
+    use super::*;
+    use crate::internal::config::FeuilletageConfigContext;
+    use crate::internal::config::FeuilletageConfigLevel;
+    use crate::internal::config::FeuilletageConfigSource;
+    use crate::internal::config::FeuilletageConfigValue;
+    use feuilletage::ErrorTracker as FeuilletageErrorTracker;
+    use feuilletage::FromContextValue as FeuilletageFromContextValue;
+    use feuilletage::Config as FeuilletageConfig;
+
+    fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
+        let ctx = FeuilletageConfigContext::new(
+            FeuilletageConfigSource::Programmatic,
+            FeuilletageConfigLevel::User,
+        );
+        let mut config = FeuilletageConfig::default();
+        config.load_yaml(yaml, ctx);
+        config.root().clone()
+    }
 
     #[test]
     fn empty() {
         let yaml = "";
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 0);
     }
 
     #[test]
     fn str() {
         let yaml = "owner/repo";
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 1);
         assert_eq!(config.releases[0].repository, "owner/repo");
         assert_eq!(config.releases[0].version, None);
@@ -34,11 +163,13 @@ mod multi_from_config_value {
     #[test]
     fn object_single() {
         let yaml = r#"{"repository": "owner/repo"}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 1);
         assert_eq!(config.releases[0].repository, "owner/repo");
         assert_eq!(config.releases[0].version, None);
@@ -51,11 +182,13 @@ mod multi_from_config_value {
     #[test]
     fn object_multi() {
         let yaml = r#"{"owner/repo": "1.2.3", "owner2/repo2": {"version": "2.3.4", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}, "owner3/repo3": {}}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 3);
 
         assert_eq!(config.releases[0].repository, "owner/repo");
@@ -86,11 +219,13 @@ mod multi_from_config_value {
     #[test]
     fn list_multi() {
         let yaml = r#"["owner/repo", {"repository": "owner2/repo2", "version": "2.3.4", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}, {"owner3/repo3": "3.4.5"}, {"owner4/repo4": {"version": "4.5.6"}}]"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubReleases::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubReleases as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.releases.len(), 4);
 
         assert_eq!(config.releases[0].repository, "owner/repo");
@@ -126,17 +261,36 @@ mod multi_from_config_value {
     }
 }
 
-mod single_from_config_value {
+mod single_from_context_value {
     use super::*;
+    use crate::internal::config::FeuilletageConfigContext;
+    use crate::internal::config::FeuilletageConfigLevel;
+    use crate::internal::config::FeuilletageConfigSource;
+    use crate::internal::config::FeuilletageConfigValue;
+    use feuilletage::ErrorTracker as FeuilletageErrorTracker;
+    use feuilletage::FromContextValue as FeuilletageFromContextValue;
+    use feuilletage::Config as FeuilletageConfig;
+
+    fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
+        let ctx = FeuilletageConfigContext::new(
+            FeuilletageConfigSource::Programmatic,
+            FeuilletageConfigLevel::User,
+        );
+        let mut config = FeuilletageConfig::default();
+        config.load_yaml(yaml, ctx);
+        config.root().clone()
+    }
 
     #[test]
     fn str() {
         let yaml = "owner/repo";
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubRelease::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.repository, "owner/repo");
         assert_eq!(config.version, None);
         assert!(!config.prerelease);
@@ -148,11 +302,13 @@ mod single_from_config_value {
     #[test]
     fn object() {
         let yaml = r#"{"repository": "owner/repo"}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubRelease::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.repository, "owner/repo");
         assert_eq!(config.version, None);
         assert!(!config.prerelease);
@@ -164,11 +320,13 @@ mod single_from_config_value {
     #[test]
     fn object_repo_alias() {
         let yaml = r#"{"repo": "owner/repo"}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubRelease::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.repository, "owner/repo");
         assert_eq!(config.version, None);
         assert!(!config.prerelease);
@@ -180,11 +338,13 @@ mod single_from_config_value {
     #[test]
     fn with_all_values() {
         let yaml = r#"{"repository": "owner/repo", "version": "1.2.3", "prerelease": true, "build": true, "binary": false, "api_url": "https://gh.example.com"}"#;
-        let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-        let config = UpConfigGithubRelease::from_config_value(
-            Some(&config_value),
-            &ConfigErrorHandler::noop(),
-        );
+        let config_value = parse_yaml(yaml);
+        let mut tracker = FeuilletageErrorTracker::new();
+        let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
+            &config_value,
+            &mut tracker,
+        )
+        .unwrap();
         assert_eq!(config.repository, "owner/repo");
         assert_eq!(config.version, Some("1.2.3".to_string()));
         assert!(config.prerelease);
@@ -838,8 +998,25 @@ mod immutable_filtering {
     use super::*;
     use crate::internal::cache::github_release::GithubReleasesSelector;
     use crate::internal::cache::github_release::{GithubReleaseVersion, GithubReleases};
+    use crate::internal::config::FeuilletageConfigContext;
+    use crate::internal::config::FeuilletageConfigLevel;
+    use crate::internal::config::FeuilletageConfigSource;
+    use crate::internal::config::FeuilletageConfigValue;
+    use feuilletage::ErrorTracker as FeuilletageErrorTracker;
+    use feuilletage::FromContextValue as FeuilletageFromContextValue;
     use crate::internal::testutils::run_with_env;
+    use feuilletage::Config as FeuilletageConfig;
     use time::OffsetDateTime;
+
+    fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
+        let ctx = FeuilletageConfigContext::new(
+            FeuilletageConfigSource::Programmatic,
+            FeuilletageConfigLevel::User,
+        );
+        let mut config = FeuilletageConfig::default();
+        config.load_yaml(yaml, ctx);
+        config.root().clone()
+    }
 
     #[test]
     fn test_immutable_false_accepts_both() {
@@ -929,22 +1106,26 @@ mod immutable_filtering {
         run_with_env(&[], || {
             // Test that immutable field is parsed correctly from YAML
             let yaml = r#"{"repository": "owner/repo", "immutable": true}"#;
-            let config_value = ConfigValue::from_str(yaml).expect("failed to create config value");
-            let config = UpConfigGithubRelease::from_config_value(
-                Some(&config_value),
-                &ConfigErrorHandler::noop(),
-            );
+            let config_value = parse_yaml(yaml);
+            let mut tracker = FeuilletageErrorTracker::new();
+            let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
+                &config_value,
+                &mut tracker,
+            )
+            .unwrap();
             assert_eq!(config.repository, "owner/repo");
             assert!(config.immutable);
 
             // Test default value (should be false)
             let yaml2 = r#"{"repository": "owner/repo"}"#;
-            let config_value2 =
-                ConfigValue::from_str(yaml2).expect("failed to create config value");
-            let config2 = UpConfigGithubRelease::from_config_value(
-                Some(&config_value2),
-                &ConfigErrorHandler::noop(),
-            );
+            let config_value2 = parse_yaml(yaml2);
+            let mut tracker2 = FeuilletageErrorTracker::new();
+            let config2 =
+                <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
+                    &config_value2,
+                    &mut tracker2,
+                )
+                .unwrap();
             assert_eq!(config2.repository, "owner/repo");
             assert!(!config2.immutable);
         });

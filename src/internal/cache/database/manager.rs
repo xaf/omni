@@ -83,7 +83,7 @@ impl RowExt for CacheManager {
         query: &str,
         params: &[&dyn rusqlite::ToSql],
     ) -> Result<T, CacheManagerError> {
-        self.conn.query_one(query, params)
+        <Connection as RowExt>::query_one(&self.conn, query, params)
     }
 
     fn query_one_optional<T: FromRow>(

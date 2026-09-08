@@ -6,7 +6,6 @@ pub(crate) use commands::command_loader;
 pub(crate) mod config;
 pub(crate) use config::config;
 pub(crate) use config::ConfigLoader;
-pub(crate) use config::ConfigValue;
 
 pub(crate) mod env;
 pub(crate) use env::git_env;

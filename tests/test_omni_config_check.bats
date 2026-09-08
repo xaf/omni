@@ -45,9 +45,9 @@ EOF
   echo "OUTPUT: $output"
   [ "$status" -eq 1 ]
 
-  [[ "${output}" == *".omni.yaml:0:C002:value for key 'up[0].go-install' is empty"* ]]
-  [[ "${output}" == *".omni.yaml:0:C002:value for key 'up[1].cargo-install' is empty"* ]]
-  [[ "${output}" == *".omni.yaml:0:C002:value for key 'up[2].github-release' is empty"* ]]
+  [[ "${output}" == *".omni.yaml:0:C002:error at config path 'up.0.go-install': operation details are empty"* ]]
+  [[ "${output}" == *".omni.yaml:0:C002:error at config path 'up.1.cargo-install': operation details are empty"* ]]
+  [[ "${output}" == *".omni.yaml:0:C002:error at config path 'up.2.github-release': operation details are empty"* ]]
 }
 
 # bats test_tags=omni:config,omni:config:check
@@ -64,9 +64,9 @@ EOF
   echo "OUTPUT: $output"
   [ "$status" -eq 1 ]
 
-  [[ "${output}" == *".omni.yaml:0:C101:value for key 'up[0].go-install' should be any type of [\"string\", \"array\", \"table\"] but found Null"* ]]
-  [[ "${output}" == *".omni.yaml:0:C101:value for key 'up[1].cargo-install' should be any type of [\"string\", \"array\", \"table\"] but found Null"* ]]
-  [[ "${output}" == *".omni.yaml:0:C101:value for key 'up[2].github-release' should be any type of [\"string\", \"array\", \"table\"] but found Null"* ]]
+  [[ "${output}" == *".omni.yaml:0:C002:error at config path 'up.0.go-install': operation details are empty"* ]]
+  [[ "${output}" == *".omni.yaml:0:C002:error at config path 'up.1.cargo-install': operation details are empty"* ]]
+  [[ "${output}" == *".omni.yaml:0:C002:error at config path 'up.2.github-release': operation details are empty"* ]]
 }
 
 # bats test_tags=generate,omni:config,omni:config:check

@@ -11,8 +11,6 @@ use tokio::process::Command as TokioCommand;
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::commands::utils::abs_path;
 use crate::internal::config::global_config;
-use crate::internal::config::parser::ConfigErrorHandler;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::up::github_release::UpConfigGithubRelease;
 use crate::internal::config::up::mise::FullyQualifiedToolName;
 use crate::internal::config::up::mise::PostInstallFuncArgs;
@@ -32,78 +30,55 @@ use crate::internal::env::current_dir;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::env::workdir;
 use crate::internal::user_interface::StringColor;
-use crate::internal::ConfigValue;
 
 const MIN_VERSION_VENV: Version = Version::new(3, 3, 0);
 // const MIN_VERSION_VIRTUALENV: Version = Version::new(2, 6, 0);
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct UpConfigPythonParams {
-    #[serde(default, rename = "pip", skip_serializing_if = "Vec::is_empty")]
-    pip_files: Vec<String>,
-    #[serde(default, skip)]
-    pip_auto: bool,
-    #[serde(default, skip)]
-    pip_disabled: bool,
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(untagged, skip_serialize)]
+#[derive(Default)]
+pub enum PipConfig {
+    #[feuilletage(variant = false)]
+    Disabled,
+    #[feuilletage(variant = true, variant = "auto")]
+    #[default]
+    Auto,
+    #[feuilletage(allow_single)]
+    Files(Vec<String>),
 }
 
-impl UpConfigPythonParams {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut pip_files = Vec::new();
-        let mut pip_auto = false;
-        let mut pip_disabled = false;
 
-        if let Some(config_value) = config_value {
-            if let Some(pip) = config_value.get("pip") {
-                let error_handler = error_handler.with_key("pip");
-                if let Some(pip_array) = pip.as_array() {
-                    for (idx, file_path) in pip_array.iter().enumerate() {
-                        if let Some(file_path) = file_path.as_str_forced() {
-                            pip_files.push(file_path.to_string());
-                        } else {
-                            error_handler
-                                .with_index(idx)
-                                .with_expected("string")
-                                .with_actual(file_path)
-                                .error(ConfigErrorKind::InvalidValueType);
-                        }
-                    }
-                } else if let Some(value) = pip.as_bool_forced() {
-                    if value {
-                        pip_auto = true;
-                    } else {
-                        pip_disabled = true;
-                    }
-                } else if let Some(file_path) = pip.as_str_forced() {
-                    match file_path.as_str() {
-                        "auto" => pip_auto = true,
-                        _ => pip_files.push(file_path),
-                    }
-                } else {
-                    error_handler
-                        .with_expected(vec!["string", "sequence", "boolean"])
-                        .with_actual(pip)
-                        .error(ConfigErrorKind::InvalidValueType);
-                }
-            }
-        }
+impl PipConfig {
+    fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
+    }
+}
 
-        Self {
-            pip_files,
-            pip_auto,
-            pip_disabled,
+impl Serialize for PipConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        match self {
+            Self::Disabled => serializer.serialize_bool(false),
+            Self::Auto => serializer.serialize_str("auto"),
+            Self::Files(files) => files.serialize(serializer),
         }
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Clone, Default, feuilletage::Config)]
+#[feuilletage(skip_serialize)]
+pub struct UpConfigPythonParams {
+    #[feuilletage(default)]
+    #[serde(default, skip_serializing_if = "PipConfig::is_auto")]
+    pub pip: PipConfig,
+}
+
+#[derive(Debug, Clone, feuilletage::Config)]
+#[feuilletage(parse_as = "UpConfigMise", skip_serialize, skip_deserialize)]
 pub struct UpConfigPython {
-    #[serde(skip)]
     pub backend: UpConfigMise,
-    #[serde(skip)]
     pub params: UpConfigPythonParams,
 }
 
@@ -115,15 +90,8 @@ impl Serialize for UpConfigPython {
         // Serialize object into serde_json::Value
         let mut backend = serde_json::to_value(&self.backend).unwrap();
 
-        // Serialize the params object
-        let mut params = serde_json::to_value(&self.params).unwrap();
-
-        // If params.pip_auto is true, set the pip field to "auto"
-        if self.params.pip_auto {
-            params["pip"] = serde_json::Value::String("auto".to_string());
-        }
-
-        // Merge the params object into the base object
+        // Serialize the params object and merge into the base object
+        let params = serde_json::to_value(&self.params).unwrap();
         backend
             .as_object_mut()
             .unwrap()
@@ -134,21 +102,34 @@ impl Serialize for UpConfigPython {
     }
 }
 
-impl UpConfigPython {
-    pub fn from_config_value(
-        config_value: Option<&ConfigValue>,
-        error_handler: &ConfigErrorHandler,
-    ) -> Self {
-        let mut backend = UpConfigMise::from_config_value("python", config_value, error_handler);
+impl<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>
+    feuilletage::FromParsed<UpConfigMise, S, L> for UpConfigPython
+{
+    fn from_parsed(
+        mut backend: UpConfigMise,
+        original: &feuilletage::ContextValue<S, L>,
+        errors: &mut feuilletage::ErrorTracker,
+    ) -> Result<Self, feuilletage::Error> {
+        backend.requested_tool = "python".to_string();
+        backend.process_from_tag();
+        backend.retain_config_value(original);
         backend.add_detect_version_func(detect_version_from_pyproject_toml);
         backend.add_post_install_func(setup_python_venv);
         backend.add_post_install_func(setup_python_requirements);
 
-        let params = UpConfigPythonParams::from_config_value(config_value, error_handler);
+        let params = if matches!(original, feuilletage::ContextValue::Object(_, _)) {
+            <UpConfigPythonParams as feuilletage::FromContextValue<S, L>>::from_context_value(
+                original, errors,
+            )?
+        } else {
+            UpConfigPythonParams::default()
+        };
 
-        Self { backend, params }
+        Ok(Self { backend, params })
     }
+}
 
+impl UpConfigPython {
     pub fn up(
         &self,
         options: &UpOptions,
@@ -476,19 +457,29 @@ fn setup_python_requirements(
     progress_handler: &UpProgressHandler,
     args: &PostInstallFuncArgs,
 ) -> Result<(), UpError> {
-    let params = UpConfigPythonParams::from_config_value(
-        args.config_value.as_ref(),
-        &ConfigErrorHandler::noop(),
-    );
+    let params = if let Some(config_value) = args.config_value.as_ref() {
+        let mut tracker = feuilletage::ErrorTracker::new();
+        <UpConfigPythonParams as feuilletage::FromContextValue<_, _>>::from_context_value(
+            config_value,
+            &mut tracker,
+        )
+        .unwrap_or_default()
+    } else {
+        UpConfigPythonParams::default()
+    };
 
     // If pip is disabled, skip dependency installation
-    if params.pip_disabled {
+    if matches!(params.pip, PipConfig::Disabled) {
         return Ok(());
     }
 
     // Try and detect dependencies automatically if either requested or if there
     // are no dependencies specified
-    let pip_auto = params.pip_auto || params.pip_files.is_empty();
+    let pip_files = match &params.pip {
+        PipConfig::Files(files) => files.as_slice(),
+        _ => &[],
+    };
+    let pip_auto = !matches!(params.pip, PipConfig::Files(ref f) if !f.is_empty());
 
     let tool_dirs = args
         .versions
@@ -532,7 +523,7 @@ fn setup_python_requirements(
             }
         } else {
             // Use the specified files directly
-            params.pip_files.iter().map(|f| full_path.join(f)).collect()
+            pip_files.iter().map(|f| full_path.join(f)).collect()
         };
 
         // Install dependencies from all the found files

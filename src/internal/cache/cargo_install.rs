@@ -86,12 +86,12 @@ impl CargoInstallOperationCache {
 
         db.execute(
             include_str!("database/sql/cargo_install_operation_cleanup_installed.sql"),
-            params![&config.cache.cargo_install.cleanup_after],
+            params![config.cache.cargo_install.cleanup_after as i64],
         )?;
 
         db.execute(
             include_str!("database/sql/cargo_install_operation_cleanup_versions.sql"),
-            params![&config.cache.cargo_install.versions_retention],
+            params![config.cache.cargo_install.versions_retention as i64],
         )?;
 
         Ok(())

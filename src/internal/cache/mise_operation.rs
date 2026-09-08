@@ -57,7 +57,7 @@ impl MiseOperationCache {
         let should_update: bool = db
             .query_row(
                 include_str!("database/sql/mise_operation_should_update_mise.sql"),
-                params![global_config().cache.mise.update_expire],
+                params![global_config().cache.mise.update_expire as i64],
                 |row| row.get(0),
             )
             .unwrap_or(true);
@@ -69,7 +69,7 @@ impl MiseOperationCache {
         let should_update: bool = db
             .query_row(
                 include_str!("database/sql/mise_operation_should_update_plugin.sql"),
-                params![plugin, global_config().cache.mise.plugin_update_expire,],
+                params![plugin, global_config().cache.mise.plugin_update_expire as i64,],
                 |row| row.get(0),
             )
             .unwrap_or(true);
@@ -136,7 +136,7 @@ impl MiseOperationCache {
             // Get the list of tools and versions that can be deleted
             let deletable_tools: Vec<DeletableMiseTool> = tx.query_as(
                 include_str!("database/sql/mise_operation_list_removable.sql"),
-                params![&grace_period],
+                params![grace_period as i64],
             )?;
 
             for tool in deletable_tools {
@@ -155,7 +155,7 @@ impl MiseOperationCache {
 
         db.execute(
             include_str!("database/sql/mise_operation_cleanup_versions.sql"),
-            params![&config.cache.mise.plugin_versions_retention],
+            params![config.cache.mise.plugin_versions_retention as i64],
         )?;
 
         Ok(())
