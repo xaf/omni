@@ -49,7 +49,9 @@ Branch: `improve/phase-a-size-and-gates`
 | Lockfile repair | done | pre-existing broken `--locked`, found incidentally |
 | openssl removal ([`01`](01-binary-size.md) item 2) | done | removed; **0 B** size change, **-22s** build time. Settled by per-target `cargo tree`, no musl build needed |
 | ~~OpenSSL-specific guard~~ | removed | wrong abstraction; superseded by the static-native-lib gate above |
-| Dep narrowing: reqwest, zip, tokio, base62, futures | not started | items 3-7 |
+| Dep narrowing: reqwest (item 3) | **not applied** | measured: saves 1 crate. Plan overestimated by reading `Cargo.lock` instead of the per-target graph |
+| Dep narrowing: zip (item 4) | done | 22 crates + `zstd-sys` gone, -1.2% size, -26% build. Exposed latent dynamic-lzma bug |
+| Dep narrowing: tokio, base62, futures | not started | items 5-7 |
 | Size + prompt-latency CI gates ([`08`](08-ci.md)) | not started | |
 | Repo hygiene (`config-value/` etc.) | deferred | untracked, irreversible; left for the maintainer to delete |
 
@@ -58,6 +60,8 @@ Branch: `improve/phase-a-size-and-gates`
 1. **CI was broken on `main`.** `Cargo.lock` at `efe6129` referenced `syn 3.0.4` with no matching `[[package]]` entry, so `cargo metadata --locked` failed - and both CI build steps pass `--locked`. Fixed in `f9c8bcd`.
 2. **The openssl question cannot be answered on a glibc host.** On gnu, `openssl-sys` finds the *system* library so `vendored` never engages, and the linker discards openssl entirely (0 symbols, no banner, no `libssl` in `ldd`) while the binary still works. The shipped musl binary *does* contain `OpenSSL 3.5.4`. The experiment has to run on musl. Details in [`measurements/a1-profile-dist.txt`](measurements/a1-profile-dist.txt).
 3. **`grep -q` in a pipeline under `set -o pipefail` silently inverts.** Bit the first version of the linking gate. Noted in [`02-static-linking.md`](02-static-linking.md#bug-found-while-testing-the-script).
+4. **`liblzma` was only statically linked by accident.** Its `static` feature is off by default; `zip`'s `lzma-static` was enabling it transitively. Trimming zip's features silently produced a binary linked against `liblzma.so.5`. Now declared explicitly. Caught by the new gate on its first real use.
+5. **Size estimates from `Cargo.lock` are wrong.** `Cargo.lock` is the union across all targets and feature combinations; only `cargo tree --target` shows what compiles. `quinn`, `ring` and `wasm-bindgen` were never being built despite appearing in the lock.
 
 ## Decisions made
 

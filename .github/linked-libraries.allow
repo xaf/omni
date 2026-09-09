@@ -38,7 +38,11 @@ blake3          static
 # See PLAN/09-rejected.md
 libgit2-sys     static
 
-# xz/lzma, for extracting .tar.xz release assets.
+# xz/lzma, for extracting .tar.xz release assets. Static linkage is forced
+# explicitly by the `static` feature on our liblzma dependency. Do not rely
+# on another crate to enable it: zip's `lzma-static` used to do so
+# transitively, and dropping zip's default features silently produced a
+# binary linked against liblzma.so.5.
 liblzma-sys     static
 
 # SQLite, backing the omni cache.
@@ -48,6 +52,3 @@ libsqlite3-sys  static
 # only to force features=["static"].
 libz-sys        static
 
-# zstd, reached through zip's default features and not otherwise wanted.
-# Candidate for removal: see PLAN/01-binary-size.md item 4.
-zstd-sys        static

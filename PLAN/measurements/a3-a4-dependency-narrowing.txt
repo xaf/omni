@@ -1,0 +1,157 @@
+Phase A items 3 and 4: reqwest and zip feature narrowing
+========================================================
+
+Commit:   bd09363 (+ zip/liblzma changes)
+Date:     2026-09-09
+Host:     dev container, ARM aarch64, Linux
+Target:   aarch64-unknown-linux-gnu (host build)
+
+METHOD NOTE -- this corrects the original plan
+----------------------------------------------
+The plan sized these items by reading Cargo.lock. That is wrong: Cargo.lock
+holds the UNION of dependencies across all targets and feature combinations.
+What actually compiles is the per-target resolved graph:
+
+    cargo tree --locked --target <triple> -i <crate>
+
+Checked against aarch64-unknown-linux-musl, the following are in Cargo.lock
+but NOT in the graph, i.e. they were never being compiled:
+
+    quinn          (QUIC/HTTP3)   absent
+    ring                          absent
+    wasm-bindgen / js-sys / web-sys   absent
+
+So the plan's claim that reqwest "drags in quinn, wasm and both crypto
+backends" was inflated. Only aws-lc-rs -> aws-lc-sys, h2, and encoding_rs
+are genuinely built.
+
+--------------------------------------------------------------------------
+Item 3: reqwest -- NOT APPLIED, negligible benefit
+--------------------------------------------------------------------------
+
+Measured crate counts in the musl graph across candidate feature sets:
+
+    baseline (default features)                        300
+    blocking,rustls                                    299
+    blocking,rustls,system-proxy                       299
+    blocking,rustls,system-proxy,charset               300
+    blocking,rustls,http2,system-proxy,charset         300
+
+Best case saves ONE crate, and aws-lc-sys, h2 and encoding_rs all survive
+in every variant.
+
+Notable: h2 remains even with `http2` disabled, because hyper pulls it in
+independently of reqwest's feature. And encoding_rs cannot be dropped at
+all, since feuilletage -> serde-saphyr -> encoding_rs_io needs it.
+
+Not worth the behavioural risk of dropping system-proxy or charset for one
+crate. The one remaining lever would be swapping the rustls crypto provider
+from aws-lc-rs to ring via `rustls-no-provider`, but that requires a direct
+rustls dependency and application code to install the provider. Deferred;
+tracked in PLAN/01-binary-size.md.
+
+--------------------------------------------------------------------------
+Item 4: zip -- APPLIED
+--------------------------------------------------------------------------
+
+zip 4.6.1 enables 18 features by default. omni uses zip in exactly one
+place, github_release.rs:1852, to READ release archives.
+
+Candidate feature sets, crates in the musl graph:
+
+    default features                    300
+    deflate                             285    (zopfli still present)
+    deflate-flate2                      282    <- chosen
+    deflate-flate2-zlib-rs              283
+    no features                         282    (cannot read deflate: unsafe)
+
+Applied: zip = { default-features = false, features = ["deflate-flate2"] }
+
+deflate-flate2 reuses the flate2 dependency omni already has for gzip.
+
+22 crates dropped from the lock:
+
+    aes, block-buffer 0.10.4, bzip2, cipher, constant_time_eq,
+    cpufeatures, crypto-common 0.1.7, deflate64, digest 0.10.7,
+    generic-array, hmac, inout, libbz2-rs-sys, pbkdf2, ppmd-rust,
+    sha1 0.10.7, version_check, zeroize_derive, zopfli, zstd,
+    zstd-safe, zstd-sys
+
+This also resolves the RustCrypto version split noted in 00-findings.md:
+zip pinned sha1 0.10 while omni uses sha1 0.11, forcing duplicate copies of
+digest, block-buffer and crypto-common. Those duplicates are now gone.
+
+Results:
+
+    binary       16,748,376 -> 16,551,768 bytes   -196,608 B  (-1.2%)
+    clean dist   3m22s -> 2m30s                   -52s        (-26%)
+    native libs  7 -> 6      (zstd-sys removed)
+
+Accepted trade-off: omni can no longer extract .zip assets compressed with
+zstd, bzip2, lzma or ppmd. Real-world release zips use deflate or store
+essentially universally (Info-ZIP, Python zipfile, Go archive/zip and 7z
+all default to deflate). The failure mode is a clear error from
+github_release.rs:1859 -- "failed to read <asset> zip entry: ..." -- not
+silent corruption, and it is one feature flag to restore.
+
+--------------------------------------------------------------------------
+THE IMPORTANT FIND: liblzma was only static by accident
+--------------------------------------------------------------------------
+
+After trimming zip, check-linked-libraries.sh failed:
+
+    liblzma-sys -> unspecified=lzma
+    FAIL: dynamically linked native libraries found
+
+and the binary confirmed it:
+
+    readelf -d target/dist/omni | grep NEEDED
+      libc.so.6
+      liblzma.so.5      <-- DYNAMIC
+      libgcc_s.so.1
+      libm.so.6
+
+Cause: liblzma 0.4.8 does NOT enable its `static` feature by default. Static
+linkage was being enabled transitively by zip's `lzma-static` feature.
+Dropping zip's default features removed it, and liblzma silently fell back
+to linking the system shared library.
+
+This was a PRE-EXISTING latent fragility, not something the zip change
+introduced in principle. omni's static lzma linkage depended on a feature
+of an unrelated crate, so any zip upgrade that dropped `lzma-static` would
+have produced the same silently non-self-sufficient binary.
+
+Fixed by declaring it explicitly, matching the existing libz-sys pattern:
+
+    liblzma = { version = "0.4.8", features = ["static"] }
+
+Re-verified: only libc, libgcc_s and libm remain (expected on a glibc host);
+liblzma-sys is back to `static=lzma`.
+
+This is the check-linked-libraries.sh gate paying for itself on its first
+real use. Binary inspection alone would have caught this particular case
+because it happened to become dynamic, but the same class of failure in the
+other direction -- a NEW static C library appearing -- would have been
+invisible.
+
+--------------------------------------------------------------------------
+Verification
+--------------------------------------------------------------------------
+
+    cargo test --locked            632 passed, 0 failed
+    ./target/dist/omni --version   OK
+    ./target/dist/omni help        OK
+    ./target/dist/omni status      OK
+    check-static-linking.sh        passes
+    check-linked-libraries.sh      6 libraries, all allowlisted
+
+Cumulative Phase A size, host build:
+
+    baseline --release              26,304,032   25.09 MB
+    + [profile.dist]                16,748,376   15.97 MB   -36.3%
+    + openssl removed               16,748,376   15.97 MB    0
+    + zip trimmed                   16,551,768   15.78 MB    -1.2%
+                                    ------------------------------
+    total                                                   -37.1%
+
+Clean dist build time: 3m44s -> 2m30s (-33%).
