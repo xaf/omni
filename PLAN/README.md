@@ -46,7 +46,8 @@ Branch: `improve/phase-a-size-and-gates`
 | `[profile.dist]` ([`01`](01-binary-size.md) item 1) | done | **-36.3%**, 25.09 MB → 15.97 MB on a host build |
 | CI uses `dist` for shipped artifacts ([`08`](08-ci.md)) | done | build step only; tests stay on `release`; timeout 30 → 45 min |
 | Lockfile repair | done | pre-existing broken `--locked`, found incidentally |
-| openssl experiment ([`01`](01-binary-size.md) item 2) | **blocked** | needs a musl target; cannot be settled on a gnu host. See below |
+| openssl removal ([`01`](01-binary-size.md) item 2) | done | removed; **0 B** size change, **-22s** build time. Settled by per-target `cargo tree`, no musl build needed |
+| OpenSSL regression guard (`FORBID_OPENSSL=1`) | done | enabled in the gate |
 | Dep narrowing: reqwest, zip, tokio, base62, futures | not started | items 3-7 |
 | Size + prompt-latency CI gates ([`08`](08-ci.md)) | not started | |
 | Repo hygiene (`config-value/` etc.) | deferred | untracked, irreversible; left for the maintainer to delete |
@@ -68,7 +69,7 @@ Branch: `improve/phase-a-size-and-gates`
 | D5 | `panic = "abort"` **rejected** | Breaks the load-bearing `catch_unwind(gethostname)` at `src/internal/env.rs:1154` |
 | D6 | git2 removal **rejected** | Would add `fork+exec` to the prompt hot path, trading visible latency for a few MB |
 | D7 | Expensive optimisation (`lto`, `codegen-units=1`) lives in a separate `[profile.dist]`, not `[profile.release]` | Keeps PR CI and local dev builds fast |
-| D8 | openssl removal is **gated on an experiment**, not assumed | The original "it is unused" claim was wrong. It was added for **libgit2's HTTPS**, and was orphaned only recently at `bc4273a`. See [`09-rejected.md`](09-rejected.md#the-openssl-mistake-and-what-is-actually-true) |
+| D8 | openssl **removed** in `f7a3faf`, after an experiment rather than on assumption | Original "it is unused" claim was wrong in method. Settled by per-target `cargo tree` plus link evidence. Saves build time, **not** size. See [`09-rejected.md`](09-rejected.md#the-openssl-mistake-and-what-is-actually-true) |
 | D9 | Wholesale async migration **rejected** | The hot path is CPU-bound, not I/O-concurrency-bound; async would add `Runtime::new()` to every invocation and grow the binary. Instead consolidate **7** ad-hoc multi-thread runtimes into one current-thread runtime. See [`09-rejected.md`](09-rejected.md#rejected-wholesale-async-migration) |
 
 ## Open questions

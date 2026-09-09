@@ -10,11 +10,24 @@ Independent items. Can be picked off individually; ordered roughly by severity.
 
 ### 1. `omni help` writes to stderr
 
-**Verified:** `omni help > f` produces **0 bytes** on stdout; stderr receives 1258. All of `print_global_help` / `print_command_help` use `eprintln!` (`commands/builtin/help.rs:266-391`).
+**The principle everyone agrees on:** when a user explicitly asks for help, help *is* the requested output, so it belongs on stdout. Error-triggered usage is different and correctly belongs on stderr. That is also the GNU convention (`--help` → stdout, usage-after-error → stderr).
 
-Meanwhile `omni help --output json` correctly writes to **stdout** (`:708-790`). So `omni help | less`, `omni help | grep`, and `omni help > file` all silently fail while the JSON variant works.
+The code does not currently do that. Measured byte counts per stream:
 
-Move help output to stdout. Keep errors on stderr.
+| Invocation | stdout | stderr | Correct? |
+|---|---|---|---|
+| `omni help` | 0 | 1278 | no - should be stdout |
+| `omni --help` | 0 | 1278 | no - should be stdout |
+| `omni help status` | 0 | 820 | no - should be stdout |
+| `omni help config` | 0 | 641 | no - should be stdout |
+| `omni help --output json` | **2849** | 0 | **yes, already stdout** |
+| unknown command | 0 | 41 | yes, correctly stderr |
+
+The inconsistency is the clearest signal: **the same command with `--output json` goes to stdout, and without it goes to stderr.** Cause is `eprintln!` throughout `print_global_help` / `print_command_help` (`commands/builtin/help.rs:266-391`), while the JSON printer (`:708-790`) uses `println!`.
+
+Consequence: `omni help | less`, `omni help | grep`, and `omni help > file` all silently produce nothing, while the JSON variant works fine.
+
+Fix: human-readable help joins the JSON path on stdout. Error-triggered usage stays on stderr.
 
 **Caution:** check whether anything (shell templates, `hook init`, tests) relies on help going to stderr. `tests/test_omni_help.bats` will need review - if it asserts on `stderr`, those assertions move to `stdout`.
 

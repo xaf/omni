@@ -157,6 +157,10 @@ jobs:
       # must never be archived, signed or released. See PLAN/02-static-linking.md
       - name: Verify the binary is self-sufficient
         shell: bash
+        env:
+          # openssl was dropped in f7a3faf; this stops a transitive
+          # dependency from quietly reintroducing it
+          FORBID_OPENSSL: "1"
         run: |
           .github/scripts/check-static-linking.sh \
             "target/${{ inputs.target }}/dist/omni" \
