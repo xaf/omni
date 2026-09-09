@@ -134,9 +134,15 @@ jobs:
           args: "--locked --release"
           use-rust-cache: false  # We already have a cache step
 
+      # Built with the `dist` profile, which adds whole-program optimisation
+      # (lto=fat, codegen-units=1, strip). Tests above deliberately stay on
+      # `release` so they are not slowed by it. See PLAN/01-binary-size.md
+      #
+      # Note `strip` is set by the profile rather than by the action, and the
+      # output lands in target/<target>/dist/ rather than .../release/
       - name: Build binary
         uses: houseabsolute/actions-rust-cross@v1
-        timeout-minutes: 30
+        timeout-minutes: 45
         env:
           OMNI_RELEASE_VERSION: ${{ inputs.release_version }}
           RUSTFLAGS: "-C prefer-dynamic=no"
@@ -144,8 +150,7 @@ jobs:
           command: build
           target: ${{ inputs.target }}
           toolchain: stable
-          args: "--locked --release"
-          strip: true
+          args: "--locked --profile dist"
           use-rust-cache: false  # We already have a cache step
 
       # Runs before packaging on purpose: a binary that is not self-sufficient
@@ -154,13 +159,13 @@ jobs:
         shell: bash
         run: |
           .github/scripts/check-static-linking.sh \
-            "target/${{ inputs.target }}/release/omni" \
+            "target/${{ inputs.target }}/dist/omni" \
             "${{ inputs.target }}"
 
       - name: Package as archive
         shell: bash
         run: |
-          cd "target/${{ inputs.target }}/release" && \
+          cd "target/${{ inputs.target }}/dist" && \
             ls -als && \
             tar czvf ../../../${{ env.BUILD_FILENAME }}.tar.gz omni && \
             cd -
