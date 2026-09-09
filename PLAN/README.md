@@ -26,7 +26,7 @@ Every claim in these documents carries a `file:line` citation so you can **re-ve
 
 | Phase | File | Status |
 |---|---|---|
-| A. Measurement harness & binary size | [`01-binary-size.md`](01-binary-size.md), [`02-static-linking.md`](02-static-linking.md), [`08-ci.md`](08-ci.md) | not started |
+| A. Measurement harness & binary size | [`01-binary-size.md`](01-binary-size.md), [`02-static-linking.md`](02-static-linking.md), [`08-ci.md`](08-ci.md) | **in progress** - see below |
 | B. Parallel up lifecycles | [`03-up-lifecycles.md`](03-up-lifecycles.md), [`04-error-reporting.md`](04-error-reporting.md) | not started |
 | C. Network resilience | [`05-network-resilience.md`](05-network-resilience.md) | not started |
 | D. Prompt latency | [`06-runtime-speed.md`](06-runtime-speed.md) | not started |
@@ -35,6 +35,27 @@ Every claim in these documents carries a `file:line` citation so you can **re-ve
 Status values: `not started` / `in progress` / `blocked` / `done`.
 
 **Phase A goes first** because it builds the measurement harness (size gate, prompt-latency gate, static-linking gate) that tells us whether B-E actually helped.
+
+### Phase A progress
+
+Branch: `improve/phase-a-size-and-gates`
+
+| Item | Status | Result |
+|---|---|---|
+| Static-linking gate ([`02`](02-static-linking.md)) | done | `.github/scripts/check-static-linking.sh`, 6 cases verified, wired before packaging on PR + release paths |
+| `[profile.dist]` ([`01`](01-binary-size.md) item 1) | done | **-36.3%**, 25.09 MB → 15.97 MB on a host build |
+| CI uses `dist` for shipped artifacts ([`08`](08-ci.md)) | done | build step only; tests stay on `release`; timeout 30 → 45 min |
+| Lockfile repair | done | pre-existing broken `--locked`, found incidentally |
+| openssl experiment ([`01`](01-binary-size.md) item 2) | **blocked** | needs a musl target; cannot be settled on a gnu host. See below |
+| Dep narrowing: reqwest, zip, tokio, base62, futures | not started | items 3-7 |
+| Size + prompt-latency CI gates ([`08`](08-ci.md)) | not started | |
+| Repo hygiene (`config-value/` etc.) | deferred | untracked, irreversible; left for the maintainer to delete |
+
+### Unplanned findings from Phase A
+
+1. **CI was broken on `main`.** `Cargo.lock` at `efe6129` referenced `syn 3.0.4` with no matching `[[package]]` entry, so `cargo metadata --locked` failed - and both CI build steps pass `--locked`. Fixed in `f9c8bcd`.
+2. **The openssl question cannot be answered on a glibc host.** On gnu, `openssl-sys` finds the *system* library so `vendored` never engages, and the linker discards openssl entirely (0 symbols, no banner, no `libssl` in `ldd`) while the binary still works. The shipped musl binary *does* contain `OpenSSL 3.5.4`. The experiment has to run on musl. Details in [`measurements/a1-profile-dist.txt`](measurements/a1-profile-dist.txt).
+3. **`grep -q` in a pipeline under `set -o pipefail` silently inverts.** Bit the first version of the linking gate. Noted in [`02-static-linking.md`](02-static-linking.md#bug-found-while-testing-the-script).
 
 ## Decisions made
 
