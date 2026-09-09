@@ -25,7 +25,7 @@ Sizes below are **local `aarch64-unknown-linux-gnu` host builds**, not the shipp
 |---|---|---|---|---|
 | - | baseline (`--release`) | 25.09 MB | - | 26,304,032 bytes |
 | 1 | `[profile.dist]` lto=fat, cgu=1, strip | **15.97 MB** | **-36.3%** | 16,748,376 bytes. Verified working. [`measurements/a1-profile-dist.txt`](measurements/a1-profile-dist.txt) |
-| 2 | openssl experiment | | | see below |
+| 2 | openssl removed | 15.97 MB | **0 B** | build time -22s (~10%), 5 crates dropped. [`measurements/a2-openssl-removal.txt`](measurements/a2-openssl-removal.txt) |
 | 3 | reqwest features | | | |
 | 4 | zip features | | | |
 | 5 | tokio features | | | |
@@ -57,9 +57,17 @@ CI wiring, packaging path changes (`target/dist/` not `target/release/`), and th
 
 ## 2. The openssl experiment
 
-**Read [`09-rejected.md`](09-rejected.md#the-openssl-mistake-and-what-is-actually-true) first.** The short version: the initial "openssl is unused" claim was **wrong**; OpenSSL 3.5.4 is genuinely compiled into the shipped binary. It was originally added for **libgit2's HTTPS transport**, not reqwest. Both of its consumer edges have since disappeared - libgit2 at `bc4273a` (git2 0.20.4 → 0.21.0, 2026-08-26) and reqwest when it moved to rustls.
+**DONE - removed.** Full evidence in [`measurements/a2-openssl-removal.txt`](measurements/a2-openssl-removal.txt). Summary:
 
-The hypothesis is that it is now **orphaned**. That is **not verified**, and it is not safe to assume.
+The decisive check turned out to need **no build at all**. `cargo tree --locked --target <triple> -i openssl-sys` resolves the graph per target, and on all three shipped targets the only path is `openssl-sys → openssl → omnicli`. Nothing else - not libgit2-sys, not reqwest, and `native-tls` is absent from the lock entirely.
+
+Corroborated by the link behaviour: on gnu, `vendored` **did** engage and built `libcrypto.a` (15 MB) + `libssl.a` (2.6 MB) with `rustc-link-lib=static`, yet the binary contained **zero** openssl symbols and no banner. Static archives only contribute members that resolve an undefined symbol, so 17.6 MB was built and wholly discarded - a direct demonstration that no reference exists.
+
+**Correction to the original plan:** this saves **build time, not size.** Measured size delta was exactly **0 bytes**, because the linker was already dropping it. The 36.3% reduction came entirely from LTO (item 1). The win here is not compiling a vendored OpenSSL 3.6.0 on every clean build: **-22s (~10%)** on this many-core host, likely more on a CI runner.
+
+The shipped binary's `OpenSSL 3.5.4` banner is explained by it being an **older build**, from before `bc4273a` removed the libgit2 edge - the version mismatch against today's 3.6.0 is the tell.
+
+`openssl-probe` correctly remains: it is pure Rust that only locates the system CA store for `rustls-native-certs`.
 
 **Three variants, measured separately**, because LTO may strip most of openssl on its own and we need to know which lever did the work:
 

@@ -1,0 +1,137 @@
+Phase A item 2: the openssl experiment
+======================================
+
+Commit:    c0f2014 (+ openssl removal)
+Date:      2026-09-09
+Host:      dev container, ARM aarch64, Linux
+Target:    aarch64-unknown-linux-gnu (host build)
+
+CONCLUSION: openssl removed. Saves build time, NOT binary size.
+
+--------------------------------------------------------------------------
+1. The decisive evidence
+--------------------------------------------------------------------------
+
+(a) Reference graph, resolved PER SHIPPED TARGET -- no build required:
+
+      cargo tree --locked --target <triple> -i openssl-sys
+
+    aarch64-unknown-linux-musl
+    x86_64-unknown-linux-musl
+    aarch64-apple-darwin
+      -> all three identical:
+
+        openssl-sys v0.9.117
+        `-- openssl v0.10.81
+            `-- omnicli v0.0.0-git (/app)
+
+    omnicli is the SOLE consumer on every shipped target. Not libgit2-sys,
+    not reqwest, not native-tls (which is absent from Cargo.lock entirely).
+
+(b) Zero references in our own source:
+
+      grep -rn "openssl::" src/ --include=*.rs   -> 0
+
+(c) The linker was already discarding it. On gnu, `vendored` DID engage:
+
+      cargo:vendored=1
+      cargo:rustc-link-lib=static=ssl
+      cargo:rustc-link-lib=static=crypto
+      cargo:version_number=30600030            (OpenSSL 3.6.0)
+
+      libcrypto.a   15M    <- built from vendored source
+      libssl.a     2.6M    <- built from vendored source
+
+    ...yet the resulting binary contained:
+
+      nm | grep -c "OPENSSL_init\|SSL_CTX_new"   -> 0
+      strings | grep -cE "OpenSSL [0-9]+\."      -> 0
+
+    Static archive linking only pulls in members that resolve an undefined
+    symbol. 17.6 MB was built and then entirely discarded, which is a direct
+    demonstration that nothing references it.
+
+--------------------------------------------------------------------------
+2. Why the SHIPPED binary contains OpenSSL 3.5.4
+--------------------------------------------------------------------------
+
+The version mismatch is the tell:
+
+    shipped /usr/local/bin/omni (v2025.11.0)   OpenSSL 3.5.4
+    built from HEAD today                      OpenSSL 3.6.0
+
+The shipped binary is an OLDER build, from before bc4273a
+("bump git2 from 0.20.4 to 0.21.0", 2026-08-26) removed the
+libgit2-sys -> openssl-sys edge. At that point libgit2 genuinely
+referenced openssl symbols, so the linker pulled them in and the banner
+landed in the binary.
+
+Corroborated independently: that binary's cache DB reports
+user_version = 4, while cache/database/upgrade.rs migrates to 5.
+
+--------------------------------------------------------------------------
+3. Result of removal
+--------------------------------------------------------------------------
+
+Cargo.toml: removed `openssl = { version = "0.10.81", features = ["vendored"] }`
+            removed "openssl" from [package.metadata.cargo-machete] ignored
+            KEPT "libz-sys" in that list -- it is legitimate, forcing
+            features=["static"] for libgit2-sys's zlib
+
+5 crates dropped from the lock:
+    openssl v0.10.81
+    openssl-macros v0.1.1
+    openssl-src v300.6.1+3.6.3
+    openssl-sys v0.9.117
+    foreign-types-shared v0.1.1
+
+openssl-probe v0.2.1 correctly REMAINS. It is pure Rust that only locates
+the system CA store for rustls-native-certs -> rustls-platform-verifier
+-> reqwest. It does not link OpenSSL.
+
+Binary size:
+    with openssl      16,748,376 bytes
+    without openssl   16,748,376 bytes
+    delta                      0 bytes    <- exactly as predicted
+
+    The linker was already dropping it, so there is NO size win. This
+    corrects an earlier claim in PLAN/01-binary-size.md, which implied a
+    size saving. The 36.3% reduction came entirely from LTO.
+
+Clean dist build wall-clock:
+    with openssl      3m44s   (312 crates)
+    without openssl   3m22s   (306 crates)
+    delta               ~22s  (~10%)
+
+    The saving is smaller than the 17.6 MB of C code suggests, because the
+    OpenSSL build overlaps with Rust compilation on a many-core host. On a
+    CI runner with fewer cores the saving should be larger. This is the
+    real benefit: one fewer vendored C library on every clean build.
+
+Verification:
+    cargo test --locked          632 passed, 0 failed
+    ./target/dist/omni --version OK
+    ./target/dist/omni help      OK
+    ./target/dist/omni status    OK
+    strings | grep OpenSSL       0 banners
+
+--------------------------------------------------------------------------
+4. Still to verify in CI
+--------------------------------------------------------------------------
+
+A local musl build was attempted to test this on a shipped target, but is
+not possible in this container: aws-lc-sys (the rustls crypto backend
+pulled in by reqwest) needs aarch64-linux-musl-gcc, and musl-tools is not
+available via apt. Note that blake3, libsqlite3-sys, libgit2-sys,
+liblzma-sys and libz-sys all use `cc` too, so ANY musl build here needs a
+musl C cross-toolchain regardless of TLS choice.
+
+This is why the per-target `cargo tree` check above matters: it settles the
+reference-graph question without needing to build.
+
+Remaining CI checks:
+  - musl and darwin builds succeed without openssl
+  - HTTPS works end to end against api.github.com, GitHub asset downloads,
+    crates.io, and raw.githubusercontent.com
+  - the static-linking gate passes with zero dynamic dependencies on musl
+  - FORBID_OPENSSL=1 can now be enabled in the gate
