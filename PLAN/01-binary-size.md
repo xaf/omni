@@ -19,10 +19,12 @@ cargo bloat --release --crates -n 40 > PLAN/measurements/baseline-bloat.txt
 After each change, re-measure and append a row to the table below. Keep the raw
 `cargo bloat` output under `PLAN/measurements/` so deltas are attributable.
 
+Sizes below are **local `aarch64-unknown-linux-gnu` host builds**, not the shipped musl target. Absolute numbers are not comparable to the 28 MB shipped binary; deltas are what matter. Re-measure on musl in CI.
+
 | # | Change | Size | Delta | Notes |
 |---|---|---|---|---|
-| - | baseline | 28.0 MB | - | commit `efe6129`, no `[profile.*]` |
-| 1 | `[profile.dist]` with lto/cgu | | | |
+| - | baseline (`--release`) | 25.09 MB | - | 26,304,032 bytes |
+| 1 | `[profile.dist]` lto=fat, cgu=1, strip | **15.97 MB** | **-36.3%** | 16,748,376 bytes. Verified working. [`measurements/a1-profile-dist.txt`](measurements/a1-profile-dist.txt) |
 | 2 | openssl experiment | | | see below |
 | 3 | reqwest features | | | |
 | 4 | zip features | | | |
@@ -46,6 +48,8 @@ strip = "symbols"
 ```
 
 `panic = "abort"` is **excluded** - see [`09-rejected.md`](09-rejected.md#rejected-panic--abort).
+
+**Done.** Measured **-36.3%** (25.09 MB → 15.97 MB) on a local gnu build, with `--version`, `help` and `status` all verified working. Cold `dist` build took 3m44s, which is the cost being isolated away from PR CI.
 
 Consider testing `opt-level = "s"` as a separate measured variant. It trades runtime speed for size, and given goal 2 is *faster*, only adopt it if the size win is large and the prompt-latency gate ([`06-runtime-speed.md`](06-runtime-speed.md)) shows no regression.
 

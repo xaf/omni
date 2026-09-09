@@ -23,6 +23,19 @@ default = ["self-update-check"]
 self-update = []
 self-update-check = ["self-update"]
 
+[profile.dist]
+# Release profile used only for shipped artifacts. Kept separate from
+# `release` so that pull-request CI, `cargo test` and local development do
+# not pay for whole-program optimisation. See PLAN/01-binary-size.md
+#
+# `panic` is deliberately left at the default `unwind`: src/internal/env.rs
+# uses catch_unwind around gethostname, which panics rather than returning
+# an error on unsupported platforms. See PLAN/09-rejected.md
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
 [build-dependencies]
 time = { version = "0.3.55", features = ["serde-well-known"] }
 
