@@ -157,14 +157,20 @@ jobs:
       # must never be archived, signed or released. See PLAN/02-static-linking.md
       - name: Verify the binary is self-sufficient
         shell: bash
-        env:
-          # openssl was dropped in f7a3faf; this stops a transitive
-          # dependency from quietly reintroducing it
-          FORBID_OPENSSL: "1"
         run: |
           .github/scripts/check-static-linking.sh \
             "target/${{ inputs.target }}/dist/omni" \
             "${{ inputs.target }}"
+
+      # The check above can only see *dynamic* dependencies, because a
+      # statically linked library leaves no trace in the finished binary.
+      # This one reads the `cargo:rustc-link-lib=` directives the build
+      # scripts emitted, which covers static linkage too.
+      - name: Verify no new native library is linked in
+        shell: bash
+        run: |
+          .github/scripts/check-linked-libraries.sh \
+            "target/${{ inputs.target }}/dist"
 
       - name: Package as archive
         shell: bash

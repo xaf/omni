@@ -42,12 +42,13 @@ Branch: `improve/phase-a-size-and-gates`
 
 | Item | Status | Result |
 |---|---|---|
-| Static-linking gate ([`02`](02-static-linking.md)) | done | `.github/scripts/check-static-linking.sh`, 6 cases verified, wired before packaging on PR + release paths |
+| Self-sufficiency gate: dynamic deps ([`02`](02-static-linking.md)) | done | `check-static-linking.sh`, 6 cases verified, wired before packaging on PR + release paths |
+| Self-sufficiency gate: **static** native libs ([`02`](02-static-linking.md)) | done | `check-linked-libraries.sh` + `.github/linked-libraries.allow`, 6 cases verified. Reads `cargo:rustc-link-lib=` directives, so it sees static linkage the binary cannot reveal |
 | `[profile.dist]` ([`01`](01-binary-size.md) item 1) | done | **-36.3%**, 25.09 MB → 15.97 MB on a host build |
 | CI uses `dist` for shipped artifacts ([`08`](08-ci.md)) | done | build step only; tests stay on `release`; timeout 30 → 45 min |
 | Lockfile repair | done | pre-existing broken `--locked`, found incidentally |
 | openssl removal ([`01`](01-binary-size.md) item 2) | done | removed; **0 B** size change, **-22s** build time. Settled by per-target `cargo tree`, no musl build needed |
-| OpenSSL regression guard (`FORBID_OPENSSL=1`) | done | enabled in the gate |
+| ~~OpenSSL-specific guard~~ | removed | wrong abstraction; superseded by the static-native-lib gate above |
 | Dep narrowing: reqwest, zip, tokio, base62, futures | not started | items 3-7 |
 | Size + prompt-latency CI gates ([`08`](08-ci.md)) | not started | |
 | Repo hygiene (`config-value/` etc.) | deferred | untracked, irreversible; left for the maintainer to delete |

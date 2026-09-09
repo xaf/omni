@@ -11,15 +11,13 @@
 #   *-apple-darwin  only the system libraries are allowed, because fully
 #                   static linking is not supported on macOS
 #
+# This inspects the finished binary, so it can only see DYNAMIC
+# dependencies. A statically linked library leaves no trace here -- no
+# DT_NEEDED entry, nothing in `otool -L`. Use check-linked-libraries.sh
+# alongside this to cover static linkage; the two are complementary.
+#
 # Usage:
 #   check-static-linking.sh <binary> <target-triple>
-#
-# Environment:
-#   FORBID_OPENSSL=1    additionally fail if an OpenSSL version banner is
-#                       found in the binary. Enable this once openssl has
-#                       been removed from Cargo.toml, so that a transitive
-#                       dependency cannot silently reintroduce it.
-#                       See PLAN/01-binary-size.md.
 
 set -euo pipefail
 
@@ -141,22 +139,6 @@ case "${TARGET}" in
         exit 2
         ;;
 esac
-
-# Optional guard against OpenSSL creeping back in. Only meaningful once
-# openssl has been dropped from Cargo.toml.
-if [[ "${FORBID_OPENSSL:-0}" == "1" ]]; then
-    # Note: do not pipe into `grep -q` here. Under `set -o pipefail`, grep -q
-    # exits on the first match, `strings` then dies of SIGPIPE, and the whole
-    # pipeline reports failure -- which silently inverts the check.
-    openssl_banners=$(strings "${BINARY}" 2>/dev/null \
-        | grep -E 'OpenSSL [0-9]+\.[0-9]+' || true)
-    if [[ -n "${openssl_banners}" ]]; then
-        fail "OpenSSL version banner found in the binary"
-        printf '%s\n' "${openssl_banners}" | head -3 | sed 's/^/    /'
-    else
-        ok "no OpenSSL banner"
-    fi
-fi
 
 echo
 if [[ "${failures}" -gt 0 ]]; then

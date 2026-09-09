@@ -2,7 +2,45 @@
 
 **Goal:** turn "the binary must be self-sufficient" from a convention into an invariant CI enforces.
 
-**Status:** done - `.github/scripts/check-static-linking.sh`, wired at `build-and-test-target.yaml:151-159`
+**Status:** done - two complementary gates, both wired into `build-and-test-target.yaml`
+
+| Script | Sees | Mechanism |
+|---|---|---|
+| `check-static-linking.sh` | **dynamic** deps | inspects the finished binary (`readelf -d`, `otool -L`) |
+| `check-linked-libraries.sh` | **static + dynamic** native libs | reads `cargo:rustc-link-lib=` directives emitted by build scripts, against `.github/linked-libraries.allow` |
+
+## Why two gates: the finished binary cannot reveal static linkage
+
+The first version of this work only checked the binary, which was a real gap. A **statically** linked C library:
+
+- produces no `DT_NEEDED` entry and nothing in `otool -L`
+- is therefore completely invisible to binary inspection
+- still grows the binary and still imposes a C toolchain requirement on every cross-compiled target
+
+An early attempt to cover this used a `FORBID_OPENSSL=1` flag that grepped the binary for an OpenSSL version banner. That was **the wrong abstraction** and has been removed: the concern was never openssl specifically, it was *any* newly linked native library. It was also strictly weaker - it would have missed the exact situation that existed before `f7a3faf`, where openssl was built and link-directed but discarded by the linker, leaving no banner to find.
+
+The general check reads the authoritative source instead. Every `-sys` crate declares what it links by emitting `cargo:rustc-link-lib=` from its build script, so collecting those across the build yields the complete set. Current state:
+
+```
+aws-lc-sys         static       aws_lc_0_45_0_crypto
+blake3             static       blake3_neon
+libgit2-sys        static       git2
+liblzma-sys        static       lzma
+libsqlite3-sys     static       sqlite3
+libz-sys           static       z
+zstd-sys           static       zstd
+```
+
+### The allowlist is keyed on crate + kind, not library name
+
+Library names are not stable:
+
+- `aws_lc_0_45_0_crypto` embeds the crate version, so it changes on every bump
+- `blake3_neon` is architecture dependent (`blake3_sse2` / `blake3_avx2` on x86_64)
+
+Keying on crate name plus link kind is stable across both, and captures the question that actually matters: *which crates link native code, and has that set changed.*
+
+Any `dylib` or unspecified kind fails outright regardless of the allowlist, since that breaks self-sufficiency directly.
 
 ## Why this exists
 
@@ -95,6 +133,15 @@ All checked locally against the shipped `/usr/local/bin/omni` and system binarie
 - [x] Wired into `build-and-test-target.yaml` before packaging, signing and upload
 - [x] Runs on all four targets and on **both** the PR and release paths - `tests.yaml:105-111` → `build.yaml:70` → `build-and-test-target.yaml`, so the single insertion covers both
 - [x] Failure message names the offending library and the target
+
+`check-linked-libraries.sh`, verified against the real build:
+
+- [x] Current build passes: 7 native libraries, all allowlisted
+- [x] A new native library is caught (dropped `zstd-sys` from the allowlist → exit 1, named in the failure)
+- [x] `dylib=` linkage is caught (injected `dylib=curl` → exit 1)
+- [x] An unspecified link kind is caught (injected a bare `cargo:rustc-link-lib=` → exit 1)
+- [x] **Refuses to pass vacuously** on an unbuilt tree (exit 2, not 0) - important, since the check reads build output that may simply not exist
+- [x] Allowlist drift (allowlisted but no longer linked) reports as a note without failing
 
 ## Resolved: tool availability
 

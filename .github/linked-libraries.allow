@@ -1,0 +1,53 @@
+# Native libraries allowed to be linked into the omni binary.
+#
+# omni ships as a self-contained binary, so every native library here is
+# compiled into it. Adding an entry means accepting:
+#
+#   - a larger binary
+#   - a C/C++ toolchain requirement for every cross-compiled target
+#   - longer clean builds
+#
+# Enforced by .github/scripts/check-linked-libraries.sh, which reads the
+# `cargo:rustc-link-lib=` directives emitted by build scripts. That catches
+# statically linked libraries, which the finished binary cannot reveal --
+# a static library leaves no DT_NEEDED entry behind.
+#
+# Format: "<crate> <kind>", one per line.
+#
+# Keyed on crate name and link kind rather than library name, because
+# library names are not stable across versions or architectures:
+#
+#   aws-lc-sys      emits aws_lc_0_45_0_crypto, versioned in the name
+#   blake3          emits blake3_neon on aarch64, blake3_sse2/avx2 on x86_64
+#
+# `kind` must be `static`. A `dylib` or unspecified kind fails the check
+# outright, whatever is listed here, since it would break self-sufficiency.
+#
+# Before adding an entry, consider whether the dependency can be avoided or
+# replaced with a pure-Rust equivalent.
+
+# rustls crypto backend, pulled in by reqwest's default features.
+# Candidate for removal: see PLAN/01-binary-size.md item 3.
+aws-lc-sys      static
+
+# BLAKE3 SIMD implementation. Library name is architecture dependent.
+blake3          static
+
+# libgit2. Deliberately retained rather than replaced by `git` subprocesses,
+# because GitRepoEnv::new is on the shell prompt hot path.
+# See PLAN/09-rejected.md
+libgit2-sys     static
+
+# xz/lzma, for extracting .tar.xz release assets.
+liblzma-sys     static
+
+# SQLite, backing the omni cache.
+libsqlite3-sys  static
+
+# zlib. Required by libgit2-sys; the direct dependency in Cargo.toml exists
+# only to force features=["static"].
+libz-sys        static
+
+# zstd, reached through zip's default features and not otherwise wanted.
+# Candidate for removal: see PLAN/01-binary-size.md item 4.
+zstd-sys        static
