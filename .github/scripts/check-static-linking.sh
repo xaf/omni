@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+#
+# Verify that a built omni binary is self-sufficient, i.e. that it does not
+# depend on any dynamic library that we do not control.
+#
+# The invariant differs per platform:
+#
+#   *-linux-musl    zero dynamic dependencies; no DT_NEEDED, no PT_INTERP
+#   *-linux-gnu     informational only; glibc builds are dynamic by design
+#                   and are not shipped, so this is reported and not enforced
+#   *-apple-darwin  only the system libraries are allowed, because fully
+#                   static linking is not supported on macOS
+#
+# Usage:
+#   check-static-linking.sh <binary> <target-triple>
+#
+# Environment:
+#   FORBID_OPENSSL=1    additionally fail if an OpenSSL version banner is
+#                       found in the binary. Enable this once openssl has
+#                       been removed from Cargo.toml, so that a transitive
+#                       dependency cannot silently reintroduce it.
+#                       See PLAN/01-binary-size.md.
+
+set -euo pipefail
+
+BINARY=${1:-}
+TARGET=${2:-}
+
+if [[ -z "${BINARY}" || -z "${TARGET}" ]]; then
+    echo >&2 "usage: $0 <binary> <target-triple>"
+    exit 2
+fi
+
+if [[ ! -f "${BINARY}" ]]; then
+    echo >&2 "error: binary not found: ${BINARY}"
+    exit 2
+fi
+
+failures=0
+
+fail() {
+    echo "  FAIL: $*"
+    failures=$((failures + 1))
+}
+
+ok() {
+    echo "  ok: $*"
+}
+
+# Resolve a tool, preferring an llvm- prefixed variant when the plain one is
+# missing. Cross-build containers do not always ship the binutils name.
+find_tool() {
+    local name=$1
+    local candidate
+    for candidate in "${name}" "llvm-${name}"; do
+        if command -v "${candidate}" >/dev/null 2>&1; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+echo "Checking dynamic linking of ${BINARY} (${TARGET})"
+
+case "${TARGET}" in
+    *-linux-musl)
+        # A musl build must be entirely static. Prefer reading the ELF
+        # headers over `ldd`, whose output text varies between libc
+        # implementations while the headers do not.
+        if ! readelf=$(find_tool readelf); then
+            echo >&2 "error: readelf not found, cannot verify ${TARGET}"
+            exit 2
+        fi
+
+        needed=$("${readelf}" -d "${BINARY}" 2>/dev/null | grep -c 'NEEDED' || true)
+        if [[ "${needed}" -ne 0 ]]; then
+            fail "${needed} dynamic dependency entries (DT_NEEDED) found:"
+            "${readelf}" -d "${BINARY}" 2>/dev/null | grep 'NEEDED' | sed 's/^/    /'
+        else
+            ok "no dynamic dependencies (DT_NEEDED)"
+        fi
+
+        # A program interpreter means the loader is involved, i.e. not static.
+        if "${readelf}" -l "${BINARY}" 2>/dev/null | grep -q 'INTERP'; then
+            fail "program interpreter (PT_INTERP) present, binary is not static"
+            "${readelf}" -l "${BINARY}" 2>/dev/null \
+                | grep -A1 'INTERP' | sed 's/^/    /'
+        else
+            ok "no program interpreter (PT_INTERP)"
+        fi
+        ;;
+
+    *-apple-darwin)
+        # Fully static linking is not supported on macOS: libSystem is always
+        # dynamic. Allow the system libraries and nothing else.
+        if ! otool=$(find_tool otool); then
+            echo >&2 "error: otool not found, cannot verify ${TARGET}"
+            exit 2
+        fi
+
+        # The first line of `otool -L` output is the binary's own name.
+        libs=$("${otool}" -L "${BINARY}" | tail -n +2 | awk '{print $1}')
+
+        if [[ -z "${libs}" ]]; then
+            ok "no dynamic dependencies at all"
+        fi
+
+        while IFS= read -r lib; do
+            [[ -z "${lib}" ]] && continue
+            case "${lib}" in
+                /usr/lib/libSystem.B.dylib) ok "system: ${lib}" ;;
+                /System/Library/Frameworks/*) ok "system framework: ${lib}" ;;
+                *) fail "disallowed dynamic dependency: ${lib}" ;;
+            esac
+        done <<< "${libs}"
+
+        # An @rpath entry means the binary expects to locate libraries at
+        # runtime, which is exactly what we are trying to avoid.
+        if "${otool}" -l "${BINARY}" 2>/dev/null | grep -q 'LC_RPATH'; then
+            fail "LC_RPATH present, binary expects runtime library lookup"
+        else
+            ok "no LC_RPATH"
+        fi
+        ;;
+
+    *-linux-gnu)
+        # glibc builds are dynamic by design. We do not ship them, so report
+        # what is linked but do not fail: this keeps the script usable for
+        # local development on a gnu host.
+        echo "  note: ${TARGET} is a glibc target and is not shipped;" \
+             "reporting only"
+        if readelf=$(find_tool readelf); then
+            "${readelf}" -d "${BINARY}" 2>/dev/null \
+                | grep 'NEEDED' | sed 's/^/    /' || echo "    (none)"
+        fi
+        ;;
+
+    *)
+        echo >&2 "error: unhandled target ${TARGET}; refusing to pass silently"
+        exit 2
+        ;;
+esac
+
+# Optional guard against OpenSSL creeping back in. Only meaningful once
+# openssl has been dropped from Cargo.toml.
+if [[ "${FORBID_OPENSSL:-0}" == "1" ]]; then
+    # Note: do not pipe into `grep -q` here. Under `set -o pipefail`, grep -q
+    # exits on the first match, `strings` then dies of SIGPIPE, and the whole
+    # pipeline reports failure -- which silently inverts the check.
+    openssl_banners=$(strings "${BINARY}" 2>/dev/null \
+        | grep -E 'OpenSSL [0-9]+\.[0-9]+' || true)
+    if [[ -n "${openssl_banners}" ]]; then
+        fail "OpenSSL version banner found in the binary"
+        printf '%s\n' "${openssl_banners}" | head -3 | sed 's/^/    /'
+    else
+        ok "no OpenSSL banner"
+    fi
+fi
+
+echo
+if [[ "${failures}" -gt 0 ]]; then
+    echo "${BINARY} (${TARGET}): ${failures} check(s) failed"
+    exit 1
+fi
+
+echo "${BINARY} (${TARGET}): all checks passed"

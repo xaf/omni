@@ -2,7 +2,7 @@
 
 **Goal:** turn "the binary must be self-sufficient" from a convention into an invariant CI enforces.
 
-**Status:** not started
+**Status:** done - `.github/scripts/check-static-linking.sh`, wired at `build-and-test-target.yaml:151-159`
 
 ## Why this exists
 
@@ -84,13 +84,24 @@ Also run it in PR CI, not only on release. A `--release` build on the PR path ex
 
 ## Verification
 
-- [ ] Script fails correctly on a deliberately dynamic binary (test with a trivial `cargo build` without `prefer-dynamic=no`, or on a system `/bin/ls`)
-- [ ] Script passes on the current `/usr/local/bin/omni`
-- [ ] Wired into `build-and-test-target.yaml` before packaging
-- [ ] Runs on all four targets: `{aarch64,x86_64}-unknown-linux-musl`, `{aarch64,x86_64}-apple-darwin`
-- [ ] Runs on the PR path too
-- [ ] Failure message names the offending library and the target, so the cause is obvious from the log
+All checked locally against the shipped `/usr/local/bin/omni` and system binaries:
 
-## Open question
+- [x] Script fails correctly on a deliberately dynamic binary (`/bin/ls` as a musl target: 2 failures, exit 1)
+- [x] Script passes on the current `/usr/local/bin/omni` (exit 0)
+- [x] `FORBID_OPENSSL=1` correctly detects the current `OpenSSL 3.5.4` banner (exit 1)
+- [x] Unhandled target exits 2 rather than passing silently
+- [x] Missing binary exits 2
+- [x] glibc target reports and passes (usable for local dev)
+- [x] Wired into `build-and-test-target.yaml` before packaging, signing and upload
+- [x] Runs on all four targets and on **both** the PR and release paths - `tests.yaml:105-111` → `build.yaml:70` → `build-and-test-target.yaml`, so the single insertion covers both
+- [x] Failure message names the offending library and the target
 
-macOS `aarch64` and `x86_64` are cross-built via `houseabsolute/actions-rust-cross@v1` (`build-and-test-target.yaml:99-101,137`). Confirm `otool` is available in that job, or use `llvm-otool` / `objdump -p` as a fallback. If neither is available in the cross container, the macOS half of the gate may need to run on a native `macos-latest` runner instead.
+## Resolved: tool availability
+
+The earlier concern about `otool` inside a cross container does not apply. The matrix (`build.yaml:48-68`) runs darwin targets on **native `macos-latest`** runners, so `otool` is present; musl targets run on `ubuntu-latest`, where `readelf` ships with binutils. The script additionally falls back to `llvm-`prefixed tool names via `find_tool()`.
+
+## Bug found while testing the script
+
+The first version used `strings "$BINARY" | grep -q ...` for the OpenSSL guard. Under `set -o pipefail` this **silently inverts**: `grep -q` exits on first match, `strings` then dies of `SIGPIPE`, and the pipeline reports failure, so the `if` took the else branch and printed "no OpenSSL banner" for a binary that plainly contains one.
+
+Fixed by capturing into a variable with `|| true` and testing for non-empty. There is a comment in the script at that spot so it does not regress. **Worth remembering for any other `grep -q` in a pipeline under `pipefail`.**

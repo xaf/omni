@@ -148,6 +148,15 @@ jobs:
           strip: true
           use-rust-cache: false  # We already have a cache step
 
+      # Runs before packaging on purpose: a binary that is not self-sufficient
+      # must never be archived, signed or released. See PLAN/02-static-linking.md
+      - name: Verify the binary is self-sufficient
+        shell: bash
+        run: |
+          .github/scripts/check-static-linking.sh \
+            "target/${{ inputs.target }}/release/omni" \
+            "${{ inputs.target }}"
+
       - name: Package as archive
         shell: bash
         run: |
