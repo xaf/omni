@@ -56,7 +56,9 @@ Branch: `improve/phase-a-size-and-gates`
 | Dep narrowing: futures (item 7) | done | facade → `futures-util`; drops `futures-executor` + a proc-macro |
 | Size CI gate ([`08`](08-ci.md)) | done | `check-binary-size.sh` + per-target baseline; verified pass/fail/unknown-target |
 | Prompt-latency CI gate ([`08`](08-ci.md)) | done, **report-only** | `bench-hook-env.sh`; needs a musl baseline before a threshold is meaningful |
-| Repo hygiene (`config-value/` etc.) | deferred | untracked, irreversible; left for the maintainer to delete |
+| Repo hygiene (`config-value/` etc.) | done | removed by the maintainer |
+| Shell pitfall linter | done | `check-shell-pitfalls.sh`; audit found the `grep -q`/pipefail inversion was **not** actually fixed - 2 live instances remained in the gate itself |
+| Merge main (zip 4 → 8) + drop liblzma | done | zip 8 uses pure-Rust lzma, so the C binding went entirely: native libs **6 → 5**. 4 new xz extraction tests |
 
 ### Unplanned findings from Phase A
 
@@ -66,7 +68,8 @@ Branch: `improve/phase-a-size-and-gates`
 4. **`liblzma` was only statically linked by accident.** Its `static` feature is off by default; `zip`'s `lzma-static` was enabling it transitively. Trimming zip's features silently produced a binary linked against `liblzma.so.5`. Now declared explicitly. Caught by the new gate on its first real use.
 5. **Size estimates from `Cargo.lock` are wrong.** `Cargo.lock` is the union across all targets and feature combinations; only `cargo tree --target` shows what compiles. `quinn`, `ring` and `wasm-bindgen` were never being built despite appearing in the lock.
 6. **A glibc host benchmark does not represent shipped performance.** Both a pre-change and a post-change local build measure ~1.8 ms on `hook env`, while the shipped musl binary measures **7.51 ms**. Phase A changed prompt latency not at all. Leading hypothesis is musl's allocator against a prompt path that does 228 `OmniConfig` deep clones and re-serialises YAML per call - which means Phase D should pay off **more** on musl than a local benchmark suggests. The latency gate is therefore report-only until CI records a musl baseline. See [`measurements/a5-a7-and-gates.txt`](measurements/a5-a7-and-gates.txt).
-7. **Knowing about a footgun in prose did not stop me repeating it.** The `grep -q` + `pipefail` + `SIGPIPE` inversion was written up in [`02-static-linking.md`](02-static-linking.md), then reintroduced hours later in the benchmark script. Both sites now carry a comment *at the call site*, which is the only form of the lesson that travels with the code.
+7. **Knowing about a footgun in prose did not stop me repeating it - twice.** The `grep -q` + `pipefail` + `SIGPIPE` inversion was written up in [`02-static-linking.md`](02-static-linking.md), then reintroduced hours later in the benchmark script. A later audit found it had **never actually been fixed**: two live instances survived in `check-static-linking.sh` itself, including the darwin `LC_RPATH` check where `otool -l`'s large output makes the false pass most likely. It is now enforced by `check-shell-pitfalls.sh` rather than described. **Comments and docs are not controls.**
+8. **`liblzma` was never meant to be a C dependency at all.** main's zip 8 bump switched zip to a pure-Rust lzma decoder, which removed the transitive feature that had been statically linking `liblzma-sys`, leaving main linking `liblzma.so.5` dynamically. Since a pure-Rust xz decoder was now already in the graph, the C binding was dropped outright: native libraries **6 → 5**.
 
 ## Decisions made
 
