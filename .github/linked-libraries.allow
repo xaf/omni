@@ -33,18 +33,16 @@ aws-lc-sys      static
 # BLAKE3 SIMD implementation. Library name is architecture dependent.
 blake3          static
 
+# NOTE: there is deliberately no lzma entry. .tar.xz extraction uses the
+# pure-Rust lzma-rust2 decoder, not a C binding. Static linkage of the old
+# liblzma-sys was only ever enabled transitively by zip's `lzma-static`
+# feature, so the zip 8 bump -- which switched zip to lzma-rust2 -- silently
+# made it dynamic. Do not reintroduce a C lzma binding.
+
 # libgit2. Deliberately retained rather than replaced by `git` subprocesses,
 # because GitRepoEnv::new is on the shell prompt hot path.
 # See PLAN/09-rejected.md
 libgit2-sys     static
-
-# xz/lzma, for extracting .tar.xz release assets, and reused for lzma/xz
-# entries inside .zip archives at no additional cost. Static linkage is forced
-# explicitly by the `static` feature on our liblzma dependency. Do not rely
-# on another crate to enable it: zip's `lzma-static` used to do so
-# transitively, and dropping zip's default features silently produced a
-# binary linked against liblzma.so.5.
-liblzma-sys     static
 
 # SQLite, backing the omni cache.
 libsqlite3-sys  static

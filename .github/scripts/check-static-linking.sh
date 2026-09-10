@@ -21,6 +21,17 @@
 
 set -euo pipefail
 
+# NOTE on `grep -q` and `set -o pipefail`
+#
+# Never write `producer | grep -q pattern` in a condition in this repo.
+# `grep -q` exits as soon as it matches; the producer is then killed by
+# SIGPIPE, and with `pipefail` the whole pipeline reports failure. So a
+# MATCH can look like a MISS -- which in a safety gate means a false pass.
+#
+# It is output-size dependent, so it appears to work on small inputs and
+# silently breaks on large ones. Capture into a variable with `|| true` and
+# test for emptiness instead. Enforced by check-shell-pitfalls.sh.
+
 BINARY=${1:-}
 TARGET=${2:-}
 
@@ -80,10 +91,14 @@ case "${TARGET}" in
         fi
 
         # A program interpreter means the loader is involved, i.e. not static.
-        if "${readelf}" -l "${BINARY}" 2>/dev/null | grep -q 'INTERP'; then
+        #
+        # Captured into a variable rather than piped into `grep -q`: see the
+        # note in the header about SIGPIPE under `set -o pipefail`.
+        interp=$("${readelf}" -l "${BINARY}" 2>/dev/null \
+            | grep -A1 'INTERP' || true)
+        if [[ -n "${interp}" ]]; then
             fail "program interpreter (PT_INTERP) present, binary is not static"
-            "${readelf}" -l "${BINARY}" 2>/dev/null \
-                | grep -A1 'INTERP' | sed 's/^/    /'
+            printf '%s\n' "${interp}" | sed 's/^/    /'
         else
             ok "no program interpreter (PT_INTERP)"
         fi
@@ -115,7 +130,10 @@ case "${TARGET}" in
 
         # An @rpath entry means the binary expects to locate libraries at
         # runtime, which is exactly what we are trying to avoid.
-        if "${otool}" -l "${BINARY}" 2>/dev/null | grep -q 'LC_RPATH'; then
+        # Captured rather than piped into `grep -q`; `otool -l` output is
+        # large, which makes the SIGPIPE inversion especially likely here.
+        rpaths=$("${otool}" -l "${BINARY}" 2>/dev/null | grep 'LC_RPATH' || true)
+        if [[ -n "${rpaths}" ]]; then
             fail "LC_RPATH present, binary expects runtime library lookup"
         else
             ok "no LC_RPATH"

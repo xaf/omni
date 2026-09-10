@@ -57,7 +57,7 @@ if [[ ! -f "${BASELINE_FILE}" ]]; then
     exit 2
 fi
 
-baseline=$(awk -v t="${TARGET}" '$1 == t { print $2 }' "${BASELINE_FILE}" | head -1)
+baseline=$(awk -v t="${TARGET}" '$1 == t { print $2; exit }' "${BASELINE_FILE}")
 
 if [[ -z "${baseline}" ]]; then
     # An unknown target is reported, not failed: a new target should not break

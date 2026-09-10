@@ -64,6 +64,7 @@ indicatif = "0.18.6"
 itertools = "0.15.0"
 lazy_static = "1.5.0"
 libz-sys = { version = "1.1.29", features = ["static"] }  # So we can force static linking
+lzma-rust2 = { version = "0.16.5", default-features = false, features = ["std", "xz"] }  # pure-Rust xz, replaces the liblzma C binding
 machine-uid = "0.6.0"
 md-5 = "0.11.0"
 nix = { version = "0.31.3", features = ["fs", "process", "signal"] }
@@ -105,8 +106,7 @@ uuid = { version = "1.25.0", features = ["v4", "fast-rng"] }
 walkdir = "2.5.0"
 which = "8.0.5"
 whoami = "2.1.3"
-liblzma = { version = "0.4.8", features = ["static"] }  # So we can force static linking
-zip = { version = "4.6.1", default-features = false, features = ["deflate-flate2", "deflate64", "bzip2", "lzma", "xz", "ppmd"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2", "deflate64", "bzip2", "lzma", "xz", "ppmd"] }
 
 [package.metadata.cargo-machete]
 ignored = ["libz-sys"]

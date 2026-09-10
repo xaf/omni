@@ -97,7 +97,10 @@ fi
 
 # Allowlist format: "<crate> <kind>", one per line. Blank lines and lines
 # starting with # are ignored.
-allowed=$(grep -vE '^\s*(#|$)' "${ALLOWLIST}" | awk '{print $1"\t"$2}' | sort -u)
+# `|| true` so an allowlist containing only comments (grep matches nothing,
+# exit 1) does not abort the script under `set -e` / `pipefail`.
+allowed=$(grep -vE '^[[:space:]]*(#|$)' "${ALLOWLIST}" \
+    | awk '{print $1"\t"$2}' | sort -u || true)
 
 failures=0
 
