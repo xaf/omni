@@ -14,7 +14,22 @@
 # Format: "<target-triple>\t<bytes>"
 #
 # Targets not listed here are reported but do not fail, so adding a new
-# target does not break the build before its baseline is recorded. The
-# shipped targets still need theirs filled in from a CI run; the entry below
-# is a local glibc host build, kept as a reference point.
-aarch64-unknown-linux-gnu	16486312
+# target does not break the build before its baseline is recorded.
+#
+# The four shipped targets below were recorded from a green CI run. They are
+# the numbers users actually download.
+aarch64-unknown-linux-musl	15896240
+x86_64-unknown-linux-musl	19902536
+aarch64-apple-darwin	15850432
+x86_64-apple-darwin	18319240
+
+# Not built by CI -- a local glibc host build, kept only as a reference for
+# iterating locally. Refresh it by hand; nothing verifies it.
+aarch64-unknown-linux-gnu	16551848
+
+# Note: the x86_64 binaries are ~3 MB larger than their aarch64 equivalents
+# (18.98 vs 15.16 MB on musl). blake3 is a likely contributor -- on x86_64 it
+# compiles several SIMD variants into the binary
+# (blake3_avx512_assembly *and* blake3_sse2_sse41_avx2_assembly) where
+# aarch64 gets a single blake3_neon. Worth investigating as a size lead; see
+# PLAN/01-binary-size.md.
