@@ -911,7 +911,11 @@ mod error_rendering_tests {
         handler.error_with_message("the real failure".to_string());
         handler.error();
 
-        assert_eq!(errors(&log).len(), 1, "message-less error should not re-render");
+        assert_eq!(
+            errors(&log).len(),
+            1,
+            "message-less error should not re-render"
+        );
     }
 
     /// The latch must not swallow the first error just because progress was

@@ -367,11 +367,11 @@ fn setup_individual_npm_prefix(
                     );
 
                     if let Err(e) = result {
-                        let msg = format!(
-                            "failed to install engine {engine} version {version_range}: {e}"
-                        );
-                        progress_handler.error_with_message(msg.clone());
-                        return Err(UpError::Exec(msg));
+                        let err = e.with_context(format!(
+                            "failed to install engine {engine} version {version_range}"
+                        ));
+                        progress_handler.error_with_message(err.message());
+                        return Err(err);
                     }
                 }
             }
@@ -405,9 +405,9 @@ fn setup_individual_npm_prefix(
                 );
 
                 if let Err(e) = result {
-                    let msg = format!("failed to install packages: {e}");
-                    progress_handler.error_with_message(msg.clone());
-                    return Err(UpError::Exec(msg));
+                    let err = e.with_context("failed to install packages");
+                    progress_handler.error_with_message(err.message());
+                    return Err(err);
                 }
             }
         }
