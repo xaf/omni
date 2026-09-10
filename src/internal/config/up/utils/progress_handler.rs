@@ -9,7 +9,6 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::Duration;
 
 use crate::internal::config::up::utils::RunConfig;
-use crate::internal::env::state_home;
 use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::config::up::UpError;
 use crate::internal::user_interface::print::filter_control_characters;
@@ -33,28 +32,25 @@ impl std::fmt::Debug for dyn ProgressHandler {
     }
 }
 
-/// Directory holding logs kept from failed commands.
+/// Keep the log of a failed command, renaming it out of this run's cleanup
+/// prefix so omni stops considering it disposable.
 ///
-/// Under the state home rather than `$TMPDIR`: these are meant to outlive
-/// the run that produced them, and `$TMPDIR` is reaped on a schedule nobody
-/// controls.
-pub fn logs_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(state_home()).join("logs")
-}
-
-/// Move the log of a failed command somewhere durable and findable.
+/// It stays in `$TMPDIR`. That is the retention policy: the OS clears
+/// `$TMPDIR` on reboot and, on most systems, on a schedule. A failure log is
+/// a debugging artifact with a naturally short useful life, so letting the
+/// OS expire it beats accumulating one in the user's state directory and
+/// then needing bespoke pruning to bound it.
 ///
-/// While running, the log is a `NamedTempFile` carrying this run's
-/// `tmpdir_cleanup` prefix, so it is reclaimable. Keeping it opts it out of
-/// tempfile's Drop-based cleanup, which is precisely why it then has to be
-/// moved: `NamedTempFile::keep` on its own is what leaked one permanent file
-/// into `$TMPDIR` for every failed step, forever.
+/// While running the log carries `tmpdir_cleanup_prefix`, so a run that dies
+/// before dropping the file leaves something reclaimable. Renaming on keep is
+/// what takes it out of that namespace -- which is exactly what the
+/// long-standing TODO here asked for.
 fn keep_log_file(log_file: NamedTempFile) -> Result<std::path::PathBuf, String> {
-    keep_log_file_in(log_file, &logs_dir())
+    keep_log_file_in(log_file, &std::env::temp_dir())
 }
 
 /// The body of [`keep_log_file`], with the destination injected so it can be
-/// tested without touching the real state home.
+/// tested against a scratch directory.
 fn keep_log_file_in(
     log_file: NamedTempFile,
     target_dir: &std::path::Path,
@@ -521,12 +517,11 @@ mod keep_log_file_tests {
         file
     }
 
-    /// Every failed step used to leak one permanent file into $TMPDIR,
-    /// because `NamedTempFile::keep` opts the file out of Drop cleanup and
-    /// nothing else ever removed it. It must end up somewhere durable and
-    /// findable instead.
+    /// A kept log must be renamed out of the cleanup-prefix namespace, so
+    /// omni no longer treats it as disposable, while staying in $TMPDIR so
+    /// the OS still expires it.
     #[test]
-    fn a_kept_log_is_moved_into_the_logs_directory() {
+    fn a_kept_log_is_renamed_out_of_the_cleanup_namespace() {
         let dest = tempfile::tempdir().expect("dest dir");
         let log = temp_log("boom\n");
         let tmp_path = log.path().to_path_buf();
@@ -538,6 +533,12 @@ mod keep_log_file_tests {
         assert!(
             !tmp_path.exists(),
             "the temporary copy must not be left behind"
+        );
+
+        let name = kept.file_name().unwrap().to_string_lossy().to_string();
+        assert!(
+            !name.starts_with("omnitmp-"),
+            "a kept log must leave the cleanup namespace, got {name}"
         );
     }
 

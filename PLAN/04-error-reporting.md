@@ -86,13 +86,25 @@ There is an in-source `TODO` acknowledging exactly this, `progress_handler.rs:33
 
 A second generator exists for updates: `git/updater.rs:157-165` creates `omni-update.<ts>.`, `:208-212` keeps it, and the path is stored in the DB and surfaced on the next prompt by `report_update_error` (`:239-243`).
 
+**Correction to the framing above.** "Leaks a permanent file, forever" is
+overstated. `omni-exec.*` does escape omni's own cleanup, but `$TMPDIR` is
+tmpfs on many Linux systems and is reaped on a schedule by
+systemd-tmpfiles and by macOS, so the OS does expire these. The real
+defects are narrower: a run that dies before Drop leaves a file omni never
+reclaims, and a kept log is not findable afterwards.
+
 **And the pointer is destroyed as it is printed.** `report_update_error` clears `omnipath.update_error_log` inside the same transaction (`cache/omnipath.rs:74-88`), so a background-update error is shown **exactly once, ever**. In fish it is worse: the template evals hook output with `eval "$line" 2>/dev/null`, swallowing the message entirely.
 
 There is **no `omni logs` command** (`commands/builtin/mod.rs` inventory).
 
 ### Approach
 
-1. **Move logs to `${state_home}/logs/`** - `state_home()` already exists (`env.rs:377`). Stable, discoverable, not subject to `$TMPDIR` reaping.
+1. ~~Move logs to `${state_home}/logs/`~~ **Rejected.** Logs stay in `$TMPDIR`.
+   `$TMPDIR` reaping *is* the retention policy: a failure log is a debugging
+   artifact with a short useful life, and letting the OS expire it on reboot
+   beats accumulating files in the user's state directory and then needing
+   bespoke pruning to bound them. Moving them out manufactured a retention
+   problem that did not previously exist.
 2. **Implement the existing TODO**: prefix with `tmpdir_cleanup_prefix()` while running, rename on `keep()`. Aborted runs then self-clean.
 3. **Add `omni logs`**:
    - `omni logs` - list recent, newest first
@@ -113,16 +125,19 @@ There is **no `omni logs` command** (`commands/builtin/mod.rs` inventory).
 
 ### Verification
 
-- [x] A failed step writes to `${state_home}/logs/`, not `$TMPDIR` - `ce8da3f`
+- [x] A failed step's log survives omni's own cleanup but is still OS-expirable - kept logs are renamed out of the cleanup prefix and stay in `$TMPDIR`
 - [x] An interrupted run leaves no orphan log - the running log now carries the cleanup prefix, **and** cleanup was taught to remove plain files
 - [ ] `omni logs --last` shows the log the failure message pointed to
-- [ ] Retention prunes old logs and is bounded
+- [x] Retention is bounded - by `$TMPDIR` expiry, deliberately not by bespoke pruning
 - [ ] A background-update error is still visible on the **second** prompt after it occurs
 - [ ] fish shows the error rather than swallowing it
 
-**Done in** `ce8da3f` (items 1 and 2 of the approach). Remaining: `omni logs`
-(item 3), retention (item 4), the update-error pointer (item 5), the fish
-template (item 6).
+**Done in** `ce8da3f` and its follow-up. Remaining: `omni logs` (item 3),
+the update-error pointer (item 5), the fish template (item 6).
+
+`omni logs` still makes sense on top of this - it just lists `omni-exec.*`
+in `$TMPDIR` rather than a directory omni curates, and inherits the OS's
+expiry instead of implementing `--clean` retention.
 
 Note discovered while implementing: prefixing the log with
 `tmpdir_cleanup_prefix` -- what the in-source TODO asked for -- was **not
