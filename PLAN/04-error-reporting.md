@@ -106,11 +106,19 @@ There is **no `omni logs` command** (`commands/builtin/mod.rs` inventory).
    bespoke pruning to bound them. Moving them out manufactured a retention
    problem that did not previously exist.
 2. **Implement the existing TODO**: prefix with `tmpdir_cleanup_prefix()` while running, rename on `keep()`. Aborted runs then self-clean.
-3. **Add `omni logs`**:
-   - `omni logs` - list recent, newest first
-   - `omni logs --last` - print/tail the newest
-   - `omni logs <lifecycle>` - the newest for a given lifecycle (pairs with the failure message in [`03-up-lifecycles.md`](03-up-lifecycles.md))
-   - `omni logs --clean` - prune
+3. ~~Add `omni logs`~~ **Rejected.** It fixes none of the actual defects.
+   The failure message already prints the exact path, which is the affordance
+   that matters. Every gap it was meant to cover is better closed at source:
+   the update-error pointer by not clearing it on read (item 5), and the fish
+   case by verifying the claim first (item 6).
+
+   It also cannot be built cheaply. On Linux `$TMPDIR` is shared between
+   users, so listing `omni-exec.*` there would enumerate *other users'*
+   filenames and then fail to open them. Kept logs are `0600` (pinned by a
+   test), so contents are safe -- but a listing command is not. Making it
+   correct means a per-user store under `state_home`, which reintroduces the
+   retention problem deliberately dropped above.
+
 4. **Retention** - keep last N or N days, pruned on successful `up`. There is precedent: the cache tables already have a retention concept (`cache/up_environments.rs:87-105`).
 5. **Stop destroying the update-error pointer on read.** Keep an append-only list so `omni logs` can show past failures, or at minimum do not clear until the user has plausibly seen it.
 6. **Stop swallowing hook stderr in the fish template** (`templates/shell_integration.fish.tmpl:139`).
@@ -127,7 +135,7 @@ There is **no `omni logs` command** (`commands/builtin/mod.rs` inventory).
 
 - [x] A failed step's log survives omni's own cleanup but is still OS-expirable - kept logs are renamed out of the cleanup prefix and stay in `$TMPDIR`
 - [x] An interrupted run leaves no orphan log - the running log now carries the cleanup prefix, **and** cleanup was taught to remove plain files
-- [ ] `omni logs --last` shows the log the failure message pointed to
+- [x] ~~`omni logs --last`~~ - rejected; the failure message already prints the path
 - [x] Retention is bounded - by `$TMPDIR` expiry, deliberately not by bespoke pruning
 - [ ] A background-update error is still visible on the **second** prompt after it occurs
 - [ ] fish shows the error rather than swallowing it
@@ -135,9 +143,13 @@ There is **no `omni logs` command** (`commands/builtin/mod.rs` inventory).
 **Done in** `ce8da3f` and its follow-up. Remaining: `omni logs` (item 3),
 the update-error pointer (item 5), the fish template (item 6).
 
-`omni logs` still makes sense on top of this - it just lists `omni-exec.*`
-in `$TMPDIR` rather than a directory omni curates, and inherits the OS's
-expiry instead of implementing `--clean` retention.
+`omni logs` was subsequently rejected outright; see item 3.
+
+**The one real defect left in this section is item 5**: `report_update_error`
+clears `omnipath.update_error_log` in the same transaction that prints it
+(`cache/omnipath.rs:74-88`), so a background-update error is surfaced exactly
+once, ever. That is a bug with no workaround, unlike the log-discovery
+problem, which the printed path already solves.
 
 Note discovered while implementing: prefixing the log with
 `tmpdir_cleanup_prefix` -- what the in-source TODO asked for -- was **not

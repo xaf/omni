@@ -542,6 +542,26 @@ mod keep_log_file_tests {
         );
     }
 
+    /// $TMPDIR is shared between users on most Linux systems, so a kept log
+    /// must stay owner-only. tempfile creates at 0600; this pins that the
+    /// rename does not widen it.
+    #[cfg(unix)]
+    #[test]
+    fn a_kept_log_is_not_readable_by_other_users() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dest = tempfile::tempdir().expect("dest dir");
+        let kept = keep_log_file_in(temp_log("secret"), dest.path()).expect("keep log");
+
+        let mode = std::fs::metadata(&kept)
+            .expect("stat kept log")
+            .permissions()
+            .mode()
+            & 0o777;
+
+        assert_eq!(mode & 0o077, 0, "kept log is group/world accessible: {mode:o}");
+    }
+
     #[test]
     fn the_log_contents_survive_the_move() {
         let dest = tempfile::tempdir().expect("dest dir");
