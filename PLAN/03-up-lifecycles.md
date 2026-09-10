@@ -104,7 +104,36 @@ The unlock is `UpVersion.env_vars`: tool-specific env vars are already attached 
 
 So composition must also re-assert `required_by` for every carried version, not just newly-installed ones. **Without this, the feature silently breaks the very thing it exists to preserve** - node would keep working for a week and then vanish.
 
-Note also `commit()` is gated on `was_upped()` (`tool.rs:372-376`, `mise.rs:1405-1407`), which is false for a failed lifecycle. Carried versions therefore need a path that does not depend on `was_upped()`.
+**This is easy to write, not hard.** The write is one call per version:
+
+```rust
+cache.add_required_by(env_version_id, &version.normalized_name, &version.version)?;
+```
+
+and `UpVersion` (`cache/up_environments.rs:574-586`) already carries both
+`normalized_name` and `version`, so re-asserting a carried slice is a loop
+over it.
+
+The only subtlety is *why you cannot simply drop the `was_upped()` gate*
+(`tool.rs:372-376`). `commit()` (`mise.rs:1384-1403`) reads versions from
+`self.actual_version` / `self.actual_versions`, `OnceCell`s populated during
+the run:
+
+```rust
+} else {
+    return Err(UpError::Exec("failed to get version".to_string()));
+};
+```
+
+A failed or skipped lifecycle never populated them, so an ungated `commit()`
+returns `failed to get version`. Carried versions must therefore be written
+from the **previously-committed env**, not from the in-memory config object.
+Different data source, same one-line write.
+
+The risk here is entirely about **omission, not difficulty**: skip it and
+everything looks correct until `cleanup_after` (default 1 week) removes the
+tool. That is why the GC test below is called out, not because the code is
+involved.
 
 ### Hard constraint: `UpConfigMise` is single-shot
 
