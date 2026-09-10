@@ -30,7 +30,7 @@ set -euo pipefail
 #
 # It is output-size dependent, so it appears to work on small inputs and
 # silently breaks on large ones. Capture into a variable with `|| true` and
-# test for emptiness instead. Enforced by check-shell-pitfalls.sh.
+# test for emptiness instead.
 
 BINARY=${1:-}
 TARGET=${2:-}
