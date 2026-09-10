@@ -9,6 +9,8 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::Duration;
 
 use crate::internal::config::up::utils::RunConfig;
+use crate::internal::env::state_home;
+use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::config::up::UpError;
 use crate::internal::user_interface::print::filter_control_characters;
 use crate::internal::user_interface::StringColor;
@@ -28,6 +30,72 @@ pub trait ProgressHandler: Send + Sync {
 impl std::fmt::Debug for dyn ProgressHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "ProgressHandler")
+    }
+}
+
+/// Directory holding logs kept from failed commands.
+///
+/// Under the state home rather than `$TMPDIR`: these are meant to outlive
+/// the run that produced them, and `$TMPDIR` is reaped on a schedule nobody
+/// controls.
+pub fn logs_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(state_home()).join("logs")
+}
+
+/// Move the log of a failed command somewhere durable and findable.
+///
+/// While running, the log is a `NamedTempFile` carrying this run's
+/// `tmpdir_cleanup` prefix, so it is reclaimable. Keeping it opts it out of
+/// tempfile's Drop-based cleanup, which is precisely why it then has to be
+/// moved: `NamedTempFile::keep` on its own is what leaked one permanent file
+/// into `$TMPDIR` for every failed step, forever.
+fn keep_log_file(log_file: NamedTempFile) -> Result<std::path::PathBuf, String> {
+    keep_log_file_in(log_file, &logs_dir())
+}
+
+/// The body of [`keep_log_file`], with the destination injected so it can be
+/// tested without touching the real state home.
+fn keep_log_file_in(
+    log_file: NamedTempFile,
+    target_dir: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    let (_file, tmp_path) = log_file.keep().map_err(|err| err.to_string())?;
+
+    // Reuse the random component tempfile already picked, so two failures in
+    // the same second cannot collide.
+    let unique = tmp_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.rsplit('.').next())
+        .unwrap_or("log")
+        .to_string();
+
+    let timestamp = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "unknown".to_string())
+        .replace(['-', ':'], "");
+
+    if std::fs::create_dir_all(target_dir).is_err() {
+        // Nowhere durable to put it. The log is still on disk where it was
+        // written, so point at that rather than losing it outright.
+        return Ok(tmp_path);
+    }
+
+    let target = target_dir.join(format!("omni-exec.{timestamp}.{unique}.log"));
+
+    // rename() cannot cross filesystems, and $TMPDIR very often is one.
+    if std::fs::rename(&tmp_path, &target).is_ok() {
+        return Ok(target);
+    }
+
+    match std::fs::copy(&tmp_path, &target) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            Ok(target)
+        }
+        Err(_) => Ok(tmp_path),
     }
 }
 
@@ -210,17 +278,12 @@ where
     listener_manager.start();
 
     if let Ok(mut command) = process_command.spawn() {
-        // Create a temporary file to store the output
-        let log_file_prefix = format!(
-            "omni-exec.{}.",
-            time::OffsetDateTime::now_utc()
-                .replace_nanosecond(0)
-                .unwrap()
-                .format(&Rfc3339)
-                .expect("failed to format date")
-                .replace(['-', ':'], ""), // Remove the dashes in the date and the colons in the time
-        );
-        let mut log_file = match NamedTempFile::with_prefix(log_file_prefix.as_str()) {
+        // While the command is running its log lives in $TMPDIR under this
+        // run's cleanup prefix, so tmpdir_cleanup() reclaims it if we exit
+        // without dropping the file. It is only moved somewhere durable if
+        // the command actually fails; see keep_log_file().
+        let mut log_file = match NamedTempFile::with_prefix(tmpdir_cleanup_prefix("exec").as_str())
+        {
             Ok(file) => file,
             Err(err) => {
                 return Err(UpError::Exec(err.to_string()));
@@ -323,10 +386,8 @@ where
             Err(err) => Err(UpError::Exec(err.to_string())),
             Ok(exit_status) if !exit_status.success() => {
                 let exit_code = exit_status.code().unwrap_or(-42);
-                // TODO: the log file should be prefixed by the tmpdir_cleanup_prefix
-                // by default and renamed when deciding to keep it
-                match log_file.keep() {
-                    Ok((_file, path)) => Err(UpError::Exec(format!(
+                match keep_log_file(log_file) {
+                    Ok(path) => Err(UpError::Exec(format!(
                         "process exited with status {}; log is available at {}",
                         exit_code,
                         path.to_string_lossy().underline(),
@@ -442,4 +503,106 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod keep_log_file_tests {
+    use std::io::Write;
+
+    use super::*;
+
+    /// Deliberately *not* using the tmpdir cleanup prefix: that namespace is
+    /// process-global and shared with other modules, so a test creating
+    /// files in it can be reaped by any other test that runs cleanup.
+    fn temp_log(contents: &str) -> NamedTempFile {
+        let mut file = NamedTempFile::new().expect("create temp log");
+        file.write_all(contents.as_bytes()).expect("write log");
+        file.flush().expect("flush log");
+        file
+    }
+
+    /// Every failed step used to leak one permanent file into $TMPDIR,
+    /// because `NamedTempFile::keep` opts the file out of Drop cleanup and
+    /// nothing else ever removed it. It must end up somewhere durable and
+    /// findable instead.
+    #[test]
+    fn a_kept_log_is_moved_into_the_logs_directory() {
+        let dest = tempfile::tempdir().expect("dest dir");
+        let log = temp_log("boom\n");
+        let tmp_path = log.path().to_path_buf();
+
+        let kept = keep_log_file_in(log, dest.path()).expect("keep log");
+
+        assert!(kept.starts_with(dest.path()), "kept at {kept:?}");
+        assert!(kept.exists(), "kept log should exist");
+        assert!(
+            !tmp_path.exists(),
+            "the temporary copy must not be left behind"
+        );
+    }
+
+    #[test]
+    fn the_log_contents_survive_the_move() {
+        let dest = tempfile::tempdir().expect("dest dir");
+        let kept = keep_log_file_in(temp_log("stdout\nstderr\n"), dest.path()).expect("keep log");
+
+        assert_eq!(
+            std::fs::read_to_string(&kept).expect("read kept log"),
+            "stdout\nstderr\n"
+        );
+    }
+
+    /// Two steps failing within the same second must not overwrite each
+    /// other's log, which is why the tempfile's random component is reused
+    /// rather than relying on the timestamp alone.
+    #[test]
+    fn concurrent_failures_do_not_collide() {
+        let dest = tempfile::tempdir().expect("dest dir");
+
+        let first = keep_log_file_in(temp_log("first"), dest.path()).expect("keep first");
+        let second = keep_log_file_in(temp_log("second"), dest.path()).expect("keep second");
+
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "first");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), "second");
+    }
+
+    /// If the destination cannot be created the log must still be reported,
+    /// not silently dropped -- a missing log is worse than one in $TMPDIR.
+    #[test]
+    fn an_unusable_destination_still_reports_a_readable_log() {
+        let blocker = NamedTempFile::new().expect("blocker file");
+        // A path *under a regular file* can never be created as a directory.
+        let impossible = blocker.path().join("logs");
+
+        let kept = keep_log_file_in(temp_log("still here"), &impossible).expect("keep log");
+
+        assert!(kept.exists(), "log should still be readable at {kept:?}");
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "still here");
+    }
+
+    /// The running log is named with this run's cleanup prefix so an
+    /// abandoned one is reclaimable. That only works if cleanup removes
+    /// plain files, which `remove_dir_all` does not.
+    ///
+    /// Exercises the per-entry helper rather than `tmpdir_cleanup()` itself:
+    /// that reaps a process-global namespace shared with other modules, so
+    /// calling it from a parallel test suite would delete other tests' files.
+    #[test]
+    fn cleanup_removes_both_files_and_directories() {
+        let scratch = tempfile::tempdir().expect("scratch dir");
+
+        let file = scratch.path().join("stray.log");
+        std::fs::write(&file, "abandoned").expect("write stray log");
+
+        let dir = scratch.path().join("stray-dir");
+        std::fs::create_dir(&dir).expect("create stray dir");
+        std::fs::write(dir.join("inner"), "x").expect("write inside stray dir");
+
+        crate::internal::env::remove_cleanup_entry(&file);
+        crate::internal::env::remove_cleanup_entry(&dir);
+
+        assert!(!file.exists(), "a stray log file should be reclaimed");
+        assert!(!dir.exists(), "a stray directory should still be reclaimed");
+    }
 }
