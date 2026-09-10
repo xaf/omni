@@ -16,7 +16,7 @@ Every claim in these documents carries a `file:line` citation so you can **re-ve
 
 | Goal | Baseline | Target |
 |---|---|---|
-| Lighter binary | 28 MB | ~12-15 MB |
+| Lighter binary | 28 MB | ~12-15 MB · **host build now -37.3%: 25.09 → 15.72 MB** |
 | Faster shell prompt | 13.6 ms/prompt | ~1-2 ms |
 | Independent tool lifecycles | one failure aborts everything | a failure affects only its own lifecycle |
 | Network resilience | no retries, no timeouts | retries with backoff, rate-limit aware |
@@ -26,7 +26,7 @@ Every claim in these documents carries a `file:line` citation so you can **re-ve
 
 | Phase | File | Status |
 |---|---|---|
-| A. Measurement harness & binary size | [`01-binary-size.md`](01-binary-size.md), [`02-static-linking.md`](02-static-linking.md), [`08-ci.md`](08-ci.md) | **in progress** - see below |
+| A. Measurement harness & binary size | [`01-binary-size.md`](01-binary-size.md), [`02-static-linking.md`](02-static-linking.md), [`08-ci.md`](08-ci.md) | **done** - see below |
 | B. Parallel up lifecycles | [`03-up-lifecycles.md`](03-up-lifecycles.md), [`04-error-reporting.md`](04-error-reporting.md) | not started |
 | C. Network resilience | [`05-network-resilience.md`](05-network-resilience.md) | not started |
 | D. Prompt latency | [`06-runtime-speed.md`](06-runtime-speed.md) | not started |
@@ -51,8 +51,11 @@ Branch: `improve/phase-a-size-and-gates`
 | ~~OpenSSL-specific guard~~ | removed | wrong abstraction; superseded by the static-native-lib gate above |
 | Dep narrowing: reqwest (item 3) | **not applied** | measured: saves 1 crate. Plan overestimated by reading `Cargo.lock` instead of the per-target graph |
 | Dep narrowing: zip (item 4) | done | 14 crates + `zstd-sys` gone, -0.8% size, -27% build. All pure-Rust codecs retained; only zstd + AES dropped. Exposed latent dynamic-lzma bug |
-| Dep narrowing: tokio, base62, futures | not started | items 5-7 |
-| Size + prompt-latency CI gates ([`08`](08-ci.md)) | not started | |
+| Dep narrowing: tokio + shared runtime (item 5) | done | 7 multi-threaded runtimes → 1 current-thread; `full` → 7 features; -65 KB |
+| Dep narrowing: base62 (item 6) | done | 3 crates gone; 28 captured vectors prove byte-identical output |
+| Dep narrowing: futures (item 7) | done | facade → `futures-util`; drops `futures-executor` + a proc-macro |
+| Size CI gate ([`08`](08-ci.md)) | done | `check-binary-size.sh` + per-target baseline; verified pass/fail/unknown-target |
+| Prompt-latency CI gate ([`08`](08-ci.md)) | done, **report-only** | `bench-hook-env.sh`; needs a musl baseline before a threshold is meaningful |
 | Repo hygiene (`config-value/` etc.) | deferred | untracked, irreversible; left for the maintainer to delete |
 
 ### Unplanned findings from Phase A
@@ -62,6 +65,8 @@ Branch: `improve/phase-a-size-and-gates`
 3. **`grep -q` in a pipeline under `set -o pipefail` silently inverts.** Bit the first version of the linking gate. Noted in [`02-static-linking.md`](02-static-linking.md#bug-found-while-testing-the-script).
 4. **`liblzma` was only statically linked by accident.** Its `static` feature is off by default; `zip`'s `lzma-static` was enabling it transitively. Trimming zip's features silently produced a binary linked against `liblzma.so.5`. Now declared explicitly. Caught by the new gate on its first real use.
 5. **Size estimates from `Cargo.lock` are wrong.** `Cargo.lock` is the union across all targets and feature combinations; only `cargo tree --target` shows what compiles. `quinn`, `ring` and `wasm-bindgen` were never being built despite appearing in the lock.
+6. **A glibc host benchmark does not represent shipped performance.** Both a pre-change and a post-change local build measure ~1.8 ms on `hook env`, while the shipped musl binary measures **7.51 ms**. Phase A changed prompt latency not at all. Leading hypothesis is musl's allocator against a prompt path that does 228 `OmniConfig` deep clones and re-serialises YAML per call - which means Phase D should pay off **more** on musl than a local benchmark suggests. The latency gate is therefore report-only until CI records a musl baseline. See [`measurements/a5-a7-and-gates.txt`](measurements/a5-a7-and-gates.txt).
+7. **Knowing about a footgun in prose did not stop me repeating it.** The `grep -q` + `pipefail` + `SIGPIPE` inversion was written up in [`02-static-linking.md`](02-static-linking.md), then reintroduced hours later in the benchmark script. Both sites now carry a comment *at the call site*, which is the only form of the lesson that travels with the code.
 
 ## Decisions made
 

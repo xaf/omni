@@ -1,0 +1,174 @@
+Phase A items 5-7 and the CI gates
+==================================
+
+Commit:   dbaf4ed onwards
+Date:     2026-09-09/10
+Host:     dev container, ARM aarch64, Linux
+Target:   aarch64-unknown-linux-gnu (host build)
+
+--------------------------------------------------------------------------
+Item 5: shared tokio runtime + narrowed features
+--------------------------------------------------------------------------
+
+Seven call sites each built their own runtime via `Runtime::new()`, which is
+`Builder::new_multi_thread()` -- one worker thread per CPU, every time:
+
+    config/up/utils/progress_handler.rs:40,69,79
+    config/up/utils/askpass.rs:78,154
+    git/utils.rs:51,74
+
+Replaced with one lazily built current-thread runtime in
+internal/utils/runtime.rs.
+
+Safety established before changing anything:
+
+    grep tokio::spawn / spawn_blocking      -> NONE
+    the only JoinHandle is std::thread's in fifo_handler.rs
+    all concurrency is tokio::select! or futures::{select_all, join_all}
+      INSIDE a block_on
+
+so nothing needs worker threads; a current-thread runtime drives all of it.
+The `Handle::try_current()` guard in AskPassListener::drop was preserved as
+`runtime::in_runtime()`, since nested block_on still panics.
+
+That let tokio drop from features=["full"] to the seven actually used:
+io-util, macros, net, process, rt, sync, time.
+
+    binary   16,617,304 -> 16,551,848 bytes    -65,456 B
+
+Verified beyond unit tests, since this touches every subprocess:
+  - `omni up` with a custom step, isolated HOME/OMNI_*: streams stdout AND
+    stderr through the progress handler, commits the environment, exit 0
+  - failing custom step: reports exit status, keeps its log, exits non-zero
+
+--------------------------------------------------------------------------
+Item 6: base62 without a bignum library
+--------------------------------------------------------------------------
+
+num-bigint + num-integer + num-traits existed for one 33-line function with
+two callers, both encoding a fixed 32-byte BLAKE3 digest and slicing [..20].
+
+Replaced with long division over a byte buffer: each pass divides the buffer
+by 62 and yields one digit, remainder always < 62 so `rem << 8 | byte` fits
+in a u32.
+
+The output derives ON-DISK CACHE AND DATA PATHS, so it must not change by a
+single character. 28 vectors were captured from the bigint implementation
+BEFORE it was touched -- empty, single bytes, all-zero and all-ff 32-byte
+digests, twelve pseudo-random digests, assorted lengths -- and are asserted
+in `matches_the_bigint_implementation`. All 28 match exactly.
+
+Hand-verified the algorithm to be sure the port was faithful, not just
+equal on samples: input [0x00] -> buf [1,0] = 256; 256/62 = 4 rem 8 -> '8';
+then 4 -> '4'; giving "84", which is what the old code produced. Digits are
+emitted least-significant-first and are NOT reversed.
+
+Four further tests pin caller-visible properties: empty input -> empty
+string, leading zero bytes stay significant (what the `1` sentinel is for),
+output is base62-only, and length >= 20 so the callers' [..20] cannot panic.
+
+num-traits stays: feuilletage -> serde-saphyr needs it.
+
+--------------------------------------------------------------------------
+Item 7: futures facade -> futures-util
+--------------------------------------------------------------------------
+
+Three usages, one of which was not a futures type at all:
+
+    askpass.rs:9             use futures::Future -> std::future::Future
+    listener_manager.rs:6    select_all          -> futures_util
+    listener_manager.rs:145  join_all            -> futures_util
+
+Dropped futures, futures-executor and futures-macro (a proc-macro).
+
+Items 6+7 combined: 16,551,848 -> 16,486,312 bytes.
+
+--------------------------------------------------------------------------
+CI gates
+--------------------------------------------------------------------------
+
+Four checks now run after the build and before packaging, on both the pull
+request and release paths (tests.yaml -> build.yaml -> build-and-test-target):
+
+  1. check-static-linking.sh     dynamic dependencies (binary inspection)
+  2. check-linked-libraries.sh   static + dynamic native libs (build scripts)
+  3. check-binary-size.sh        size vs .github/binary-size-baseline.txt
+  4. bench-hook-env.sh           prompt latency, REPORT ONLY for now
+
+Size gate verified three ways: passes at +0.00%; fails at +59.55% when given
+the pre-change 25 MB binary; and reports without failing for a target that
+has no baseline yet, so adding a target cannot break the build.
+
+--------------------------------------------------------------------------
+A WRONG HYPOTHESIS, AND WHAT IT REVEALED
+--------------------------------------------------------------------------
+
+The benchmark first showed the new binary at 1.61 ms/invocation against the
+shipped binary's 7.51 ms, and the obvious story was that consolidating the
+runtime had fixed it -- plausibly, because GitRepoEnv::id() (env.rs:891)
+calls safe_git_url_parse, and id() is what the prompt path uses
+(dynenv.rs:62). So every prompt really was spawning a multi-threaded runtime
+just to parse a URL string.
+
+That story is WRONG. Benchmarking the PRE-CHANGE binary
+(target/release/omni, 26,304,032 bytes, old runtime code, no LTO) gives:
+
+    pre-change  --release   1.84 ms   (1.18 ms above floor)
+    post-change dist        1.61 ms   (1.02 ms above floor)
+    shipped     musl        7.51 ms   (7.24 ms above floor)
+
+So Phase A did not measurably change prompt latency. Both LOCAL builds are
+~1.8 ms; the 7.51 ms belongs to the SHIPPED MUSL binary.
+
+Implication, and it matters for Phase D: a glibc host benchmark does not
+represent shipped performance. Leading hypothesis is musl's allocator, which
+is much slower than glibc's under allocation-heavy work -- and omni's prompt
+path is exactly that, with 228 full OmniConfig deep clones in one filter
+(commands/loader.rs:455) and YAML re-serialisation per call in up_hash()
+(omniconfig.rs:178-200). Not proven; the version difference between the
+shipped 2025.11.0 binary and HEAD is a confound.
+
+Two consequences:
+  - the prompt-latency gate is REPORT ONLY until CI records a musl baseline;
+    a threshold set from glibc numbers would be meaningless
+  - Phase D's allocation-reduction work should pay off MORE on musl than a
+    local benchmark suggests, so the 13.6 ms figure in 00-findings.md is
+    probably the right target to aim at, not the ~1.8 ms seen locally
+
+--------------------------------------------------------------------------
+A BUG REINTRODUCED, HAVING ALREADY BEEN DOCUMENTED ONCE
+--------------------------------------------------------------------------
+
+bench-hook-env.sh guards against measuring an early return by checking that
+hook env actually emits an environment. The first version did it with:
+
+    "${BINARY}" hook env bash 2>/dev/null | grep -q 'BENCH_VAR'
+
+which under `set -o pipefail` reports failure: grep -q exits on the first
+match, omni then dies of SIGPIPE. A perfectly healthy binary looked broken,
+and the harness refused to benchmark the shipped binary.
+
+This is the SAME failure that bit check-static-linking.sh earlier and was
+already written up in PLAN/02-static-linking.md. Knowing about a footgun in
+prose was not enough to avoid repeating it a few hours later. Both scripts
+now carry an explicit comment at the site, which is the only form of the
+lesson that actually travels with the code.
+
+--------------------------------------------------------------------------
+Cumulative Phase A, host build
+--------------------------------------------------------------------------
+
+    stage                                     bytes        MB
+    baseline --release                    26,304,032     25.09
+    + [profile.dist]                      16,748,376     15.97
+    + openssl removed                     16,748,376     15.97
+    + zip codecs trimmed                  16,617,304     15.85
+    + shared runtime, tokio narrowed      16,551,848     15.79
+    + base62, futures-util                16,486,312     15.72
+                                          ---------------------
+    total                                                -37.3%
+
+    crates compiled   312 -> 280
+    native C libs       7 -> 6
+    clean dist build   3m44s -> 2m39s   (-29%)
+    tests             632 -> 637 passing

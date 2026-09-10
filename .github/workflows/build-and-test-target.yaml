@@ -172,6 +172,24 @@ jobs:
           .github/scripts/check-linked-libraries.sh \
             "target/${{ inputs.target }}/dist"
 
+      - name: Check binary size against the baseline
+        shell: bash
+        run: |
+          .github/scripts/check-binary-size.sh \
+            "target/${{ inputs.target }}/dist/omni" \
+            "${{ inputs.target }}"
+
+      # Report only for now: no musl baseline exists yet, and a local glibc
+      # measurement is not representative -- the shipped musl binary measures
+      # ~4x slower on this path. Set MAX_MS once CI has established a
+      # per-target baseline. See PLAN/06-runtime-speed.md
+      - name: Benchmark the shell prompt hook
+        if: inputs.run_tests
+        shell: bash
+        run: |
+          .github/scripts/bench-hook-env.sh \
+            "target/${{ inputs.target }}/dist/omni" 50
+
       - name: Package as archive
         shell: bash
         run: |

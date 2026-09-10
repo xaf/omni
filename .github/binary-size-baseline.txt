@@ -1,0 +1,20 @@
+# Binary size baselines, in bytes, per target triple.
+#
+# Checked by .github/scripts/check-binary-size.sh against the `dist` profile
+# build. Growth beyond the tolerance (default 5%) fails the build.
+#
+# These are USER-VISIBLE numbers: omni ships as a single self-contained
+# binary, so this is what people download. Before this gate existed the
+# binary had reached 28 MB with no [profile.release] section at all.
+#
+# To change a baseline deliberately:
+#   UPDATE_BASELINE=1 .github/scripts/check-binary-size.sh <binary> <target>
+# and include the result in the pull request so it gets reviewed.
+#
+# Format: "<target-triple>\t<bytes>"
+#
+# Targets not listed here are reported but do not fail, so adding a new
+# target does not break the build before its baseline is recorded. The
+# shipped targets still need theirs filled in from a CI run; the entry below
+# is a local glibc host build, kept as a reference point.
+aarch64-unknown-linux-gnu	16486312
