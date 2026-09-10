@@ -6,7 +6,6 @@ use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncReadExt;
 use tokio::io::BufReader;
 use tokio::process::Command as TokioCommand;
-use tokio::runtime::Runtime;
 use tokio::time::Duration;
 
 use crate::internal::config::up::utils::RunConfig;
@@ -37,8 +36,7 @@ pub fn run_progress(
     progress_handler: Option<&dyn ProgressHandler>,
     run_config: RunConfig,
 ) -> Result<(), UpError> {
-    let rt = Runtime::new().map_err(|err| UpError::Exec(err.to_string()))?;
-    rt.block_on(async_run_progress_readblocks(
+    crate::internal::utils::runtime::block_on(async_run_progress_readblocks(
         process_command,
         |stdout, stderr, hide| {
             if let Some(progress_handler) = &progress_handler {
@@ -66,8 +64,7 @@ pub fn run_command_with_handler<F>(
 where
     F: FnMut(Option<String>, Option<String>),
 {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async_run_progress_readlines(
+    crate::internal::utils::runtime::block_on(async_run_progress_readlines(
         command, handler_fn, run_config,
     ))
 }
@@ -76,8 +73,7 @@ pub fn get_command_output(
     process_command: &mut TokioCommand,
     run_config: RunConfig,
 ) -> std::io::Result<std::process::Output> {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async_get_output(process_command, run_config))
+    crate::internal::utils::runtime::block_on(async_get_output(process_command, run_config))
 }
 
 async fn async_get_output(

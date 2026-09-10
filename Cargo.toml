@@ -102,7 +102,7 @@ term_cursor = "0.2.1"
 term_size = "0.3.2"
 thiserror = "2.0.20"
 time = { version = "0.3.55", features = ["macros", "serde-well-known"] }
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.1", features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 url = "2.5.8"
 uuid = { version = "1.25.0", features = ["v4", "fast-rng"] }
 walkdir = "2.5.0"

@@ -75,14 +75,7 @@ impl AskPassRequest {
             return Err("socket path is not a socket".to_string());
         }
 
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(err) => {
-                return Err(format!("error creating tokio runtime: {err}"));
-            }
-        };
-
-        rt.block_on(async {
+        crate::internal::utils::runtime::block_on(async {
             let mut stream = match UnixStream::connect(socket_path).await {
                 Ok(stream) => stream,
                 Err(err) => {
@@ -150,12 +143,13 @@ pub struct AskPassListener {
 
 impl Drop for AskPassListener {
     fn drop(&mut self) {
-        if let Err(_err) = tokio::runtime::Handle::try_current() {
-            if let Ok(rt) = tokio::runtime::Runtime::new() {
-                rt.block_on(async {
-                    let _ = self.stop().await;
-                });
-            }
+        // A nested `block_on` panics, so only drive the runtime when we are
+        // not already inside one. When we are, the listener is left for the
+        // enclosing runtime to clean up.
+        if !crate::internal::utils::runtime::in_runtime() {
+            crate::internal::utils::runtime::block_on(async {
+                let _ = self.stop().await;
+            });
         }
     }
 }
