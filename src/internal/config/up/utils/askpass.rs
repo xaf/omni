@@ -1,12 +1,12 @@
 use std::fs::set_permissions;
 use std::fs::Permissions;
+use std::future::Future;
 use std::mem;
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-use futures::Future;
 use serde::Deserialize;
 use serde::Serialize;
 use shell_escape::escape;

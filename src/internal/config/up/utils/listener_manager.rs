@@ -3,7 +3,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::future::select_all;
+use futures_util::future::select_all;
 use tokio::process::Command as TokioCommand;
 
 pub type EventHandlerFn =
@@ -142,7 +142,7 @@ impl ListenerManager {
             })
             .collect::<Vec<_>>();
 
-        let results = futures::future::join_all(results).await;
+        let results = futures_util::future::join_all(results).await;
 
         if results.iter().all(|r| r.is_ok()) {
             Ok(())
