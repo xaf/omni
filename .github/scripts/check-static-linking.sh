@@ -122,7 +122,18 @@ case "${TARGET}" in
         while IFS= read -r lib; do
             [[ -z "${lib}" ]] && continue
             case "${lib}" in
+                # Allowlisted individually, not as /usr/lib/*, so that a
+                # NEW /usr/lib dependency still fails the build and has to be
+                # justified. Each entry below is OS-provided, present on every
+                # macOS, and has no static counterpart Apple ships.
                 /usr/lib/libSystem.B.dylib) ok "system: ${lib}" ;;
+                # Both come from libgit2-sys, which links them unconditionally
+                # for any apple target (its build.rs, "if target.contains
+                # (\"apple\")": iconv, Security, CoreFoundation). libobjc is
+                # the ObjC runtime those frameworks require. Removing them
+                # means removing git2, which is on the prompt hot path.
+                /usr/lib/libobjc.A.dylib) ok "system: ${lib}" ;;
+                /usr/lib/libiconv.2.dylib) ok "system: ${lib}" ;;
                 /System/Library/Frameworks/*) ok "system framework: ${lib}" ;;
                 *) fail "disallowed dynamic dependency: ${lib}" ;;
             esac
