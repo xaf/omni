@@ -101,7 +101,15 @@ There is **no `omni logs` command** (`commands/builtin/mod.rs` inventory).
    - `omni logs --clean` - prune
 4. **Retention** - keep last N or N days, pruned on successful `up`. There is precedent: the cache tables already have a retention concept (`cache/up_environments.rs:87-105`).
 5. **Stop destroying the update-error pointer on read.** Keep an append-only list so `omni logs` can show past failures, or at minimum do not clear until the user has plausibly seen it.
-6. **Stop swallowing hook stderr in the fish template** (`templates/shell_integration.fish.tmpl`) - that is where these messages appear.
+6. **Stop swallowing hook stderr in the fish template** (`templates/shell_integration.fish.tmpl:139`).
+
+   > **This claim needs verifying before acting on it.** The line is
+   > `eval "$line" 2>/dev/null` inside `... omni hook env fish | while read line`.
+   > Only **stdout** is piped, so `omni hook env`'s own stderr goes straight to
+   > the terminal and is *not* suppressed; the redirect only discards stderr
+   > produced by evaluating each emitted line. Whether the update-error message
+   > is actually lost therefore depends on how `report_update_error` emits it.
+   > Confirm empirically in a real fish shell before changing the template.
 
 ### Verification
 
