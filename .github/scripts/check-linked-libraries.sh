@@ -111,9 +111,22 @@ done
 echo
 
 # Anything dynamic breaks the self-sufficiency invariant outright, whatever
-# the allowlist says.
+# the allowlist says -- with one named exception.
+#
+# libgit2-sys links iconv unconditionally for any apple target, without a
+# feature gate (its build.rs: `if target.contains("apple")`). Apple ships no
+# static libiconv, so this cannot be satisfied; the only way to drop it is to
+# drop git2, which is on the shell prompt hot path. libiconv lives in
+# SIP-protected /usr/lib and exists on every macOS, so the binary still runs
+# anywhere -- which is the property this check defends.
+#
+# Written as an exact crate+library pair so it stays a single hole rather
+# than a widened rule: any other unspecified linkage still fails.
 dynamic=$(printf '%s\n' "${found}" \
-    | awk -F'\t' '$2 == "dylib" || $2 == "unspecified" {print}' || true)
+    | awk -F'\t' '
+        $2 == "dylib" { print; next }
+        $2 == "unspecified" && !($1 == "libgit2-sys" && $3 == "iconv") { print }
+      ' || true)
 if [[ -n "${dynamic}" ]]; then
     echo "FAIL: dynamically linked native libraries found:"
     printf '%s\n' "${dynamic}" | while IFS=$'\t' read -r crate kind lib; do
