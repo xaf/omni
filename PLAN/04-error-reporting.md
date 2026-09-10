@@ -2,7 +2,7 @@
 
 **Goal:** one error renders once, and the log it points at is findable later.
 
-**Status:** not started
+**Status:** Problem 1 done (rendering dedup + message nesting); Problem 2 (log files) not started
 
 Lands with [`03-up-lifecycles.md`](03-up-lifecycles.md) - the lifecycle summary needs clean single-render errors to be readable.
 
@@ -51,11 +51,25 @@ Also note `mise.rs:1425,1435` call the message-less `progress_handler.error()`, 
 
 ### Verification
 
-- [ ] A failing node step renders exactly **one** `✖` line
-- [ ] The lock file contains exactly one `Error` record per failure
-- [ ] An attached second `omni up` shows one error, not two
-- [ ] Nested errors read as one clause, not `execution error: ... execution error: ...`
-- [ ] The top-level `omni: ...` line remains (it is the exit summary, and is legitimate)
+- [x] A failing node step renders exactly **one** `✖` line - `ended: OnceCell<()>` latch on `UpProgressHandler`, unit-tested
+- [x] The lock file contains exactly one `Error` record per failure - `update_sync_file` sits inside the guarded branch
+- [x] An attached second `omni up` shows one error, not two - follows from the above; the duplication was in the wire protocol
+- [x] Nested errors read as one clause - `UpError::with_context` composes through `message()`, applied at the 4 `run_progress` sites
+- [x] The top-level `omni: ...` line remains
+
+**Done in** `0fb5e76` (latch + `RecordingProgressHandler`) and `8d41e60` (`with_context`).
+
+Two implementation notes worth keeping:
+
+- The latch has to live on the **root** handler. `handler()` and
+  `update_sync_file()` both walk to the root, so a subhandler latching itself
+  would not stop the root re-rendering. `mark_ended()` walks the same chain.
+- The 13-site `StepFailed` conversion in the approach above turned out to be
+  **unnecessary for dedup** - the latch fixes that structurally, at one site
+  instead of thirteen. `StepFailed` remains the right convention for what the
+  *propagated* error should carry, and is still wanted for the
+  [`03`](03-up-lifecycles.md) summary, but it is no longer load-bearing for
+  "renders once".
 
 ## Problem 2: log files leak permanently, and cannot be found
 
