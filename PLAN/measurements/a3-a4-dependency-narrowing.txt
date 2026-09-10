@@ -65,34 +65,69 @@ Candidate feature sets, crates in the musl graph:
     deflate-flate2-zlib-rs              283
     no features                         282    (cannot read deflate: unsafe)
 
-Applied: zip = { default-features = false, features = ["deflate-flate2"] }
+FIRST ATTEMPT (too aggressive, corrected below):
 
-deflate-flate2 reuses the flate2 dependency omni already has for gzip.
+    zip = { default-features = false, features = ["deflate-flate2"] }
 
-22 crates dropped from the lock:
+That reduced the set of archives omni can extract, which was a real
+capability regression and not worth 0.2 MB. Each codec was then costed
+individually:
 
-    aes, block-buffer 0.10.4, bzip2, cipher, constant_time_eq,
-    cpufeatures, crypto-common 0.1.7, deflate64, digest 0.10.7,
-    generic-array, hmac, inout, libbz2-rs-sys, pbkdf2, ppmd-rust,
-    sha1 0.10.7, version_check, zeroize_derive, zopfli, zstd,
-    zstd-safe, zstd-sys
+    + xz / lzma        +0 crates   FREE -- reuses the liblzma we already
+                                   carry for .tar.xz
+    + deflate64        +1 crate    pure Rust
+    + bzip2            +2 crates   pure Rust (libbz2-rs-sys has NO
+                                   dependencies; it is a reimplementation,
+                                   not a C binding)
+    + ppmd             +1 crate    pure Rust (ppmd-rust, no dependencies)
+    + zstd             +3 crates   brings back zstd-sys, a real C build
+    + aes-crypto       +8 crates   aes, cipher, hmac, pbkdf2 and the
+                                   duplicate RustCrypto 0.10 stack
 
-This also resolves the RustCrypto version split noted in 00-findings.md:
-zip pinned sha1 0.10 while omni uses sha1 0.11, forcing duplicate copies of
-digest, block-buffer and crypto-common. Those duplicates are now gone.
+APPLIED:
 
-Results:
+    zip = { version = "4.6.1", default-features = false,
+            features = ["deflate-flate2", "deflate64", "bzip2",
+                        "lzma", "xz", "ppmd"] }
 
-    binary       16,748,376 -> 16,551,768 bytes   -196,608 B  (-1.2%)
-    clean dist   3m22s -> 2m30s                   -52s        (-26%)
-    native libs  7 -> 6      (zstd-sys removed)
+Every decompression codec is restored except zstd and AES.
 
-Accepted trade-off: omni can no longer extract .zip assets compressed with
-zstd, bzip2, lzma or ppmd. Real-world release zips use deflate or store
-essentially universally (Info-ZIP, Python zipfile, Go archive/zip and 7z
-all default to deflate). The failure mode is a clear error from
-github_release.rs:1859 -- "failed to read <asset> zip entry: ..." -- not
-silent corruption, and it is one feature flag to restore.
+AES is omitted on evidence, not preference: omni calls
+`archive.by_index()` and never `by_index_decrypt`, and supplies no
+password anywhere in github_release.rs. Encrypted entries were therefore
+NEVER extractable, with or without the feature. It was dead weight by
+construction.
+
+zstd is omitted because it is the only remaining codec that costs a native
+C library (zstd-sys), which adds build time and a C toolchain requirement
+for every cross-compiled target. zstd-in-zip is rare. This one is a
+genuine judgement call and is trivially reversible by adding "zstd" to the
+feature list.
+
+Also still dropped versus zip's defaults: zopfli (a COMPRESSOR -- omni only
+reads archives) and deflate-flate2-zlib-rs (an alternative deflate backend).
+
+Results, host build:
+
+    variant                          bytes        MB    crates
+    zip defaults (original)      16,748,376    15.97       300
+    deflate-only (rejected)      16,551,768    15.78       282
+    pure-Rust codecs (applied)   16,617,304    15.85       286
+
+    clean dist   3m22s -> 2m28s   (-27%)
+    native libs  7 -> 6           (zstd-sys removed)
+
+So versus the original defaults: 14 crates fewer, one C dependency fewer,
+the duplicate RustCrypto 0.10 stack gone, and the only lost capability is
+zstd-compressed and AES-encrypted .zip entries -- the latter having been
+unreachable anyway.
+
+IMPORTANT: .tar.gz and .tar.xz are entirely unaffected by any of this. They
+use flate2 and liblzma directly (github_release.rs:1898-1907) and never
+touch the zip crate. omni supports exactly four asset types --
+GithubReleaseAssetType is TarGz, TarXz, Zip, Binary
+(cache/github_release.rs:704-710) -- so .tar.bz2, .tar.zst and .7z were
+never supported at all.
 
 --------------------------------------------------------------------------
 THE IMPORTANT FIND: liblzma was only static by accident

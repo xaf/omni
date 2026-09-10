@@ -27,7 +27,7 @@ Sizes below are **local `aarch64-unknown-linux-gnu` host builds**, not the shipp
 | 1 | `[profile.dist]` lto=fat, cgu=1, strip | **15.97 MB** | **-36.3%** | 16,748,376 bytes. Verified working. [`measurements/a1-profile-dist.txt`](measurements/a1-profile-dist.txt) |
 | 2 | openssl removed | 15.97 MB | **0 B** | build time -22s (~10%), 5 crates dropped. [`measurements/a2-openssl-removal.txt`](measurements/a2-openssl-removal.txt) |
 | 3 | reqwest features | - | - | **not applied**: saves 1 crate. Plan overestimated it. [`measurements/a3-a4-dependency-narrowing.txt`](measurements/a3-a4-dependency-narrowing.txt) |
-| 4 | zip → `deflate-flate2` | **15.78 MB** | **-1.2%** | 22 crates + `zstd-sys` dropped; build -26%. Exposed a latent dynamic-lzma bug |
+| 4 | zip codec trim | **15.85 MB** | **-0.8%** | 14 crates + `zstd-sys` dropped; build -27%. All pure-Rust codecs kept. Exposed a latent dynamic-lzma bug |
 | 5 | tokio features | | | |
 | 6 | base62 hand-roll | | | |
 | 7 | drop `futures` facade | | | |

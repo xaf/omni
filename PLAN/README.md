@@ -50,7 +50,7 @@ Branch: `improve/phase-a-size-and-gates`
 | openssl removal ([`01`](01-binary-size.md) item 2) | done | removed; **0 B** size change, **-22s** build time. Settled by per-target `cargo tree`, no musl build needed |
 | ~~OpenSSL-specific guard~~ | removed | wrong abstraction; superseded by the static-native-lib gate above |
 | Dep narrowing: reqwest (item 3) | **not applied** | measured: saves 1 crate. Plan overestimated by reading `Cargo.lock` instead of the per-target graph |
-| Dep narrowing: zip (item 4) | done | 22 crates + `zstd-sys` gone, -1.2% size, -26% build. Exposed latent dynamic-lzma bug |
+| Dep narrowing: zip (item 4) | done | 14 crates + `zstd-sys` gone, -0.8% size, -27% build. All pure-Rust codecs retained; only zstd + AES dropped. Exposed latent dynamic-lzma bug |
 | Dep narrowing: tokio, base62, futures | not started | items 5-7 |
 | Size + prompt-latency CI gates ([`08`](08-ci.md)) | not started | |
 | Repo hygiene (`config-value/` etc.) | deferred | untracked, irreversible; left for the maintainer to delete |

@@ -38,7 +38,8 @@ blake3          static
 # See PLAN/09-rejected.md
 libgit2-sys     static
 
-# xz/lzma, for extracting .tar.xz release assets. Static linkage is forced
+# xz/lzma, for extracting .tar.xz release assets, and reused for lzma/xz
+# entries inside .zip archives at no additional cost. Static linkage is forced
 # explicitly by the `static` feature on our liblzma dependency. Do not rely
 # on another crate to enable it: zip's `lzma-static` used to do so
 # transitively, and dropping zip's default features silently produced a
