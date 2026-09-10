@@ -58,6 +58,7 @@ Branch: `improve/phase-a-size-and-gates`
 | Prompt-latency CI gate ([`08`](08-ci.md)) | done, **report-only** | `bench-hook-env.sh`; needs a musl baseline before a threshold is meaningful |
 | Repo hygiene (`config-value/` etc.) | done | removed by the maintainer |
 | Shell pitfall linter | done | `check-shell-pitfalls.sh`; audit found the `grep -q`/pipefail inversion was **not** actually fixed - 2 live instances remained in the gate itself |
+| Phase B: log leak + discoverability (`04` Problem 2, items 1-2) | done | kept logs move to `${state_home}/logs/`; cleanup taught to remove files |
 | Phase B: error dedup + message nesting (`04` Problem 1) | done | one failure renders once; `execution error:` no longer doubles |
 | Merge main (zip 4 → 8) + drop liblzma | done | zip 8 uses pure-Rust lzma, so the C binding went entirely: native libs **6 → 5**. 4 new xz extraction tests |
 

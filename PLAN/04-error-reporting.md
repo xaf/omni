@@ -2,7 +2,7 @@
 
 **Goal:** one error renders once, and the log it points at is findable later.
 
-**Status:** Problem 1 done (rendering dedup + message nesting); Problem 2 (log files) not started
+**Status:** Problem 1 done; Problem 2 partly done (leak fixed, logs discoverable; `omni logs` + retention still open)
 
 Lands with [`03-up-lifecycles.md`](03-up-lifecycles.md) - the lifecycle summary needs clean single-render errors to be readable.
 
@@ -105,9 +105,19 @@ There is **no `omni logs` command** (`commands/builtin/mod.rs` inventory).
 
 ### Verification
 
-- [ ] A failed step writes to `${state_home}/logs/`, not `$TMPDIR`
-- [ ] An interrupted run (Ctrl-C) leaves no orphan log
+- [x] A failed step writes to `${state_home}/logs/`, not `$TMPDIR` - `ce8da3f`
+- [x] An interrupted run leaves no orphan log - the running log now carries the cleanup prefix, **and** cleanup was taught to remove plain files
 - [ ] `omni logs --last` shows the log the failure message pointed to
 - [ ] Retention prunes old logs and is bounded
 - [ ] A background-update error is still visible on the **second** prompt after it occurs
 - [ ] fish shows the error rather than swallowing it
+
+**Done in** `ce8da3f` (items 1 and 2 of the approach). Remaining: `omni logs`
+(item 3), retention (item 4), the update-error pointer (item 5), the fish
+template (item 6).
+
+Note discovered while implementing: prefixing the log with
+`tmpdir_cleanup_prefix` -- what the in-source TODO asked for -- was **not
+sufficient on its own**. `tmpdir_cleanup()` ran `force_remove_dir_all` on
+every match, and `remove_dir_all` does not remove a plain file, so a stray
+log matched the glob and survived cleanup silently. Both halves were needed.
