@@ -1903,7 +1903,11 @@ impl UpConfigGithubRelease {
                         UpError::Exec(errmsg)
                     })?;
                 } else if asset_type.is_txz() {
-                    let tar = liblzma::read::XzDecoder::new(archive_file);
+                    // `allow_multiple_streams` is true so that concatenated
+                    // xz streams -- what `xz -T` and `pixz` produce for large
+                    // assets -- decompress fully. liblzma's XzDecoder::new was
+                    // single-stream only, so this is strictly more permissive.
+                    let tar = lzma_rust2::XzReader::new(archive_file, true);
                     let mut archive = tar::Archive::new(tar);
                     archive.unpack(&target_dir).map_err(|err| {
                         let errmsg = format!("failed to extract {asset_name}: {err}");
@@ -2625,6 +2629,70 @@ struct GithubApiError {
 impl GithubApiError {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
+    }
+}
+
+#[cfg(test)]
+mod xz_extraction_tests {
+    /// The production `.tar.xz` path is `lzma_rust2::XzReader` ->
+    /// `tar::Archive`, as used in the `is_txz()` branch above. These exercise
+    /// that exact pairing against archives produced by the real `xz` tool,
+    /// because replacing the liblzma C binding with a pure-Rust decoder is
+    /// only safe if it reads genuine xz output.
+    ///
+    /// Fixtures live in tests/fixtures/archives and both decompress to the
+    /// same 140 KB tar; the multi-stream one is two concatenated xz streams,
+    /// which is what `xz -T` and `pixz` emit for large assets.
+    const EXPECTED_FILES: usize = 8;
+
+    fn file_count(bytes: &[u8], allow_multiple_streams: bool) -> Result<usize, String> {
+        let reader = lzma_rust2::XzReader::new(bytes, allow_multiple_streams);
+        let mut archive = tar::Archive::new(reader);
+        let entries = archive.entries().map_err(|err| err.to_string())?;
+        let mut count = 0;
+        for entry in entries {
+            let entry = entry.map_err(|err| err.to_string())?;
+            if entry.header().entry_type().is_file() {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    #[test]
+    fn extracts_a_single_stream_tar_xz() {
+        let bytes = include_bytes!("../../../../tests/fixtures/archives/single-stream.tar.xz");
+        assert_eq!(file_count(bytes, true), Ok(EXPECTED_FILES));
+    }
+
+    #[test]
+    fn extracts_a_multi_stream_tar_xz() {
+        let bytes = include_bytes!("../../../../tests/fixtures/archives/multi-stream.tar.xz");
+        assert_eq!(file_count(bytes, true), Ok(EXPECTED_FILES));
+    }
+
+    /// Why `allow_multiple_streams` must be true. With it false -- which is
+    /// what liblzma's `XzDecoder::new` did, `new_multi_decoder` being a
+    /// separate constructor -- only the first stream is read, so the tar is
+    /// truncated and does not yield all of its entries.
+    #[test]
+    fn single_stream_mode_truncates_a_multi_stream_archive() {
+        let bytes = include_bytes!("../../../../tests/fixtures/archives/multi-stream.tar.xz");
+        let truncated = file_count(bytes, false);
+        assert_ne!(
+            truncated,
+            Ok(EXPECTED_FILES),
+            "single-stream mode read the whole archive, so the fixture is \
+             no longer genuinely multi-stream and this test proves nothing"
+        );
+    }
+
+    #[test]
+    fn rejects_data_that_is_not_xz() {
+        assert!(
+            file_count(b"definitely not an xz stream", true).is_err(),
+            "garbage input should not decode as a tar.xz"
+        );
     }
 }
 

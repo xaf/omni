@@ -1,0 +1,83 @@
+# Native libraries allowed to be linked into the omni binary.
+#
+# omni ships as a self-contained binary, so every native library here is
+# compiled into it. Adding an entry means accepting:
+#
+#   - a larger binary
+#   - a C/C++ toolchain requirement for every cross-compiled target
+#   - longer clean builds
+#
+# Enforced by .github/scripts/check-linked-libraries.sh, which reads the
+# `cargo:rustc-link-lib=` directives emitted by build scripts. That catches
+# statically linked libraries, which the finished binary cannot reveal --
+# a static library leaves no DT_NEEDED entry behind.
+#
+# Format: "<crate> <kind>", one per line.
+#
+# Keyed on crate name and link kind rather than library name, because
+# library names are not stable across versions or architectures:
+#
+#   aws-lc-sys      emits aws_lc_0_45_0_crypto, versioned in the name
+#   blake3          emits blake3_neon on aarch64, blake3_sse2/avx2 on x86_64
+#
+# `kind` is normally `static`. A `dylib` or unspecified kind fails the check
+# outright, whatever is listed here, since it would break self-sufficiency.
+#
+# Two exceptions exist on macOS, both OS-provided and both unavoidable:
+#
+#   `framework` entries are Apple system frameworks. They are always
+#   dynamically linked and always present, so they do not threaten
+#   self-sufficiency -- but they are still listed, so a NEW framework
+#   dependency has to be reviewed.
+#
+#   libgit2-sys's `unspecified` iconv is hard-coded for apple targets and has
+#   no static counterpart. See the note in check-linked-libraries.sh.
+#
+# Before adding an entry, consider whether the dependency can be avoided or
+# replaced with a pure-Rust equivalent.
+
+# rustls crypto backend, pulled in by reqwest's default features.
+# Candidate for removal: see PLAN/01-binary-size.md item 3.
+aws-lc-sys      static
+
+# BLAKE3 SIMD implementation. Library name is architecture dependent.
+blake3          static
+
+# NOTE: there is deliberately no lzma entry. .tar.xz extraction uses the
+# pure-Rust lzma-rust2 decoder, not a C binding. Static linkage of the old
+# liblzma-sys was only ever enabled transitively by zip's `lzma-static`
+# feature, so the zip 8 bump -- which switched zip to lzma-rust2 -- silently
+# made it dynamic. Do not reintroduce a C lzma binding.
+
+# libgit2. Deliberately retained rather than replaced by `git` subprocesses,
+# because GitRepoEnv::new is on the shell prompt hot path.
+# See PLAN/09-rejected.md
+libgit2-sys     static
+
+# SQLite, backing the omni cache.
+libsqlite3-sys  static
+
+# zlib. Required by libgit2-sys; the direct dependency in Cargo.toml exists
+# only to force features=["static"].
+libz-sys        static
+
+# --- darwin only, below this line ---
+#
+# libgit2-sys links these three unconditionally for any apple target, in one
+# block of its build.rs, alongside the static git2 above:
+#
+#     if target.contains("apple") {
+#         println!("cargo:rustc-link-lib=iconv");
+#         println!("cargo:rustc-link-lib=framework=Security");
+#         println!("cargo:rustc-link-lib=framework=CoreFoundation");
+#     }
+#
+# None of them are new; main links them too. They only became visible when
+# this check first ran on darwin.
+libgit2-sys     framework
+libgit2-sys     unspecified
+
+# SystemConfiguration, for reading macOS network/proxy settings. Pulled in by
+# reqwest via system-configuration-sys. An OS framework, so dynamic and
+# always present.
+system-configuration-sys        framework

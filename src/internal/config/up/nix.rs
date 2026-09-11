@@ -45,7 +45,12 @@ fn nix_gcroot_command<T: AsRef<Path>>(tmp_profile: T, perm_profile: T) -> TokioC
 }
 
 #[derive(Debug, Serialize, Clone, Default, feuilletage::Config)]
-#[feuilletage(scalar_as = "nixfile", array_as = "packages", skip_serialize, skip_deserialize)]
+#[feuilletage(
+    scalar_as = "nixfile",
+    array_as = "packages",
+    skip_serialize,
+    skip_deserialize
+)]
 pub struct UpConfigNix {
     /// List of nix packages to install.
     #[feuilletage(default)]
@@ -540,9 +545,9 @@ impl NixSource {
         );
 
         if let Err(e) = result {
-            let msg = format!("failed to install nix packages: {e}");
-            progress_handler.error_with_message(msg.clone());
-            return Err(UpError::Exec(msg));
+            let err = e.with_context("failed to install nix packages");
+            progress_handler.error_with_message(err.message());
+            return Err(err);
         }
 
         Ok(())
@@ -576,9 +581,9 @@ impl NixSource {
 
         let result = run_progress(&mut nix_build, Some(progress_handler), RunConfig::default());
         if let Err(e) = result {
-            let msg = format!("failed to build nix profile: {e}");
-            progress_handler.error_with_message(msg.clone());
-            return Err(UpError::Exec(msg));
+            let err = e.with_context("failed to build nix profile");
+            progress_handler.error_with_message(err.message());
+            return Err(err);
         }
 
         // For flakes, we can also add the sources to the garbage collection root

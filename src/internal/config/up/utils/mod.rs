@@ -51,6 +51,13 @@ pub(crate) use version::VersionParser;
 pub(crate) use version::VersionParserOptions;
 
 #[cfg(test)]
+pub(crate) mod recording_progress_handler;
+#[cfg(test)]
+pub(crate) use recording_progress_handler::RecordedCall;
+#[cfg(test)]
+pub(crate) use recording_progress_handler::RecordingProgressHandler;
+
+#[cfg(test)]
 pub(crate) mod void_progress_handler;
 #[cfg(test)]
 pub(crate) use void_progress_handler::VoidProgressHandler;

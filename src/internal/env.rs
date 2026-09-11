@@ -121,8 +121,22 @@ pub fn tmpdir_cleanup() {
 
     if let Ok(entries) = glob::glob(&glob_pattern) {
         for entry in entries.into_iter().flatten() {
-            let _ = force_remove_dir_all(&entry);
+            remove_cleanup_entry(&entry);
         }
+    }
+}
+
+/// Remove a single entry matched by the cleanup prefix.
+///
+/// The prefix covers plain files as well as directories -- exec logs are
+/// created under it so an abandoned one stays reclaimable. `remove_dir_all`
+/// does not remove a file, so without the file branch a stray log would
+/// survive cleanup silently.
+pub(crate) fn remove_cleanup_entry(entry: &std::path::Path) {
+    if entry.is_file() {
+        let _ = std::fs::remove_file(entry);
+    } else {
+        let _ = force_remove_dir_all(entry);
     }
 }
 

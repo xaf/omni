@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use crate::internal::git::ParsedRepoUrl;
 use lazy_static::lazy_static;
-use tokio::runtime::Runtime;
 use tokio::time::timeout;
 use url::Url;
 
@@ -48,8 +47,7 @@ fn coerce_handle_to_url(input: &str) -> String {
 }
 
 pub fn safe_normalize_url(url: &str) -> Result<Url, GitUrlError> {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
+    crate::internal::utils::runtime::block_on(async {
         match timeout(TIMEOUT_DURATION, async {
             let candidate = if url.contains("://") {
                 url.to_string()
@@ -71,8 +69,7 @@ async fn async_git_url_parse(url: &str) -> Result<ParsedRepoUrl, GitUrlError> {
 }
 
 pub fn safe_git_url_parse(url: &str) -> Result<ParsedRepoUrl, GitUrlError> {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
+    crate::internal::utils::runtime::block_on(async {
         match timeout(TIMEOUT_DURATION, async_git_url_parse(url)).await {
             Ok(result) => result,
             Err(_) => Err(GitUrlError::ParseTimeout),

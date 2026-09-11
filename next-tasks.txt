@@ -1,0 +1,68 @@
+# Next Tasks for Omni - Priority Analysis
+
+## **Critical Bug** 🔴
+- **#28: Parser panics when parameters missing**
+  - Issue: When `run` is missing for a command, the parser panics instead of gracefully ignoring it
+  - Age: Oldest bug (July 2023)
+  - Impact: Stability/reliability issue
+  - Priority: CRITICAL - Should be fixed first
+
+## **Security Issues** 🔒
+- **#613: Validate signature of releases on self-update**
+  - Issue: Important security feature to verify omni's own releases
+  - Priority: HIGH
+
+- **#540: Support checksum signature for github-release**
+  - Issue: Allow signature verification for github releases (minisign, etc.)
+  - Priority: HIGH
+
+## **Recent Enhancements** 📈
+- **#896: Add user-level configuration for mise-specific environment variables**
+  - Date: Jan 2025 (most recent issue)
+  - Impact: User requested feature
+  - Priority: MEDIUM
+
+- **#866: `config check` for suggested configuration**
+  - Date: Jan 2025
+  - Issue: Check suggested config from repo templates
+  - Priority: MEDIUM
+
+- **#805: Use `cargo binstall` instead of `cargo install`**
+  - Date: Nov 2024
+  - Issue: Performance improvement by using precompiled binaries
+  - Priority: MEDIUM
+
+- **#799: Add support for GitLab releases**
+  - Date: Nov 2024
+  - Issue: Expand github-release functionality to GitLab
+  - Priority: MEDIUM
+
+## **Quick Wins** ✅
+- **#599: Show global flags in `omni help`**
+  - Simple UX improvement
+  - Priority: LOW (but easy)
+
+- **#413: Mention `--unfold` in help**
+  - Documentation improvement
+  - Priority: LOW (but easy)
+
+## **Recommended Order**
+1. #28 (bug fix) - Critical for stability
+2. #599 or #413 (help improvements) - Quick wins for better UX
+3. #866 (`config check`) - Useful feature, likely moderate complexity
+4. #896 (mise config) - Most recent request, shows active need
+5. Security issues (#613, #540) - Important but likely more complex
+
+## **Test Coverage Priorities** (from MISSINGTESTS.md)
+### Critical Risk Areas:
+1. Configuration Loading & Parsing (loader.rs) - 431 lines, complex file I/O
+2. Git Repository Operations (updater.rs) - 1,224 lines, extensive git commands
+3. Command Loading & Resolution (loader.rs) - 562 lines, fuzzy matching
+
+### High Risk Areas:
+4. Dynamic Environment Management (dynenv.rs) - 2,145 lines, PATH/env manipulation
+5. Trust & Security Module (workdir.rs) - Security-critical
+6. Up Tool Configuration (tool.rs) - Tool orchestration
+
+---
+Generated: 2025-11-07

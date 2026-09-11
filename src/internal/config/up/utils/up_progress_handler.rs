@@ -24,6 +24,10 @@ use crate::omni_info;
 use crate::omni_warning;
 
 #[cfg(test)]
+use crate::internal::config::up::utils::RecordedCall;
+#[cfg(test)]
+use crate::internal::config::up::utils::RecordingProgressHandler;
+#[cfg(test)]
 use crate::internal::config::up::utils::VoidProgressHandler;
 
 pub struct UpProgressHandler<'a> {
@@ -35,6 +39,10 @@ pub struct UpProgressHandler<'a> {
     allow_ending: bool,
     sync_file: Option<&'a std::fs::File>,
     desc: OnceCell<String>,
+    /// Latched the first time a terminal state (success or error) is
+    /// rendered, so one failure cannot render twice. Only meaningful on the
+    /// root, which is where `handler()` and `update_sync_file()` resolve to.
+    ended: OnceCell<()>,
 }
 
 impl Default for UpProgressHandler<'_> {
@@ -48,11 +56,31 @@ impl Default for UpProgressHandler<'_> {
             allow_ending: true,
             sync_file: None,
             desc: OnceCell::new(),
+            ended: OnceCell::new(),
         }
     }
 }
 
 impl<'a> UpProgressHandler<'a> {
+    /// An `UpProgressHandler` backed by a handler that records instead of
+    /// printing, so tests can count how many times one failure rendered.
+    #[cfg(test)]
+    pub fn new_recording() -> (Self, std::sync::Arc<std::sync::Mutex<Vec<RecordedCall>>>) {
+        let handler = RecordingProgressHandler::new();
+        let log = handler.log();
+
+        let new = UpProgressHandler {
+            handler: OnceCell::new(),
+            ..Default::default()
+        };
+
+        if new.handler.set(Box::new(handler)).is_err() {
+            panic!("failed to set progress handler");
+        }
+
+        (new, log)
+    }
+
     #[cfg(test)]
     pub fn new_void() -> Self {
         let handler = VoidProgressHandler::new();
@@ -114,6 +142,20 @@ impl<'a> UpProgressHandler<'a> {
         true
     }
 
+    /// Latch the terminal state on the handler that actually renders.
+    ///
+    /// `handler()` and `update_sync_file()` both resolve to the root, so the
+    /// latch has to live there too: a subhandler latching itself would not
+    /// stop the root from rendering the same failure again.
+    ///
+    /// Returns true only for the first end, so callers render once.
+    fn mark_ended(&self) -> bool {
+        match self.parent {
+            Some(parent) => parent.mark_ended(),
+            None => self.ended.set(()).is_ok(),
+        }
+    }
+
     fn handler(&self) -> &dyn ProgressHandler {
         if let Some(parent) = self.parent {
             return parent.handler();
@@ -154,6 +196,7 @@ impl<'a> UpProgressHandler<'a> {
             allow_ending: false,
             sync_file: None,
             desc: OnceCell::new(),
+            ended: OnceCell::new(),
         }
     }
 
@@ -227,6 +270,9 @@ impl ProgressHandler for UpProgressHandler<'_> {
     }
 
     fn success(&self) {
+        if self.allow_ending && !self.mark_ended() {
+            return;
+        }
         self.update_sync_file(SyncUpdateProgressAction::Success(None));
         self.handler().success();
     }
@@ -234,6 +280,9 @@ impl ProgressHandler for UpProgressHandler<'_> {
     fn success_with_message(&self, message: String) {
         let message = self.format_message(message);
         if self.allow_ending {
+            if !self.mark_ended() {
+                return;
+            }
             self.update_sync_file(SyncUpdateProgressAction::Success(Some(message.clone())));
             self.handler().success_with_message(message);
         } else {
@@ -244,6 +293,9 @@ impl ProgressHandler for UpProgressHandler<'_> {
 
     fn error(&self) {
         if self.allow_ending {
+            if !self.mark_ended() {
+                return;
+            }
             self.update_sync_file(SyncUpdateProgressAction::Error(None));
             self.handler().error();
         }
@@ -252,6 +304,9 @@ impl ProgressHandler for UpProgressHandler<'_> {
     fn error_with_message(&self, message: String) {
         let message = self.format_message(message);
         if self.allow_ending {
+            if !self.mark_ended() {
+                return;
+            }
             self.update_sync_file(SyncUpdateProgressAction::Error(Some(message.clone())));
             self.handler().error_with_message(message);
         } else {
@@ -800,5 +855,93 @@ impl<'de> Deserialize<'de> for SyncUpdateProgressAction {
             Some(action) => Ok(action),
             None => Err(serde::de::Error::custom("invalid SyncUpdateProgressAction")),
         }
+    }
+}
+
+#[cfg(test)]
+mod error_rendering_tests {
+    use super::*;
+
+    fn errors(log: &std::sync::Arc<std::sync::Mutex<Vec<RecordedCall>>>) -> Vec<Option<String>> {
+        log.lock()
+            .expect("log poisoned")
+            .iter()
+            .filter_map(|call| match call {
+                RecordedCall::Error(message) => Some(message.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The reported node failure renders three times. Two of those come from
+    /// this handler: an inner layer with the useful message, then an outer
+    /// layer re-reporting the same failure as it propagates. Both hold the
+    /// same step-level handler with `allow_ending == true`.
+    ///
+    /// One failure must render once.
+    #[test]
+    fn a_failure_reported_twice_renders_once() {
+        let (handler, log) = UpProgressHandler::new_recording();
+
+        // inner layer, e.g. nodejs.rs: has the useful message
+        handler.error_with_message("failed to install packages".to_string());
+        // outer layer, e.g. the mise post_install_funcs loop: same failure
+        handler.error_with_message("error: failed to install packages".to_string());
+
+        let rendered = errors(&log);
+        assert_eq!(
+            rendered.len(),
+            1,
+            "one failure should render once, got {rendered:?}"
+        );
+        assert_eq!(
+            rendered[0].as_deref(),
+            Some("failed to install packages"),
+            "the innermost message is the useful one and should be the one kept"
+        );
+    }
+
+    /// `error()` carries no message; in `PrintProgressHandler` it reprints the
+    /// last progress line, so it is duplicate-shaped too and must be guarded
+    /// by the same latch.
+    #[test]
+    fn a_message_less_error_after_a_rendered_one_is_suppressed() {
+        let (handler, log) = UpProgressHandler::new_recording();
+
+        handler.error_with_message("the real failure".to_string());
+        handler.error();
+
+        assert_eq!(
+            errors(&log).len(),
+            1,
+            "message-less error should not re-render"
+        );
+    }
+
+    /// The latch must not swallow the first error just because progress was
+    /// reported before it.
+    #[test]
+    fn progress_before_an_error_does_not_suppress_it() {
+        let (handler, log) = UpProgressHandler::new_recording();
+
+        handler.progress("installing".to_string());
+        handler.error_with_message("boom".to_string());
+
+        assert_eq!(errors(&log), vec![Some("boom".to_string())]);
+    }
+
+    /// A success followed by an error would be contradictory output; the
+    /// terminal state that was reached first is the one that stands.
+    #[test]
+    fn an_error_after_a_success_does_not_render() {
+        let (handler, log) = UpProgressHandler::new_recording();
+
+        handler.success_with_message("installed".to_string());
+        handler.error_with_message("late failure".to_string());
+
+        assert!(
+            errors(&log).is_empty(),
+            "an already-succeeded step must not then render an error"
+        );
     }
 }
