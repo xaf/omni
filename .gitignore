@@ -1,1 +1,12 @@
+# Ignore build targets
 target/
+
+# Ignore files created by MacOS
+.DS_Store
+
+# Ignore markdown files by default
+!README.md
+*.md
+
+# Ignore text files
+*.txt
