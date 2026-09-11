@@ -164,3 +164,55 @@ Replace with a single lazily-built **current-thread** runtime. The async surface
 - [ ] Concurrent prompts in several terminals do not produce `SQLITE_BUSY`
 - [ ] WAL sidecar files do not break backup/cleanup paths
 - [ ] `omni --complete ''` measurably faster with the discovery cache; correct after adding/removing an omnipath command
+
+## Measured: musl is not slower than glibc here. It is faster.
+
+First local musl build (musl-tools + musl-dev now available; CI's recipe is
+`musl-tools` plus `RUSTFLAGS=-C prefer-dynamic=no`). Four paired runs of
+`bench-hook-env.sh` on the same machine, same conditions:
+
+| run | gnu total | musl total | gnu floor | musl floor |
+|-----|----------:|-----------:|----------:|-----------:|
+| a   | 2.61 ms   | 2.24 ms    | 1.57 ms   | 0.46 ms    |
+| b   | 3.38 ms   | 1.97 ms    | 0.84 ms   | 0.43 ms    |
+| c   | 2.46 ms   | 2.02 ms    | 0.82 ms   | 0.70 ms    |
+| d   | 2.36 ms   | 2.19 ms    | 0.83 ms   | 0.57 ms    |
+
+musl wins all four. It is also far more consistent: 1.97-2.24 ms against
+gnu's 2.36-3.38 ms.
+
+Static linking is why. musl's startup floor is roughly half gnu's (~0.5 ms
+vs ~0.83 ms) because there is no dynamic loader and no relocation work. For
+a process the shell spawns on every prompt, startup dominates.
+
+And the "musl work is slower" part does not survive repetition either.
+Overhead above the floor was gnu 1.53-2.54 ms against musl 1.32-1.62 ms --
+overlapping ranges. The single-run figures that suggested otherwise (gnu
+1.04, musl 1.78) were noise.
+
+### The premise behind this investigation was invalid
+
+The 4.7x gap that motivated looking at musl allocators compared **local gnu
+(1.61 ms) against CI musl (7.51 ms)**. Those are different machines. It
+measured GitHub runner speed, not libc.
+
+Consequences:
+
+- **No case for mimalloc or jemalloc.** There is no gap to close. It would
+  add a native C library -- which `check-linked-libraries.sh` would flag,
+  correctly -- reversing part of the 7 -> 5 reduction, for a benefit that
+  does not exist on this workload. See [`09-rejected.md`](09-rejected.md).
+- **No case for `-C target-cpu` tuning** on this basis. That evidence was
+  x86_64-specific anyway, while the gap was claimed on aarch64.
+- **The latency check must stay report-only**, but for a better reason than
+  "no musl baseline exists": the benchmark's own variance is larger than any
+  effect worth gating on. gnu ranged 1.61-3.38 ms for one unchanged binary,
+  a >2x spread. Any threshold tight enough to catch a regression would fire
+  on noise.
+
+### If runtime speed is revisited
+
+Measure paired, same-machine, repeated -- never one run, and never across
+machines. The floor/overhead split in `bench-hook-env.sh` is the useful part;
+it separates startup cost from work and would have caught this immediately
+had it been read across repeats rather than once.
