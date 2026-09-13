@@ -29,7 +29,6 @@ pub struct PathConfig {
     pub prepend: Vec<PathEntryConfig>,
 }
 
-
 /// PathEntryConfig using feuilletage's derive macro.
 ///
 /// The feuilletage::Config derive macro automatically generates:
@@ -41,8 +40,7 @@ pub struct PathConfig {
 ///
 /// Note: The `full_path` field is computed and uses `#[feuilletage(skip)]` to exclude
 /// it from both serialization and deserialization.
-#[derive(Debug, Clone, PartialEq, feuilletage::Config)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, feuilletage::Config, Default)]
 pub struct PathEntryConfig {
     #[feuilletage(default = "String::new()")]
     pub path: String,

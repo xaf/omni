@@ -167,7 +167,10 @@ impl HomebrewOperationCache {
         let should_update: bool = db
             .query_row(
                 include_str!("database/sql/homebrew_operation_should_update_tap.sql"),
-                params![tap_name, global_config().cache.homebrew.tap_update_expire as i64],
+                params![
+                    tap_name,
+                    global_config().cache.homebrew.tap_update_expire as i64
+                ],
                 |row| row.get(0),
             )
             .unwrap_or(true);

@@ -303,11 +303,7 @@ enum SuggestConfigWire {
 }
 
 #[derive(Debug, Clone, feuilletage::Config)]
-#[feuilletage(
-    parse_as = "SuggestConfigWire",
-    skip_serialize,
-    skip_deserialize
-)]
+#[feuilletage(parse_as = "SuggestConfigWire", skip_serialize, skip_deserialize)]
 #[derive(Default)]
 pub struct SuggestConfig {
     pub config: StoredConfig,
@@ -476,7 +472,6 @@ impl SuggestConfig {
         FeuilletageConfigValue::null(synthetic_context())
     }
 }
-
 
 impl<'de> Deserialize<'de> for SuggestConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

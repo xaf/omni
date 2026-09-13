@@ -104,7 +104,6 @@ pub(crate) struct UpCommandOperationConfig {
     pub github_release: UpCommandOperationGithubReleaseConfig,
 }
 
-
 impl UpCommandOperationConfig {
     pub fn is_operation_allowed(&self, operation: &str) -> bool {
         check_allowed(operation, &self.allowed)
@@ -159,7 +158,6 @@ pub(crate) struct UpCommandOperationMiseConfig {
     pub default_plugin_sources: HashMap<String, String>,
 }
 
-
 impl feuilletage::IsEmpty for UpCommandOperationMiseConfig {
     fn is_empty(&self) -> bool {
         self.backends.is_empty()
@@ -179,7 +177,6 @@ pub(crate) struct UpCommandOperationCargoInstallConfig {
     pub crates: Vec<String>,
 }
 
-
 impl feuilletage::IsEmpty for UpCommandOperationCargoInstallConfig {
     fn is_empty(&self) -> bool {
         self.crates.is_empty()
@@ -197,7 +194,6 @@ pub struct UpCommandOperationGoInstallConfig {
     pub sources: Vec<String>,
 }
 
-
 impl feuilletage::IsEmpty for UpCommandOperationGoInstallConfig {
     fn is_empty(&self) -> bool {
         self.sources.is_empty()
@@ -214,7 +210,6 @@ pub struct UpCommandOperationGithubReleaseConfig {
     #[feuilletage(default = "Vec::new()", skip_if_empty)]
     pub repositories: Vec<String>,
 }
-
 
 impl feuilletage::IsEmpty for UpCommandOperationGithubReleaseConfig {
     fn is_empty(&self) -> bool {

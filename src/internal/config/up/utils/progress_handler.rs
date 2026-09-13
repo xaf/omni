@@ -9,8 +9,8 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::Duration;
 
 use crate::internal::config::up::utils::RunConfig;
-use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::config::up::UpError;
+use crate::internal::env::tmpdir_cleanup_prefix;
 use crate::internal::user_interface::print::filter_control_characters;
 use crate::internal::user_interface::StringColor;
 use crate::omni_warning;
@@ -559,7 +559,11 @@ mod keep_log_file_tests {
             .mode()
             & 0o777;
 
-        assert_eq!(mode & 0o077, 0, "kept log is group/world accessible: {mode:o}");
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "kept log is group/world accessible: {mode:o}"
+        );
     }
 
     #[test]

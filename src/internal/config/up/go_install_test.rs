@@ -1,14 +1,19 @@
 use super::*;
 
 // Feuilletage imports for deserialization tests
-use crate::internal::config::{FeuilletageConfigContext, FeuilletageConfigLevel, FeuilletageConfigSource};
+use crate::internal::config::{
+    FeuilletageConfigContext, FeuilletageConfigLevel, FeuilletageConfigSource,
+};
 
 // Helper to deserialize from YAML using feuilletage
 fn deserialize_go_installs_yaml(yaml: &str) -> Result<UpConfigGoInstalls, feuilletage::Error> {
     let mut config = feuilletage::Config::default();
     config.load_yaml(
         yaml,
-        FeuilletageConfigContext::new(FeuilletageConfigSource::Programmatic, FeuilletageConfigLevel::Local),
+        FeuilletageConfigContext::new(
+            FeuilletageConfigSource::Programmatic,
+            FeuilletageConfigLevel::Local,
+        ),
     );
     config.deserialize::<UpConfigGoInstalls>()
 }

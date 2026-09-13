@@ -52,7 +52,6 @@ impl Value {
     }
 }
 
-
 impl Eq for Value {}
 
 // From implementations for common types

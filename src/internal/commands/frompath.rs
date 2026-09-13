@@ -30,6 +30,7 @@ use crate::internal::config::feuilletage_loader::OmniConfigLoader;
 use crate::internal::config::loader::WORKDIR_CONFIG_FILES;
 use crate::internal::config::parser::parse_arg_name;
 use crate::internal::config::parser::ConfigErrorHandler;
+use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::config::parser::PathEntryConfig;
 use crate::internal::config::utils::is_executable;
 use crate::internal::config::CommandSyntax;
@@ -38,7 +39,6 @@ use crate::internal::config::SyntaxGroup;
 use crate::internal::config::SyntaxOptArg;
 use crate::internal::config::SyntaxOptArgNumValues;
 use crate::internal::config::SyntaxOptArgType;
-use crate::internal::config::parser::ConfigErrorKind;
 use crate::internal::git::package_path_from_handle;
 use crate::internal::workdir;
 
@@ -76,21 +76,23 @@ impl PathCommand {
         // going over the omnipath.
         let cfg = config(".");
         let suggest_config_value = cfg.suggest_config.feuilletage_config_value();
-        let local_config: OmniConfig = if matches!(suggest_config_value, FeuilletageConfigValue::Null(_)) {
-            cfg
-        } else {
-            // Build config from all sources using feuilletage loader
-            let mut loader = OmniConfigLoader::new_with_workdir(".");
-            let mut feuilletage_config = match loader.build() {
-                Ok(config) => config,
-                Err(_) => return vec![],
+        let local_config: OmniConfig =
+            if matches!(suggest_config_value, FeuilletageConfigValue::Null(_)) {
+                cfg
+            } else {
+                // Build config from all sources using feuilletage loader
+                let mut loader = OmniConfigLoader::new_with_workdir(".");
+                let mut feuilletage_config = match loader.build() {
+                    Ok(config) => config,
+                    Err(_) => return vec![],
+                };
+                // Merge the suggest_config into the loaded config
+                feuilletage_config.merge(suggest_config_value);
+                // Deserialize from the merged config
+                let mut tracker = ErrorTracker::new();
+                OmniConfig::from_context_value(feuilletage_config.root(), &mut tracker)
+                    .unwrap_or_default()
             };
-            // Merge the suggest_config into the loaded config
-            feuilletage_config.merge(suggest_config_value);
-            // Deserialize from the merged config
-            let mut tracker = ErrorTracker::new();
-            OmniConfig::from_context_value(feuilletage_config.root(), &mut tracker).unwrap_or_default()
-        };
 
         // Get the package and worktree paths for the current repo
         // TODO: make it work from a package path to include existing
@@ -157,7 +159,10 @@ impl PathCommand {
                         Err(_) => continue,
                     };
                     let mut tracker = ErrorTracker::new();
-                    let file_config: OmniConfig = match OmniConfig::from_context_value(feuilletage_config.root(), &mut tracker) {
+                    let file_config: OmniConfig = match OmniConfig::from_context_value(
+                        feuilletage_config.root(),
+                        &mut tracker,
+                    ) {
                         Ok(config) => config,
                         Err(_) => continue,
                     };
@@ -421,45 +426,42 @@ impl<'de> PathCommandFileDetails {
             // boolean or a string representing a boolean or 'partial'
             // The result is stored as a CommandAutocompletion enum
             // where 'true' is Full, 'partial' is Partial, and 'false' is Null
-            let autocompletion: CommandAutocompletion = map
-                .remove("autocompletion")
-                .map_or(CommandAutocompletion::Null, |v| {
-                    if let serde_yaml::Value::Bool(b) = v {
-                        CommandAutocompletion::from(b)
-                    } else if let serde_yaml::Value::String(s) = v {
-                        CommandAutocompletion::from(s)
-                    } else {
-                        error_handler
-                            .with_key("autocompletion")
-                            .with_expected(vec!["boolean", "string"])
-                            .with_actual_yaml(v)
-                            .error(ConfigErrorKind::InvalidValueType);
+            let autocompletion: CommandAutocompletion =
+                map.remove("autocompletion")
+                    .map_or(CommandAutocompletion::Null, |v| {
+                        if let serde_yaml::Value::Bool(b) = v {
+                            CommandAutocompletion::from(b)
+                        } else if let serde_yaml::Value::String(s) = v {
+                            CommandAutocompletion::from(s)
+                        } else {
+                            error_handler
+                                .with_key("autocompletion")
+                                .with_expected(vec!["boolean", "string"])
+                                .with_actual_yaml(v)
+                                .error(ConfigErrorKind::InvalidValueType);
 
-                        CommandAutocompletion::Null
-                    }
-                });
+                            CommandAutocompletion::Null
+                        }
+                    });
 
             // Deserialize the booleans
             let sync_update = map
                 .remove("sync_update")
-                .is_some_and(|v| {
-                    match yaml_as_bool_forced(&v) {
-                        Some(b) => b,
-                        None => {
-                            error_handler
-                                .with_key("sync_update")
-                                .with_expected("boolean")
-                                .with_actual_yaml(v)
-                                .error(ConfigErrorKind::InvalidValueType);
+                .is_some_and(|v| match yaml_as_bool_forced(&v) {
+                    Some(b) => b,
+                    None => {
+                        error_handler
+                            .with_key("sync_update")
+                            .with_expected("boolean")
+                            .with_actual_yaml(v)
+                            .error(ConfigErrorKind::InvalidValueType);
 
-                            false
-                        }
+                        false
                     }
                 });
-            let argparser = map
-                .remove("argparser")
-                .is_some_and(|v| {
-                    match yaml_as_bool_forced(&v) {
+            let argparser =
+                map.remove("argparser")
+                    .is_some_and(|v| match yaml_as_bool_forced(&v) {
                         Some(b) => b,
                         None => {
                             error_handler
@@ -470,74 +472,71 @@ impl<'de> PathCommandFileDetails {
 
                             false
                         }
-                    }
-                });
+                    });
 
             // Deserialize the help message
-            let help = map
-                .remove("help")
-                .and_then(|v| {
-                    if let serde_yaml::Value::String(s) = v {
-                        Some(s)
-                    } else {
-                        error_handler
-                            .with_key("help")
-                            .with_expected("string")
-                            .with_actual_yaml(v)
-                            .error(ConfigErrorKind::InvalidValueType);
+            let help = map.remove("help").and_then(|v| {
+                if let serde_yaml::Value::String(s) = v {
+                    Some(s)
+                } else {
+                    error_handler
+                        .with_key("help")
+                        .with_expected("string")
+                        .with_actual_yaml(v)
+                        .error(ConfigErrorKind::InvalidValueType);
 
-                        None
-                    }
-                });
+                    None
+                }
+            });
 
             // Deserialize the category
-            let category = map
-                .remove("category")
-                .and_then(|v| {
-                    if let serde_yaml::Value::String(s) = &v {
-                        Some(
-                            s.split(',')
-                                .map(|s| s.trim().to_string())
-                                .collect::<Vec<String>>(),
-                        )
-                    } else if let serde_yaml::Value::Sequence(seq) = v {
-                        Some(
-                            seq.iter()
-                                .enumerate()
-                                .filter_map(|(idx, entry)| {
-                                    if let serde_yaml::Value::String(s) = entry {
-                                        Some(s.trim().to_string())
-                                    } else if let serde_yaml::Value::Number(n) = entry {
-                                        if let Some(i) = n.as_i64() {
-                                            Some(i.to_string())
-                                        } else if let Some(u) = n.as_u64() {
-                                            Some(u.to_string())
-                                        } else { n.as_f64().map(|f| f.to_string()) }
-                                    } else if let serde_yaml::Value::Bool(b) = entry {
-                                        Some(b.to_string())
+            let category = map.remove("category").and_then(|v| {
+                if let serde_yaml::Value::String(s) = &v {
+                    Some(
+                        s.split(',')
+                            .map(|s| s.trim().to_string())
+                            .collect::<Vec<String>>(),
+                    )
+                } else if let serde_yaml::Value::Sequence(seq) = v {
+                    Some(
+                        seq.iter()
+                            .enumerate()
+                            .filter_map(|(idx, entry)| {
+                                if let serde_yaml::Value::String(s) = entry {
+                                    Some(s.trim().to_string())
+                                } else if let serde_yaml::Value::Number(n) = entry {
+                                    if let Some(i) = n.as_i64() {
+                                        Some(i.to_string())
+                                    } else if let Some(u) = n.as_u64() {
+                                        Some(u.to_string())
                                     } else {
-                                        error_handler
-                                            .with_key("category")
-                                            .with_index(idx)
-                                            .with_expected("string")
-                                            .with_actual_yaml(entry.clone())
-                                            .error(ConfigErrorKind::InvalidValueType);
-
-                                        None
+                                        n.as_f64().map(|f| f.to_string())
                                     }
-                                })
-                                .collect::<Vec<String>>(),
-                        )
-                    } else {
-                        error_handler
-                            .with_key("category")
-                            .with_expected(vec!["string", "sequence"])
-                            .with_actual_yaml(v)
-                            .error(ConfigErrorKind::InvalidValueType);
+                                } else if let serde_yaml::Value::Bool(b) = entry {
+                                    Some(b.to_string())
+                                } else {
+                                    error_handler
+                                        .with_key("category")
+                                        .with_index(idx)
+                                        .with_expected("string")
+                                        .with_actual_yaml(entry.clone())
+                                        .error(ConfigErrorKind::InvalidValueType);
 
-                        None
-                    }
-                });
+                                    None
+                                }
+                            })
+                            .collect::<Vec<String>>(),
+                    )
+                } else {
+                    error_handler
+                        .with_key("category")
+                        .with_expected(vec!["string", "sequence"])
+                        .with_actual_yaml(v)
+                        .error(ConfigErrorKind::InvalidValueType);
+
+                    None
+                }
+            });
 
             // Deserialize the syntax
             let syntax = map.remove("syntax").and_then(|v| {
@@ -558,8 +557,8 @@ impl<'de> PathCommandFileDetails {
             // Deserialize the tags
             let tags = map
                 .remove("tags")
-                .and_then(|v| {
-                    match BTreeMap::<String, String>::deserialize(v.clone()) {
+                .and_then(
+                    |v| match BTreeMap::<String, String>::deserialize(v.clone()) {
                         Ok(t) => Some(t),
                         Err(_err) => {
                             error_handler
@@ -570,8 +569,8 @@ impl<'de> PathCommandFileDetails {
 
                             None
                         }
-                    }
-                })
+                    },
+                )
                 .unwrap_or_default();
 
             Ok(Self {
@@ -606,7 +605,9 @@ fn yaml_as_bool_forced(value: &serde_yaml::Value) -> Option<bool> {
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Some(i != 0)
-            } else { n.as_f64().map(|f| f != 0.0) }
+            } else {
+                n.as_f64().map(|f| f != 0.0)
+            }
         }
         _ => None,
     }

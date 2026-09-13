@@ -114,9 +114,9 @@ mod multi_from_context_value {
     use crate::internal::config::FeuilletageConfigLevel;
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
+    use feuilletage::Config as FeuilletageConfig;
     use feuilletage::ErrorTracker as FeuilletageErrorTracker;
     use feuilletage::FromContextValue as FeuilletageFromContextValue;
-    use feuilletage::Config as FeuilletageConfig;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
         let ctx = FeuilletageConfigContext::new(
@@ -267,9 +267,9 @@ mod single_from_context_value {
     use crate::internal::config::FeuilletageConfigLevel;
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
+    use feuilletage::Config as FeuilletageConfig;
     use feuilletage::ErrorTracker as FeuilletageErrorTracker;
     use feuilletage::FromContextValue as FeuilletageFromContextValue;
-    use feuilletage::Config as FeuilletageConfig;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
         let ctx = FeuilletageConfigContext::new(
@@ -1002,10 +1002,10 @@ mod immutable_filtering {
     use crate::internal::config::FeuilletageConfigLevel;
     use crate::internal::config::FeuilletageConfigSource;
     use crate::internal::config::FeuilletageConfigValue;
-    use feuilletage::ErrorTracker as FeuilletageErrorTracker;
-    use feuilletage::FromContextValue as FeuilletageFromContextValue;
     use crate::internal::testutils::run_with_env;
     use feuilletage::Config as FeuilletageConfig;
+    use feuilletage::ErrorTracker as FeuilletageErrorTracker;
+    use feuilletage::FromContextValue as FeuilletageFromContextValue;
     use time::OffsetDateTime;
 
     fn parse_yaml(yaml: &str) -> FeuilletageConfigValue {
@@ -1108,11 +1108,12 @@ mod immutable_filtering {
             let yaml = r#"{"repository": "owner/repo", "immutable": true}"#;
             let config_value = parse_yaml(yaml);
             let mut tracker = FeuilletageErrorTracker::new();
-            let config = <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
-                &config_value,
-                &mut tracker,
-            )
-            .unwrap();
+            let config =
+                <UpConfigGithubRelease as FeuilletageFromContextValue>::from_context_value(
+                    &config_value,
+                    &mut tracker,
+                )
+                .unwrap();
             assert_eq!(config.repository, "owner/repo");
             assert!(config.immutable);
 

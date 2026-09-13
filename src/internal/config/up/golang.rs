@@ -54,7 +54,12 @@ pub struct UpConfigGolang {
     pub version_file: Option<String>,
     #[feuilletage(default)]
     pub upgrade: bool,
-    #[feuilletage(allow_single, default, rename = "dir", transform_each_after = "normalize_dir")]
+    #[feuilletage(
+        allow_single,
+        default,
+        rename = "dir",
+        transform_each_after = "normalize_dir"
+    )]
     pub dirs: BTreeSet<String>,
     #[feuilletage(skip)]
     pub backend: OnceCell<UpConfigMise>,

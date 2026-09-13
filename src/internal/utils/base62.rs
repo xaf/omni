@@ -117,9 +117,7 @@ mod tests {
     #[test]
     fn output_is_only_base62_characters() {
         let input: Vec<u8> = (0u8..=255).collect();
-        assert!(encode(&input)
-            .bytes()
-            .all(|b| BASE62_CHARS.contains(&b)));
+        assert!(encode(&input).bytes().all(|b| BASE62_CHARS.contains(&b)));
     }
 
     #[test]

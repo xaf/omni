@@ -217,7 +217,6 @@ enum EnvScalarWire {
     String(String),
 }
 
-
 impl EnvScalarWire {
     fn into_string(self) -> Option<String> {
         match self {
