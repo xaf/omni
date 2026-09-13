@@ -47,7 +47,6 @@ pub enum PipConfig {
     Files(Vec<String>),
 }
 
-
 impl PipConfig {
     fn is_auto(&self) -> bool {
         matches!(self, Self::Auto)

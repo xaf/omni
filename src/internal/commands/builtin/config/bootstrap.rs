@@ -241,38 +241,40 @@ pub fn config_bootstrap(options: Option<ConfigBootstrapOptions>) -> Result<bool,
             org: orgs,
         };
 
-        if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|feuilletage_config| {
-            // Convert our config object to YAML using serde
-            let yaml = match serde_json::to_value(&config)
-                .ok()
-                .and_then(|v| serde_yaml::to_string(&v).ok())
-            {
-                Some(yaml) => yaml,
-                None => {
-                    omni_error!("failed to serialize configuration to YAML");
-                    return false;
-                }
-            };
+        if let Err(err) =
+            ConfigLoader::edit_main_user_config_file_feuilletage(|feuilletage_config| {
+                // Convert our config object to YAML using serde
+                let yaml = match serde_json::to_value(&config)
+                    .ok()
+                    .and_then(|v| serde_yaml::to_string(&v).ok())
+                {
+                    Some(yaml) => yaml,
+                    None => {
+                        omni_error!("failed to serialize configuration to YAML");
+                        return false;
+                    }
+                };
 
-            // Parse the YAML into a feuilletage ConfigValue
-            let context = feuilletage::Context::new(
-                feuilletage::Source::Programmatic,
-                feuilletage::Level::User,
-            );
-            let new_config_value = match feuilletage::loader::load_yaml(&yaml, context) {
-                Ok(value) => value,
-                Err(err) => {
-                    omni_error!(format!("failed to parse configuration: {}", err));
-                    return false;
-                }
-            };
+                // Parse the YAML into a feuilletage ConfigValue
+                let context = feuilletage::Context::new(
+                    feuilletage::Source::Programmatic,
+                    feuilletage::Level::User,
+                );
+                let new_config_value = match feuilletage::loader::load_yaml(&yaml, context) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        omni_error!(format!("failed to parse configuration: {}", err));
+                        return false;
+                    }
+                };
 
-            // Merge the new values into the existing config
-            feuilletage_config.merge(new_config_value);
+                // Merge the new values into the existing config
+                feuilletage_config.merge(new_config_value);
 
-            // Return true to save the configuration
-            true
-        }) {
+                // Return true to save the configuration
+                true
+            })
+        {
             return Err(format!("Failed to update user configuration: {err}"));
         }
     }

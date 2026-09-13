@@ -69,7 +69,10 @@ impl MiseOperationCache {
         let should_update: bool = db
             .query_row(
                 include_str!("database/sql/mise_operation_should_update_plugin.sql"),
-                params![plugin, global_config().cache.mise.plugin_update_expire as i64,],
+                params![
+                    plugin,
+                    global_config().cache.mise.plugin_update_expire as i64,
+                ],
                 |row| row.get(0),
             )
             .unwrap_or(true);

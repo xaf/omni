@@ -333,9 +333,7 @@ impl SandboxCommand {
                 }
             } else if config.at("up").exists() {
                 // 'up' exists but is not an array
-                omni_error!(
-                    "the 'up' key in .omni.yaml is not an array and cannot be modified"
-                );
+                omni_error!("the 'up' key in .omni.yaml is not an array and cannot be modified");
                 exit(1);
             }
 

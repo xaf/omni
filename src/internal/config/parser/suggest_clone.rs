@@ -43,11 +43,7 @@ enum SuggestCloneConfigWire {
 }
 
 #[derive(Default, Debug, Clone, feuilletage::Config)]
-#[feuilletage(
-    parse_as = "SuggestCloneConfigWire",
-    skip_serialize,
-    skip_deserialize
-)]
+#[feuilletage(parse_as = "SuggestCloneConfigWire", skip_serialize, skip_deserialize)]
 pub struct SuggestCloneConfig {
     repositories: Vec<SuggestCloneRepositoryConfig>,
     pub template: String,
@@ -250,7 +246,6 @@ pub enum SuggestCloneTypeEnum {
     #[feuilletage(variant = "worktree")]
     Worktree,
 }
-
 
 impl FromStr for SuggestCloneTypeEnum {
     type Err = String;

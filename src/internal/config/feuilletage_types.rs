@@ -45,8 +45,7 @@ use serde::Serialize;
 /// let prog_source = OmniSource::Programmatic;
 ///
 /// ```
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
 pub enum OmniSource {
     /// Loaded from a file
     File(PathBuf),
@@ -58,7 +57,6 @@ pub enum OmniSource {
     #[default]
     Default,
 }
-
 
 impl feuilletage::CustomSource for OmniSource {
     fn display_name(&self) -> String {
@@ -107,7 +105,6 @@ pub type Context = feuilletage::Context<Source, Level>;
 
 /// ContextValue type using built-in Source and Level.
 pub type ContextValue = feuilletage::ContextValue<Source, Level>;
-
 
 // =============================================================================
 // Backward compatibility aliases (for gradual migration)

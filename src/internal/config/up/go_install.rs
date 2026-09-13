@@ -445,7 +445,8 @@ fn finalize_go_install<S: feuilletage::CustomSource, L: feuilletage::CustomLevel
         }
 
         config.version = Some(ver.to_string());
-        if !matches!(source, feuilletage::ContextValue::Object(map, _) if map.contains_key("exact")) {
+        if !matches!(source, feuilletage::ContextValue::Object(map, _) if map.contains_key("exact"))
+        {
             config.exact = true;
         }
         config.path = path.to_string();

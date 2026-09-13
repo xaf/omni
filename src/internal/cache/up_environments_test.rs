@@ -248,7 +248,10 @@ mod up_environments_cache {
                 // Write to cache.environment.max_total, using a yaml string
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    max_total: {expected_max_total}"),
-                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
+                    feuilletage::Context::new(
+                        feuilletage::Source::Programmatic,
+                        feuilletage::Level::User,
+                    ),
                 );
                 true
             }) {
@@ -293,7 +296,10 @@ mod up_environments_cache {
                 // Write to cache.environment.max_total, using a yaml string
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    max_total: {expected_max_total}"),
-                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
+                    feuilletage::Context::new(
+                        feuilletage::Source::Programmatic,
+                        feuilletage::Level::User,
+                    ),
                 );
                 true
             }) {
@@ -341,7 +347,10 @@ mod up_environments_cache {
                     &format!(
                         "cache:\n  environment:\n    max_per_workdir: {expected_max_per_workdir}"
                     ),
-                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
+                    feuilletage::Context::new(
+                        feuilletage::Source::Programmatic,
+                        feuilletage::Level::User,
+                    ),
                 );
                 true
             }) {
@@ -390,7 +399,10 @@ mod up_environments_cache {
             if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
-                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
+                    feuilletage::Context::new(
+                        feuilletage::Source::Programmatic,
+                        feuilletage::Level::User,
+                    ),
                 );
                 true
             }) {
@@ -445,7 +457,10 @@ mod up_environments_cache {
             if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
-                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
+                    feuilletage::Context::new(
+                        feuilletage::Source::Programmatic,
+                        feuilletage::Level::User,
+                    ),
                 );
                 true
             }) {
@@ -483,7 +498,10 @@ mod up_environments_cache {
             if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 config.load_yaml(
                     &format!("cache:\n  environment:\n    retention_stale: {retention_stale}s"),
-                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
+                    feuilletage::Context::new(
+                        feuilletage::Source::Programmatic,
+                        feuilletage::Level::User,
+                    ),
                 );
                 true
             }) {
@@ -533,7 +551,10 @@ mod up_environments_cache {
             if let Err(err) = ConfigLoader::edit_main_user_config_file_feuilletage(|config| {
                 config.load_yaml(
                     "cache:\n  environment:\n    retention: 0",
-                    feuilletage::Context::new(feuilletage::Source::Programmatic, feuilletage::Level::User),
+                    feuilletage::Context::new(
+                        feuilletage::Source::Programmatic,
+                        feuilletage::Level::User,
+                    ),
                 );
                 true
             }) {

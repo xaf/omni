@@ -4,7 +4,6 @@ pub(crate) use feuilletage_loader::OmniConfigLoader;
 pub(crate) mod feuilletage_types;
 pub(crate) use feuilletage_types::*;
 
-
 pub(crate) mod loader;
 pub(crate) use loader::ConfigLoader;
 

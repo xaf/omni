@@ -57,14 +57,12 @@ impl<'de> Deserialize<'de> for ShellAliasesConfig {
     }
 }
 
-
 /// ShellAliasConfig using feuilletage's derive macro.
 ///
 /// The feuilletage::Config derive macro automatically generates:
 /// - `FromContextValue` implementation for deserialization from feuilletage's Config
 /// - `serde::Serialize` and `serde::Deserialize` implementations
-#[derive(Debug, Clone, feuilletage::Config)]
-#[derive(Default)]
+#[derive(Debug, Clone, feuilletage::Config, Default)]
 pub struct ShellAliasConfig {
     #[feuilletage(default = "String::new()", skip_if_empty)]
     pub alias: String,
