@@ -15,6 +15,10 @@ setup() {
   # Change directory to the repository
   cd "git/github.com/test1org/test1repo"
 
+  setup_uv_cache
+}
+
+setup_uv_cache() {
   # Set the versions for uv so that we don't do any API call during the tests
   uv_repo="astral-sh/uv"
   setup_cache_db
@@ -30,7 +34,10 @@ setup() {
     "INSERT INTO github_releases (repository, releases, fetched_at)
       VALUES ('${uv_repo}', CAST(readfile('${versions_file}') AS TEXT),
               strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '+1 day'))"
-  add_fakebin "${HOME}/.local/share/omni/ghreleases/${uv_repo}/${uv_version}/uv"
+  uv_bin="${HOME}/.local/share/omni/ghreleases/${uv_repo}/${uv_version}/uv"
+  if [ ! -e "$uv_bin" ]; then
+    add_fakebin "$uv_bin"
+  fi
 }
 
 teardown() {
@@ -127,7 +134,7 @@ EOF
   add_mise_python_calls
 
   touch requirements.txt
-  add_command uv pip install -r "${PWD}/requirements.txt"
+  add_command uv pip install --python "regex:${HOME}/\\.local/share/omni/wd/[^ /]+/python/3.12.3/root/bin/python" -r "${PWD}/requirements.txt"
 
   run omni up --trust 3>&-
   echo "STATUS: $status"
@@ -155,8 +162,8 @@ EOF
 
   touch requirements.txt
   touch requirements2.txt
-  add_command uv pip install -r "${PWD}/requirements.txt"
-  add_command uv pip install -r "${PWD}/requirements2.txt"
+  add_command uv pip install --python "regex:${HOME}/\\.local/share/omni/wd/[^ /]+/python/3.12.3/root/bin/python" -r "${PWD}/requirements.txt"
+  add_command uv pip install --python "regex:${HOME}/\\.local/share/omni/wd/[^ /]+/python/3.12.3/root/bin/python" -r "${PWD}/requirements2.txt"
 
   run omni up --trust 3>&-
   echo "STATUS: $status"
@@ -753,6 +760,11 @@ EOF
   add_mise_python_calls version=3.11.9 subdir=true list_versions=false mise_update=false mise_registry=false plugin_list=false
   add_mise_python_calls version=3.12.0 list_versions=false mise_update=false mise_registry=false plugin_list=false mise_where=true
 
+  touch requirements.txt subdir1/requirements.txt subdir2/requirements.txt
+  add_command uv pip install --python "regex:${HOME}/\\.local/share/omni/wd/[^ /]+/python/3.11.7/[^ /]+/bin/python" -r "${PWD}/subdir1/requirements.txt"
+  add_command uv pip install --python "regex:${HOME}/\\.local/share/omni/wd/[^ /]+/python/3.11.9/[^ /]+/bin/python" -r "${PWD}/subdir2/requirements.txt"
+  add_command uv pip install --python "regex:${HOME}/\\.local/share/omni/wd/[^ /]+/python/3.12.0/root/bin/python" -r "${PWD}/requirements.txt"
+
   run omni up --trust 3>&-
   echo "STATUS: $status"
   echo "OUTPUT: $output"
@@ -1000,4 +1012,137 @@ EOF
 
   # Check that the right error was emitted
   [[ "${output}" == *"unable to resolve tool: python"* ]]
+}
+
+# These tests use real uv interpreter discovery and wheel installation. Run with
+# OMNI_TEST_UV_BIN=/absolute/path/to/uv (or install uv on PATH). Everything else
+# uses the usual fixtures; wheel resolution and installation are offline.
+setup_real_uv_python() {
+  local real_uv="${OMNI_TEST_UV_BIN:-$(command -v uv || true)}"
+  [ -n "$real_uv" ] || skip "real uv required (set OMNI_TEST_UV_BIN)"
+  local real_python="${OMNI_TEST_PYTHON_BIN:-$(command -v python3 || true)}"
+  [ -n "$real_python" ] || skip "python3 required"
+
+  rm "$uv_bin"
+  ln -s "$real_uv" "$uv_bin"
+  add_brew_python_calls
+  add_mise_python_calls venv=false
+  ln -s "$real_python" "$(mise_tool_path python 3.12.3)/bin/python"
+
+  export UV_CACHE_DIR="$HOME/uv-cache"
+  export UV_OFFLINE=true
+  export UV_NO_INDEX=true
+  export UV_FIND_LINKS="$HOME/wheels"
+  mkdir -p "$UV_FIND_LINKS"
+  "$real_python" - "$UV_FIND_LINKS" <<'PYCODE'
+import pathlib
+import sys
+import zipfile
+
+# A minimal seed wheel lets uv venv --seed run offline, including on Python
+# versions where uv also seeds setuptools and wheel. The probe is installed by
+# the requirements step, so its location identifies the installation target.
+for name, version in [("pip", "99.0"), ("setuptools", "99.0"),
+                      ("wheel", "99.0"), ("omni_venv_probe", "1.0")]:
+    dist = f"{name}-{version}.dist-info"
+    files = {
+        f"{name}/__init__.py": f'__version__ = "{version}"\n',
+        f"{dist}/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n",
+        f"{dist}/WHEEL": "Wheel-Version: 1.0\nGenerator: omni-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+    }
+    files[f"{dist}/RECORD"] = "".join(f"{path},,\n" for path in files)
+    with zipfile.ZipFile(pathlib.Path(sys.argv[1]) / f"{name}-{version}-py3-none-any.whl", "w") as wheel:
+        for path, content in files.items():
+            wheel.writestr(path, content)
+PYCODE
+
+  cat > .omni.yaml <<EOF
+up:
+  - python:
+      version: 3.12.3
+      pip: requirements.txt
+EOF
+  echo 'omni-venv-probe==1.0' > requirements.txt
+
+  "$real_uv" venv --python "$real_python" --no-python-downloads "$HOME/unrelated"
+  export VIRTUAL_ENV="$HOME/unrelated"
+  # uv also supports an interpreter request in the environment. It must not
+  # override Omni's managed interpreter, even if dynamic activation succeeds.
+  export UV_PYTHON="$HOME/unrelated/bin/python"
+}
+
+reset_python_up_calls() {
+  check_commands
+  # Reset operation caches to make the second run use the same dependency
+  # fixtures, while preserving the actual Python environments on disk.
+  rm -rf "$HOME/.cache/omni" "$HOME/.commands"
+  setup_uv_cache
+  add_brew_python_calls
+  add_mise_python_calls installed=true list_versions=false venv=false
+}
+
+assert_managed_python_dependency() {
+  local managed_cfg
+  managed_cfg="$(find "$HOME/.local/share/omni/wd" -path '*/python/3.12.3/root/pyvenv.cfg')"
+  [ -n "$managed_cfg" ]
+  local managed_venv="${managed_cfg%/pyvenv.cfg}"
+  "$managed_venv/bin/python" -c 'import omni_venv_probe'
+  run "$HOME/unrelated/bin/python" -c 'import omni_venv_probe'
+  [ "$status" -ne 0 ]
+}
+
+# bats test_tags=omni:up,omni:up:python
+@test "[omni_up_python=43] managed dependency target with real uv (fresh)" {
+  setup_real_uv_python
+
+  run omni up --trust 3>&-
+  echo "STATUS: $status"
+  echo "OUTPUT: $output"
+  [ "$status" -eq 0 ]
+  assert_managed_python_dependency
+}
+
+# bats test_tags=omni:up,omni:up:python
+@test "[omni_up_python=44] managed dependency target with real uv (reused without seed failure)" {
+  setup_real_uv_python
+  # Create a complete environment without installing the probe, then reuse it.
+  echo '' > requirements.txt
+  run omni up --trust 3>&-
+  echo "FIRST OUTPUT: $output"
+  [ "$status" -eq 0 ]
+  echo 'omni-venv-probe==1.0' > requirements.txt
+  reset_python_up_calls
+
+  run omni up --trust 3>&-
+  echo "STATUS: $status"
+  echo "OUTPUT: $output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"venv already exists"* ]]
+  assert_managed_python_dependency
+}
+
+# bats test_tags=omni:up,omni:up:python
+@test "[omni_up_python=45] managed dependency target with real uv (retry after failed seeding)" {
+  setup_real_uv_python
+  local wheels="$UV_FIND_LINKS"
+  export UV_FIND_LINKS="$HOME/empty-index"
+  mkdir -p "$UV_FIND_LINKS"
+
+  run omni up --trust 3>&-
+  echo "FIRST OUTPUT: $output"
+  [ "$status" -ne 0 ]
+  # A failed uv seed leaves a usable venv; neither pip nor the probe is present.
+  local managed_cfg
+  managed_cfg="$(find "$HOME/.local/share/omni/wd" -name pyvenv.cfg)"
+  [ -n "$managed_cfg" ]
+  "${managed_cfg%/pyvenv.cfg}/bin/python" -c 'import importlib.util, sys; assert sys.prefix != sys.base_prefix; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("omni_venv_probe") is None'
+  export UV_FIND_LINKS="$wheels"
+  reset_python_up_calls
+
+  run omni up --trust 3>&-
+  echo "STATUS: $status"
+  echo "OUTPUT: $output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"venv already exists"* ]]
+  assert_managed_python_dependency
 }
