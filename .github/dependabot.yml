@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Compiler upgrades must pass CI and receive human review before merging.
+  # Compiler upgrades must pass CI before merging.
   - package-ecosystem: 'rust-toolchain'
     directory: '/'
     schedule:

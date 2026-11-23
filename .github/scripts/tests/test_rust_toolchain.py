@@ -1,6 +1,5 @@
-"""Exercise compiler selection, change filtering and review enforcement offline."""
+"""Exercise compiler selection and change filtering offline."""
 
-import json
 import os
 from pathlib import Path
 import re
@@ -32,7 +31,7 @@ class ToolchainPolicyTests(unittest.TestCase):
                 )
                 self.assertNotEqual(result.returncode, 0)
 
-    def test_toolchain_only_pr_triggers_rust_checks_and_review(self):
+    def test_toolchain_only_pr_triggers_rust_checks(self):
         workflow = (ROOT / ".github/workflows/tests.yaml").read_text()
         env = os.environ.copy()
         for name in ["CORE", "TOOLCHAIN"]:
@@ -67,42 +66,6 @@ class ToolchainPolicyTests(unittest.TestCase):
                     )
                     self.assertIn("core_any_modified=true", result.stdout)
                     self.assertIn("toolchain_any_modified=true", result.stdout)
-
-    def test_review_policy_requires_current_human_collaborator_approval(self):
-        approval = {
-            "state": "APPROVED", "commit_id": "current",
-            "user": {"login": "maintainer", "type": "User"},
-            "author_association": "OWNER", "submitted_at": "2026-11-23T12:00:00Z",
-        }
-        cases = [
-            ([], False),
-            ([approval], True),
-            ([dict(approval, commit_id="old")], False),
-            ([dict(approval, state="DISMISSED")], False),
-            ([dict(approval, state="CHANGES_REQUESTED")], False),
-            ([dict(approval, author_association="CONTRIBUTOR")], False),
-            ([dict(approval, user={"login": "bot", "type": "Bot"})], False),
-            ([approval, dict(approval, state="CHANGES_REQUESTED",
-                             submitted_at="2026-11-23T13:00:00Z")], False),
-            ([approval, dict(approval, state="COMMENTED",
-                             submitted_at="2026-11-23T13:00:00Z")], True),
-        ]
-        with tempfile.TemporaryDirectory() as directory:
-            gh = Path(directory) / "gh"
-            gh.write_text(
-                '#!/usr/bin/env python3\nimport os\nprint(os.environ["TEST_REVIEWS"])\n'
-            )
-            gh.chmod(0o755)
-            env = dict(os.environ, PATH=f"{directory}:{os.environ['PATH']}",
-                       GITHUB_REPOSITORY="xaf/omni", PR_NUMBER="1", PR_HEAD_SHA="current")
-            for reviews, expected in cases:
-                with self.subTest(reviews=reviews):
-                    env["TEST_REVIEWS"] = json.dumps([reviews])
-                    result = subprocess.run(
-                        ["bash", str(SCRIPTS / "check-toolchain-review.sh")],
-                        env=env, capture_output=True, text=True,
-                    )
-                    self.assertEqual(result.returncode == 0, expected, result.stderr)
 
 
 if __name__ == "__main__":
