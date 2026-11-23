@@ -14,6 +14,10 @@ use sha2::Sha256;
 use tokio::process::Command as TokioCommand;
 use walkdir::WalkDir;
 
+#[cfg(test)]
+#[path = "mise_test.rs"]
+mod tests;
+
 use crate::internal::cache::mise_operation::MisePluginVersions;
 use crate::internal::cache::up_environments::UpEnvironment;
 use crate::internal::cache::up_environments::UpVersionParams;
@@ -1203,6 +1207,25 @@ impl UpConfigMise {
         self.post_install_funcs.push(func);
     }
 
+    /// Resolve a version at one directory using the same precedence as `up`.
+    /// Explicit versions never consult version files.
+    fn detect_version_at_path(&self, tool_name: &str, path: &Path) -> Option<String> {
+        if self.version != "auto" {
+            return Some(self.version.clone());
+        }
+
+        self.detect_version_funcs
+            .iter()
+            .copied()
+            .chain([
+                detect_version_from_rust_toolchain as DetectVersionFunc,
+                detect_version_from_mise,
+                detect_version_from_asdf_version_file,
+                detect_version_from_tool_version_file,
+            ])
+            .find_map(|detect| detect(tool_name.to_string(), path.to_path_buf()))
+    }
+
     pub(crate) fn retain_config_value<S: feuilletage::CustomSource, L: feuilletage::CustomLevel>(
         &mut self,
         value: &feuilletage::ContextValue<S, L>,
@@ -1483,11 +1506,6 @@ impl UpConfigMise {
 
         let fqtn = self.fully_qualified_tool_name()?;
 
-        let mut detect_version_funcs = self.detect_version_funcs.clone();
-        detect_version_funcs.push(detect_version_from_mise);
-        detect_version_funcs.push(detect_version_from_asdf_version_file);
-        detect_version_funcs.push(detect_version_from_tool_version_file);
-
         let in_repo = git_env(".").in_repo();
         let wd = workdir(".");
         let wd_root = wd.root();
@@ -1525,50 +1543,45 @@ impl UpConfigMise {
                     Some(entry)
                 })
             {
-                for detect_version_func in detect_version_funcs.iter() {
-                    if let Some(detected_version) =
-                        detect_version_func(fqtn.tool().to_string(), entry.path().to_path_buf())
+                if let Some(detected_version) =
+                    self.detect_version_at_path(fqtn.tool(), entry.path())
+                {
+                    // Check if the entry is .gitignore'd, we do this now for now as it
+                    // seems less costly than evaluating all files ahead of time
+                    if in_repo && matches!(is_path_gitignored_from(entry.path(), wd_root), Ok(true))
                     {
-                        // Check if the entry is .gitignore'd, we do this now for now as it
-                        // seems less costly than evaluating all files ahead of time
-                        if in_repo
-                            && matches!(is_path_gitignored_from(entry.path(), wd_root), Ok(true))
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        let mut dir = entry
-                            .path()
-                            .strip_prefix(&current_dir)
-                            .expect("failed to strip prefix")
-                            .to_string_lossy()
-                            .to_string();
-                        while dir.starts_with('/') {
-                            dir.remove(0);
-                        }
-                        while dir.ends_with('/') {
-                            dir.pop();
-                        }
+                    let mut dir = entry
+                        .path()
+                        .strip_prefix(&current_dir)
+                        .expect("failed to strip prefix")
+                        .to_string_lossy()
+                        .to_string();
+                    while dir.starts_with('/') {
+                        dir.remove(0);
+                    }
+                    while dir.ends_with('/') {
+                        dir.pop();
+                    }
 
-                        progress_handler.progress(format!(
-                            "detected required version {} {}",
-                            detected_version,
-                            if dir.is_empty() {
-                                "at root".to_string()
-                            } else {
-                                format!("in {dir}")
-                            }
-                        ));
-
-                        if let Some(dirs) = detected_versions.get_mut(&detected_version) {
-                            dirs.insert(dir);
+                    progress_handler.progress(format!(
+                        "detected required version {} {}",
+                        detected_version,
+                        if dir.is_empty() {
+                            "at root".to_string()
                         } else {
-                            let mut dirs = BTreeSet::new();
-                            dirs.insert(dir);
-                            detected_versions.insert(detected_version.to_string(), dirs);
+                            format!("in {dir}")
                         }
+                    ));
 
-                        break;
+                    if let Some(dirs) = detected_versions.get_mut(&detected_version) {
+                        dirs.insert(dir);
+                    } else {
+                        let mut dirs = BTreeSet::new();
+                        dirs.insert(dir);
+                        detected_versions.insert(detected_version.to_string(), dirs);
                     }
                 }
             }
@@ -2311,6 +2324,43 @@ impl UpConfigMise {
             nix_packages.into_iter().map(|p| p.to_string()).collect(),
         ))
     }
+}
+
+/// Read released Rust versions from rustup's toolchain files. Like rustup,
+/// prefer the legacy filename when both exist, even if it is invalid.
+fn detect_version_from_rust_toolchain(tool_name: String, path: PathBuf) -> Option<String> {
+    if tool_name != "rust" {
+        return None;
+    }
+
+    let legacy = path.join("rust-toolchain");
+    let (file, legacy_format) = if legacy.exists() {
+        (legacy, true)
+    } else {
+        (path.join("rust-toolchain.toml"), false)
+    };
+    let contents = std::fs::read_to_string(file).ok()?;
+    let contents = contents.trim();
+    let channel = match toml::from_str::<toml::Value>(contents) {
+        Ok(config) => {
+            let toolchain = config.get("toolchain")?.as_table()?;
+            // Local toolchain paths cannot be installed by mise.
+            if toolchain.contains_key("path") {
+                return None;
+            }
+            toolchain.get("channel")?.as_str()?.to_string()
+        }
+        Err(_) if legacy_format => contents.to_string(),
+        Err(_) => return None,
+    };
+
+    // The version resolver handles released numeric versions, not rustup's
+    // moving channels, dated nightlies, custom toolchains or host suffixes.
+    let version = semver::Version::parse(&channel).ok()?;
+    if !version.pre.is_empty() || !version.build.is_empty() {
+        return None;
+    }
+    Some(channel)
 }
 
 fn detect_version_from_mise(tool_name: String, path: PathBuf) -> Option<String> {

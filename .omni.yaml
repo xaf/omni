@@ -1,6 +1,5 @@
 up:
-  - rust:
-      upgrade: true
+  - rust: auto
   - node: auto
   - bats: 1
   - github-releases:
