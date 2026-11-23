@@ -86,9 +86,16 @@ jobs:
       - name: Checkout commit
         uses: actions/checkout@v7
 
-      - name: Get rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        run: |
+          channel=$(python3 .github/scripts/rust-toolchain.py)
+          echo "channel=$channel" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           components: clippy, rustfmt
 
       - name: Set up cargo cache
