@@ -20,7 +20,9 @@ use crate::internal::workdir;
 pub fn data_path_dir_hash(dir: &str) -> String {
     let dir = Path::new(dir).normalize().to_string_lossy().to_string();
 
-    if dir.is_empty() {
+    // normalize-path 0.2.3 represents an empty relative path as ".".
+    // Keep the root data directory stable across normalization versions.
+    if dir.is_empty() || dir == "." {
         "root".to_string()
     } else {
         let mut hasher = Hasher::new();
@@ -285,4 +287,26 @@ pub fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::data_path_dir_hash;
+
+    #[test]
+    fn data_path_root_directory_has_a_stable_name() {
+        for dir in ["", ".", "./", "./.", "subdir/..", "subdir/../."] {
+            assert_eq!(data_path_dir_hash(dir), "root", "directory: {dir:?}");
+        }
+    }
+
+    #[test]
+    fn data_path_subdirectories_are_normalized_and_distinct() {
+        let subdir = data_path_dir_hash("subdir");
+        assert_ne!(subdir, "root");
+        assert_ne!(subdir, data_path_dir_hash("other"));
+        for dir in ["./subdir", "subdir/", "parent/../subdir", "subdir/."] {
+            assert_eq!(data_path_dir_hash(dir), subdir, "directory: {dir:?}");
+        }
+    }
 }
