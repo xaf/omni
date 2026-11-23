@@ -1,0 +1,3 @@
+# Request maintainer review for compiler upgrades.
+/rust-toolchain @xaf
+/rust-toolchain.toml @xaf

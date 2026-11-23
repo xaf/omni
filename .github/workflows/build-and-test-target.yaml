@@ -92,6 +92,18 @@ jobs:
         with:
           ref: ${{ inputs.git_sha || github.sha }}
 
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        shell: bash
+        run: |
+          channel=$(python3 .github/scripts/rust-toolchain.py)
+          echo "channel=$channel" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -130,7 +142,7 @@ jobs:
         with:
           command: test
           target: ${{ inputs.target }}
-          toolchain: stable
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           args: "--locked --release"
           use-rust-cache: false  # We already have a cache step
 
@@ -149,7 +161,7 @@ jobs:
         with:
           command: build
           target: ${{ inputs.target }}
-          toolchain: stable
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           args: "--locked --profile dist"
           use-rust-cache: false  # We already have a cache step
 

@@ -12,6 +12,10 @@ on:
     branches:
       - main
 
+  # Re-evaluate the compiler review gate after approval or dismissal.
+  pull_request_review:
+    types: [submitted, dismissed]
+
   # Allows to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -25,7 +29,7 @@ permissions:
 
 # Allow one concurrent deployment
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 
@@ -44,6 +48,7 @@ jobs:
       deploy_website: ${{ steps.changed-files.outputs.website_any_modified }}
       trigger_algolia: ${{ steps.changed-files.outputs.website_contents_any_modified }}
       run_tests: ${{ steps.changed-files.outputs.core_any_modified }}
+      toolchain_changed: ${{ steps.changed-files.outputs.toolchain_any_modified }}
       pages_environment: ${{ env.PAGES_ENVIRONMENT }}
 
     steps:
@@ -51,13 +56,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Test compiler selection and review policy
+        run: python3 -B -m unittest discover -s .github/scripts/tests -v
+
       - name: Get changed files
         id: changed-files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || 'HEAD^' }}
           MODIFIED_FILES_WEBSITE: .github/workflows/tests.yaml website/
           MODIFIED_FILES_WEBSITE_CONTENTS: website/contents/
-          MODIFIED_FILES_CORE: .github/workflows/build.yaml .github/workflows/build-and-test-target.yaml .github/workflows/tests.yaml Cargo.lock Cargo.toml build.rs templates/ src/ tests/
+          MODIFIED_FILES_CORE: .github/workflows/build.yaml .github/workflows/build-and-test-target.yaml .github/workflows/tests.yaml .github/scripts/ rust-toolchain rust-toolchain.toml Cargo.lock Cargo.toml build.rs templates/ src/ tests/
+          MODIFIED_FILES_TOOLCHAIN: rust-toolchain rust-toolchain.toml
         run: |
           .github/scripts/get-changed-files.sh
 
@@ -71,7 +80,7 @@ jobs:
           done
 
       - name: Set the pages environment
-        if: github.event_name != 'pull_request'
+        if: github.event.pull_request == null
         run: |
           echo "PAGES_ENVIRONMENT=github-pages" | tee -a "$GITHUB_ENV"
 
@@ -132,9 +141,16 @@ jobs:
       - name: Checkout commit
         uses: actions/checkout@v7
 
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        run: |
+          channel=$(python3 .github/scripts/rust-toolchain.py)
+          echo "channel=$channel" | tee -a "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           components: clippy
 
       - name: Set up cargo cache
@@ -194,8 +210,16 @@ jobs:
       - name: Checkout commit
         uses: actions/checkout@v7
 
+      - name: Read pinned Rust toolchain
+        id: rust-toolchain
+        run: |
+          channel=$(python3 .github/scripts/rust-toolchain.py)
+          echo "channel=$channel" | tee -a "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
 
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
@@ -242,22 +266,22 @@ jobs:
         run: yarn build
 
       - name: Setup Pages
-        if: github.event_name != 'pull_request'
+        if: github.event.pull_request == null
         uses: actions/configure-pages@v6
 
       - name: Upload artifact
-        if: github.event_name != 'pull_request'
+        if: github.event.pull_request == null
         uses: actions/upload-pages-artifact@v5
         with:
           path: website/build
 
       - name: Deploy to GitHub Pages
-        if: github.event_name != 'pull_request'
+        if: github.event.pull_request == null
         id: deployment
         uses: actions/deploy-pages@v5
 
       - name: Trigger Algolia crawler
-        if: github.event_name != 'pull_request' &&  needs.check-changed-files.outputs.trigger_algolia == 'true'
+        if: github.event.pull_request == null &&  needs.check-changed-files.outputs.trigger_algolia == 'true'
         uses: algolia/algoliasearch-crawler-github-actions@v1.1.13
         with:
           crawler-name: omnicli
@@ -269,12 +293,32 @@ jobs:
           override-config: false
 
 
+  rust-toolchain-review:
+    name: Review Rust compiler changes
+    runs-on: ubuntu-latest
+    needs:
+      - check-changed-files
+    if: needs.check-changed-files.outputs.toolchain_changed == 'true' && github.event.pull_request.number
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require current human approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/check-toolchain-review.sh
+
   check-results:
     name: Check tests results
 
     runs-on: ubuntu-latest
 
     needs:
+      - check-changed-files
+      - rust-toolchain-review
       - build-and-test-binaries
       - rust-machete
       - rust-clippy-analysis
@@ -283,12 +327,16 @@ jobs:
     if: '!cancelled()'
 
     steps:
+      - name: Fail if compiler review is missing
+        if: needs.check-changed-files.result != 'success' || (needs.check-changed-files.outputs.toolchain_changed == 'true' && github.event.pull_request.number && needs.rust-toolchain-review.result != 'success')
+        run: exit 1
+
       - name: Fail if tests failed
         if: needs.build-and-test-binaries.result == 'failure' || needs.build-and-test-binaries.result == 'cancelled'
         run: exit 1
 
       - name: Fail if CodeQL failed
-        if: needs.rust-clippy-analysis.result == 'failure' || needs.rust-clippy-analysis.result == 'cancelled' || needs.rust-machete.conclusion == 'failure' || needs.rust-machete.conclusion == 'cancelled'
+        if: needs.rust-clippy-analysis.result == 'failure' || needs.rust-clippy-analysis.result == 'cancelled' || needs.rust-machete.result == 'failure' || needs.rust-machete.result == 'cancelled'
         run: exit 1
 
       - name: Fail if website building/deployment failed
@@ -303,8 +351,9 @@ jobs:
 
     needs:
       - check-results
+      - check-changed-files
 
-    if: always() && github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && needs.check-results.result == 'success'
+    if: always() && github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && needs.check-results.result == 'success' && needs.check-changed-files.outputs.toolchain_changed == 'false'
 
     permissions:
       contents: none

@@ -1,0 +1,5 @@
+[toolchain]
+# git-url-parse 0.6.0 fails with E0038 on Rust 1.100.0.
+# Upgrade through a reviewed Dependabot PR.
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
