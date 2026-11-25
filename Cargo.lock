@@ -1757,7 +1757,7 @@ dependencies = [
  "machine-uid",
  "md-5",
  "mockito",
- "nix 0.31.4",
+ "nix 0.32.0",
  "node-semver",
  "normalize-path",
  "once_cell",
