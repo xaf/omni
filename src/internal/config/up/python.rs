@@ -525,9 +525,23 @@ fn setup_python_requirements(
             pip_files.iter().map(|f| full_path.join(f)).collect()
         };
 
+        // Target the managed interpreter explicitly: uv's environment discovery can
+        // otherwise select an inherited environment or fail to find this one.
+        let python_bin = environment
+            .versions_for_dir(dir)
+            .iter()
+            .find(|version| version.tool == "python")
+            .and_then(|version| version.data_path.as_ref())
+            .map(|path| PathBuf::from(path).join("bin").join("python"));
+
         // Install dependencies from all the found files
         for dep_file in dependency_files {
-            setup_python_requirements_file(options, progress_handler, dep_file)?;
+            setup_python_requirements_file(
+                options,
+                progress_handler,
+                dep_file,
+                python_bin.as_deref(),
+            )?;
         }
     }
 
@@ -624,6 +638,7 @@ fn setup_python_requirements_file(
     options: &UpOptions,
     progress_handler: &UpProgressHandler,
     requirements_file: PathBuf,
+    python_bin: Option<&Path>,
 ) -> Result<(), UpError> {
     if !requirements_file.exists() {
         return Err(UpError::Exec(format!(
@@ -670,6 +685,10 @@ fn setup_python_requirements_file(
     let mut uv_install = TokioCommand::new(&uv_bin.bin);
     uv_install.arg("pip");
     uv_install.arg("install");
+    if let Some(python_bin) = python_bin {
+        uv_install.arg("--python");
+        uv_install.arg(python_bin);
+    }
     uv_install.arg("-r");
     uv_install.arg(requirements_path.to_string_lossy().to_string());
     uv_install.stdout(std::process::Stdio::piped());
